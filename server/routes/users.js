@@ -38,29 +38,42 @@ router.use((req, res, next) => {
 // 註冊用戶
 router.post('/register', upload.single('screenshot'), async (req, res) => {
     const { world_name, character_name, discord_id, raid_level, password } = req.body;
+
     try {
-        if (!world_name || !character_name || !password) {
-            return res.status(400).json({ msg: '世界名稱、角色名稱和密碼為必填欄位' });
+        let user = await User.findOne({ character_name });
+        if (user) {
+            return res.status(400).json({ msg: '用戶名已存在' });
         }
-        const existingUser = await User.findOne({ character_name });
-        if (existingUser) {
-            return res.status(400).json({ msg: '角色名稱已存在' });
-        }
-        const salt = await bcrypt.genSalt(10);
-        const hashedPassword = await bcrypt.hash(password, salt);
-        const user = new User({
+
+        const screenshot = req.file ? req.file.path : null;
+
+        user = new User({
             world_name,
             character_name,
             discord_id: discord_id || null,
             raid_level: raid_level ? parseInt(raid_level) : 0,
-            password: hashedPassword,
-            screenshot: req.file ? req.file.path : null,
+            password,
+            screenshot,
+            status: 'pending',
         });
+
+        const salt = await bcrypt.genSalt(10);
+        user.password = await bcrypt.hash(password, salt);
+
         await user.save();
-        res.status(201).json({ msg: '用戶創建成功', user_id: user._id, status: 'pending' });
+
+        const payload = {
+            user: {
+                id: user.id,
+                role: user.role || 'user',
+            },
+        };
+
+        const token = jwt.sign(payload, process.env.JWT_SECRET || 'your-secret-key', { expiresIn: 3600 });
+        res.json({ user_id: user._id, token, msg: '註冊成功，等待審核！' });
     } catch (err) {
-        console.error(err);
-        res.status(500).json({ msg: err.message || '註冊失敗，請稍後再試' });
+        console.error('Register error:', err.message);
+        res.status(500).json({ msg: '伺服器錯誤: ' + err.message });
     }
 });
 

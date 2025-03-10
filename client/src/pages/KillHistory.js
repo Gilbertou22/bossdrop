@@ -1,22 +1,22 @@
 import React, { useState, useEffect } from 'react';
-import { Table, Button, DatePicker, Input, message, Image, Card, Spin } from 'antd';
+import { Table, Button, DatePicker, Input, message, Image, Card, Spin, Alert, Tag } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
 import axios from 'axios';
 import moment from 'moment';
 
 const { RangePicker } = DatePicker;
 
-// 假設後端服務地址
 const BASE_URL = 'http://localhost:5000';
 
 const KillHistory = () => {
     const [history, setHistory] = useState([]);
-    const [filters, setFilters] = useState({ boss_name: '', start_time: null, end_time: null });
-    const [role, setRole] = useState(null); // 儲存用戶角色
-    const [currentUser, setCurrentUser] = useState(null); // 儲存當前用戶名稱
-    const [loading, setLoading] = useState(false); // 加載狀態
+    const [filters, setFilters] = useState({ boss_name: '', start_time: null, end_time: null, status: '' });
+    const [role, setRole] = useState(null);
+    const [currentUser, setCurrentUser] = useState(null);
+    const [loading, setLoading] = useState(false);
     const token = localStorage.getItem('token');
-
+    const [userId, setUserId] = useState(null);
+    const [userApplications, setUserApplications] = useState([]);
 
     useEffect(() => {
         if (!token) {
@@ -26,17 +26,12 @@ const KillHistory = () => {
         fetchUserInfo();
     }, [token]);
 
-    // 當 role 和 currentUser 準備好時加載歷史記錄
     useEffect(() => {
-        if (role !== null && currentUser !== null) {
+        if (currentUser !== null) {
             fetchHistory();
-            fetchUserApplications(); // 獲取當前用戶的申請記錄
+            fetchUserApplications();
         }
-    }, [role, currentUser, filters]);
-
-    const [userApplications, setUserApplications] = useState([]); // 儲存用戶申請記錄
-
-    const [userId, setUserId] = useState(null); // 確保定義 userId 狀態
+    }, [currentUser, filters]);
 
     const fetchUserInfo = async () => {
         try {
@@ -46,7 +41,7 @@ const KillHistory = () => {
             });
             setRole(res.data.role);
             setCurrentUser(res.data.character_name);
-            setUserId(res.data.id); // 使用 res.data.id 替代 res.data._id
+            setUserId(res.data.id);
             console.log('Fetched user info - role:', res.data.role, 'user:', res.data.character_name, 'id:', res.data.id);
         } catch (err) {
             console.error('Fetch user info error:', err);
@@ -90,29 +85,30 @@ const KillHistory = () => {
                 boss_name: filters.boss_name || undefined,
                 start_time: filters.start_time ? filters.start_time.format('YYYY-MM-DD') : undefined,
                 end_time: filters.end_time ? filters.end_time.format('YYYY-MM-DD') : undefined,
+                status: filters.status || undefined,
             };
             const res = await axios.get(`${BASE_URL}/api/boss-kills`, {
                 headers: { 'x-auth-token': token },
                 params,
             });
             console.log('Fetched kill history raw:', res.data);
-            let filteredHistory = [...res.data];
-
-            // 僅根據 currentUser 過濾出席記錄
-            if (currentUser) {
-                filteredHistory = filteredHistory.filter(kill =>
-                    kill.attendees &&
-                    Array.isArray(kill.attendees) &&
-                    kill.attendees.includes(currentUser)
-                );
-                console.log('Filtered history by attendees:', filteredHistory);
+            if (!res.data || res.data.length === 0) {
+                console.warn('No boss kills data returned from API.');
+                setHistory([]);
+                setLoading(false);
+                return;
             }
 
-            // 假設 dropped_items 中每個 item 應有 item_id
+            let filteredHistory = res.data;
+
             filteredHistory = filteredHistory.map(record => {
                 const applyingItems = record.dropped_items
                     ?.filter(item => {
-                        const itemId = item._id || item.id; // 假設 dropped_items 包含 item_id
+                        const itemId = item._id || item.id;
+                        if (!itemId) {
+                            console.warn(`Missing item_id in dropped_items for record ${record._id}:`, item);
+                            return false;
+                        }
                         const itemKey = `${userId}_${itemId}`;
                         console.log(`Checking itemKey: ${itemKey}, in userApplications:`, userApplications.includes(itemKey));
                         return userApplications.includes(itemKey);
@@ -124,7 +120,6 @@ const KillHistory = () => {
                     applyingItems,
                 };
             });
-            console.log('Filtered and enriched history with applyingItems:', filteredHistory);
 
             const updatedHistory = filteredHistory.map(record => ({
                 ...record,
@@ -140,7 +135,7 @@ const KillHistory = () => {
             setLoading(false);
         }
     };
- 
+
     const handleFilterChange = (field, value) => {
         setFilters(prev => ({ ...prev, [field]: value }));
     };
@@ -148,7 +143,41 @@ const KillHistory = () => {
     const handleSearch = () => {
         fetchHistory();
     };
- 
+
+    const getStatusTag = (status) => {
+        let color, text;
+        switch (status) {
+            case 'pending':
+                color = 'gold';
+                text = '待分配';
+                break;
+            case 'assigned':
+                color = 'green';
+                text = '已分配';
+                break;
+            case 'expired':
+                color = 'red';
+                text = '已過期';
+                break;
+            default:
+                color = 'default';
+                text = status || '未知';
+        }
+        return (
+            <Tag
+                color={color}
+                style={{
+                    borderRadius: '12px',
+                    padding: '2px 12px',
+                    fontWeight: 'bold',
+                    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+                }}
+            >
+                {text}
+            </Tag>
+        );
+    };
+
     const columns = [
         {
             title: '擊殺時間',
@@ -181,7 +210,7 @@ const KillHistory = () => {
             render: (items, record) => {
                 if (!items || !Array.isArray(items)) return '無';
                 return items.map(item => {
-                    const itemId = item._id || item.id; // 假設 dropped_items 包含 item_id
+                    const itemId = item._id || item.id;
                     const itemKey = `${userId}_${itemId}`;
                     return (
                         <div key={itemKey}>
@@ -206,6 +235,7 @@ const KillHistory = () => {
             dataIndex: 'status',
             key: 'status',
             sorter: (a, b) => a.status.localeCompare(b.status),
+            render: (status) => getStatusTag(status),
             width: 120,
         },
         {
@@ -245,7 +275,7 @@ const KillHistory = () => {
     return (
         <div style={{ padding: '20px', backgroundColor: '#f0f2f5' }}>
             <Card
-                title={<h2 style={{ margin: 0, fontSize: '24px', color: '#1890ff' }}>擊殺歷史記錄</h2>}
+                title={<h2 style={{ margin: 0, fontSize: '24px', color: '#1890ff' }}>{role === 'admin' ? '管理員 - 所有擊殺歷史記錄' : '擊殺歷史記錄'}</h2>}
                 bordered={false}
                 style={{ boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)', borderRadius: '8px' }}
             >
@@ -254,29 +284,48 @@ const KillHistory = () => {
                         placeholder="輸入首領名稱"
                         value={filters.boss_name}
                         onChange={(e) => handleFilterChange('boss_name', e.target.value)}
-                        style={{ width: 200, marginRight: 0 }}
+                        style={{ width: 200 }}
                     />
                     <RangePicker
                         value={[filters.start_time, filters.end_time]}
-                        onChange={(dates) => handleFilterChange('start_time', dates ? dates[0] : null) || handleFilterChange('end_time', dates ? dates[1] : null)}
+                        onChange={(dates) => {
+                            handleFilterChange('start_time', dates ? dates[0] : null);
+                            handleFilterChange('end_time', dates ? dates[1] : null);
+                        }}
                         style={{ marginRight: 0 }}
                     />
-                    <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch} style={{ marginLeft: 'auto' }}>
+                    <Input
+                        placeholder="輸入狀態（待分配/已分配/已過期）"
+                        value={filters.status}
+                        onChange={(e) => handleFilterChange('status', e.target.value)}
+                        style={{ width: 200 }}
+                    />
+                    <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch}>
                         搜索
                     </Button>
                 </div>
                 <Spin spinning={loading} size="large">
-                    <Table
-                        dataSource={history}
-                        columns={columns}
-                        rowKey="_id"
-                        bordered
-                        pagination={{ pageSize: 10, showSizeChanger: true, pageSizeOptions: ['10', '20', '50'] }}
-                        onChange={(pagination, filters, sorter) => {
-                            console.log('Table sorted or paginated:', { pagination, filters, sorter }); // 調試
-                        }}
-                        scroll={{ x: 'max-content' }} // 確保表格在小屏幕上可水平滾動
-                    />
+                    {history.length === 0 && !loading ? (
+                        <Alert
+                            message="無數據"
+                            description="目前沒有符合條件的擊殺記錄。請檢查過濾條件或確保有相關數據。"
+                            type="info"
+                            showIcon
+                            style={{ marginBottom: '16px' }}
+                        />
+                    ) : (
+                        <Table
+                            dataSource={history}
+                            columns={columns}
+                            rowKey="_id"
+                            bordered
+                            pagination={{ pageSize: 10, showSizeChanger: true, pageSizeOptions: ['10', '20', '50'] }}
+                            onChange={(pagination, filters, sorter) => {
+                                console.log('Table sorted or paginated:', { pagination, filters, sorter });
+                            }}
+                            scroll={{ x: 'max-content' }}
+                        />
+                    )}
                 </Spin>
             </Card>
         </div>

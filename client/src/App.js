@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
+import { BrowserRouter as Router, Route, Routes, Navigate } from 'react-router-dom';
 import Register from './pages/Register';
 import BossKillForm from './pages/BossKillForm';
 import Login from './pages/Login';
@@ -15,13 +15,14 @@ import RoleRoute from './components/RoleRoute';
 import Navbar from './components/Navbar';
 import KillHistory from './pages/KillHistory';
 import UserProfile from './pages/UserProfile';
-import { Avatar, Button } from 'antd';
 import React, { useState } from 'react';
 
 function App() {
 
   const [profileVisible, setProfileVisible] = useState(false);
-  const token = localStorage.getItem('token');
+  
+  // 調試信息
+  console.log('App rendered, checking routes');
 
   return (
     <Router>
@@ -29,8 +30,8 @@ function App() {
         <Navbar />
         <Routes>
           <Route path="/" element={<Home />} />
-          <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
+          <Route path="/login" element={<Login />} />
           <Route
             path="/apply-item"
             element={

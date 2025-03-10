@@ -5,6 +5,44 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
 require('dotenv').config();
 
+router.post('/register', async (req, res) => {
+    const { character_name, password } = req.body;
+
+    try {
+        let user = await User.findOne({ character_name });
+        if (user) {
+            return res.status(400).json({ msg: '用戶名已存在' });
+        }
+
+        user = new User({
+            character_name,
+            password,
+            role: 'user', // 默認角色
+            diamonds: 0,
+        });
+
+        const salt = await bcrypt.genSalt(10);
+        user.password = await bcrypt.hash(password, salt);
+
+        await user.save();
+
+        const payload = {
+            user: {
+                id: user.id,
+                role: user.role,
+            },
+        };
+
+        jwt.sign(payload, config.get('jwtSecret'), { expiresIn: 3600 }, (err, token) => {
+            if (err) throw err;
+            res.json({ token });
+        });
+    } catch (err) {
+        console.error('Register error:', err.message);
+        res.status(500).json({ msg: '伺服器錯誤' });
+    }
+});
+
 router.post('/login', async (req, res) => {
     const { character_name, password } = req.body;
 

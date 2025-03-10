@@ -23,8 +23,15 @@ const BossKillSchema = new mongoose.Schema({
     },
     screenshots: [{ type: String }],
     final_recipient: { type: String, default: null },
-    status: { type: String, enum: ['pending', 'assigned', 'expired'], default: 'pending' }, // 添加 expired 枚舉值
+    status: { type: String, enum: ['pending', 'assigned', 'expired'], default: 'pending' },
     created_at: { type: Date, default: Date.now },
+    userId: { // 添加 userId 字段
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        required: true,
+    },
+}, {
+    strictPopulate: false, // 臨時禁用嚴格填充檢查
 });
 
 BossKillSchema.pre('save', function (next) {
@@ -45,6 +52,10 @@ BossKillSchema.pre('save', function (next) {
             ...item,
             _id: item._id || new mongoose.Types.ObjectId(),
         }));
+    }
+    // 確保 userId 已設置（例如從 req.user.id）
+    if (this.isNew && !this.userId) {
+        return next(new Error('userId 是必填字段'));
     }
     next();
 });

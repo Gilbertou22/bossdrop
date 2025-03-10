@@ -34,7 +34,7 @@ const ApplyItem = () => {
             console.log('Fetched kills:', res.data);
             setKills(res.data);
             const unassignedKills = res.data.filter(
-                kill => !(kill.status === 'assigned' && kill.final_recipient && kill.final_recipient !== '')
+                kill => kill.status === 'pending' && !kill.final_recipient
             );
             setFilteredKills(unassignedKills);
         } catch (err) {
@@ -78,7 +78,7 @@ const ApplyItem = () => {
                 const userApplications = res.data.filter(app => app.user_id.character_name === currentUser);
                 const applicationMap = {};
                 userApplications.forEach(app => {
-                    applicationMap[`${app.kill_id}_${app.item_name}`] = true;
+                    applicationMap[`${app.kill_id}_${app.item_id}`] = true; // 使用 item_id
                 });
                 setExistingApplications(applicationMap);
             }
@@ -88,8 +88,26 @@ const ApplyItem = () => {
         }
     };
 
+    const handleKillChange = (killId) => {
+        const selectedKill = kills.find(kill => kill._id === killId);
+        if (selectedKill) {
+            const availableItems = selectedKill.dropped_items
+                .filter(item => !(selectedKill.status === 'assigned' && selectedKill.final_recipient && selectedKill.final_recipient !== ''))
+                .map(item => ({
+                    name: item.name,
+                    type: item.type,
+                    item_id: item._id,
+                }));
+            console.log('Available items for kill:', availableItems);
+            setFilteredItems(availableItems);
+            form.setFieldsValue({ item_name: undefined });
+        } else {
+            setFilteredItems([]);
+        }
+    };
+
     const onFinish = (values) => {
-        console.log('onFinish triggered with values:', values); // 調試
+        console.log('onFinish triggered with values:', values);
         if (window.confirm(
             `確認提交以下申請？\n\n` +
             `- 擊殺記錄: ${values.kill_id}\n` +
@@ -100,23 +118,6 @@ const ApplyItem = () => {
             console.log('Submission cancelled');
         }
     };
-    const handleKillChange = (killId) => {
-        const selectedKill = kills.find(kill => kill._id === killId);
-        if (selectedKill) {
-            const availableItems = selectedKill.dropped_items
-                .filter(item => !(selectedKill.status === 'assigned' && selectedKill.final_recipient && selectedKill.final_recipient !== ''))
-                .map(item => ({
-                    name: item.name,
-                    type: item.type,
-                    item_id: item._id, // 提取 item_id
-                }));
-            console.log('Available items for kill:', availableItems); // 調試提取的 items
-            setFilteredItems(availableItems);
-            form.setFieldsValue({ item_name: undefined });
-        } else {
-            setFilteredItems([]);
-        }
-    };
 
     const handleSubmit = async (values) => {
         console.log('handleSubmit triggered with values:', values);
@@ -124,21 +125,21 @@ const ApplyItem = () => {
             const token = localStorage.getItem('token');
             if (!token) {
                 message.error('請先登錄！');
-                window.location.href = '/login';
+                navigate('/login');
                 return;
             }
             const selectedKill = kills.find(kill => kill._id === values.kill_id);
-            const selectedItem = selectedKill.dropped_items.find(item => item.name === values.item_name);
-            if (!selectedItem._id) {
+            const selectedItem = filteredItems.find(item => item.name === values.item_name);
+            if (!selectedItem || !selectedItem.item_id) {
                 console.error('Selected item does not have an item_id:', selectedItem);
                 throw new Error('物品缺少唯一標識，請聯繫管理員');
             }
-            console.log('Sending request with item_id:', selectedItem._id);
+            console.log('Sending request with item_id:', selectedItem.item_id);
             const res = await axios.post(
                 'http://localhost:5000/api/applications',
                 {
                     kill_id: values.kill_id,
-                    item_id: selectedItem._id, // 傳遞 item_id
+                    item_id: selectedItem.item_id,
                     item_name: values.item_name,
                 },
                 { headers: { 'x-auth-token': token } }
@@ -157,7 +158,7 @@ const ApplyItem = () => {
             setErrorModalVisible(true);
         }
     };
-   
+
     const isApplied = (killId, itemName) => {
         return currentUser && existingApplications[`${killId}_${itemName}`];
     };
@@ -187,7 +188,7 @@ const ApplyItem = () => {
                     <Select placeholder="選擇物品" disabled={filteredItems.length === 0}>
                         {filteredItems.map(item => (
                             <Option
-                                key={item._id}
+                                key={item.item_id}
                                 value={item.name}
                                 disabled={isApplied(form.getFieldValue('kill_id'), item.name)}
                             >
@@ -208,10 +209,9 @@ const ApplyItem = () => {
                 </Form.Item>
             </Form>
 
-            {/* 簡化錯誤模態框 */}
             <Modal
                 title="錯誤"
-                visible={errorModalVisible}
+                open={errorModalVisible}
                 onOk={() => setErrorModalVisible(false)}
                 onCancel={() => setErrorModalVisible(false)}
                 footer={[

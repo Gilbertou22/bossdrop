@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Form, Input, Button, Card, message, Spin, Row, Col, AutoComplete, DatePicker, Select } from 'antd';
+import { Form, Input, Button, Card, Spin, Row, Col, AutoComplete, DatePicker, Select } from 'antd';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import moment from 'moment';
-import ErrorBoundary from '../components/ErrorBoundary'; // 根據文件結構調整路徑
+import ErrorBoundary from '../components/ErrorBoundary';
 
 const CreateAuction = () => {
     const [form] = Form.useForm();
@@ -11,15 +11,18 @@ const CreateAuction = () => {
     const [itemOptions, setItemOptions] = useState([]);
     const token = localStorage.getItem('token');
     const navigate = useNavigate();
+    const BASE_URL = 'http://localhost:5000';
 
     const fetchAuctionableItems = useCallback(async () => {
         try {
-            const res = await axios.get('http://localhost:5000/api/items/auctionable', {
+            const res = await axios.get(`${BASE_URL}/api/items/auctionable`, {
                 headers: { 'x-auth-token': token },
             });
             const options = res.data.map(item => ({
                 value: item._id,
-                label: `${item.name || '無名稱'}`,
+                label: `${item.bossKillId} - ${item.name || '無名稱'}`,
+                bossKillId: item.bossKillId,
+                name: item.name,
             }));
             setItemOptions(options);
             console.log('Fetched auctionable items:', options);
@@ -29,15 +32,14 @@ const CreateAuction = () => {
                 data: err.response?.data,
                 message: err.message,
             });
-            message.error(`獲取可競標物品失敗: ${err.response?.data?.msg || '服務器錯誤，請稍後重試'}`);
-            setItemOptions([]); // 設置空選項
+            alert(`獲取可競標物品失敗: ${err.response?.data?.msg || '服務器錯誤，請稍後重試'}`);
+            setItemOptions([]);
         }
     }, [token]);
 
     useEffect(() => {
         fetchAuctionableItems();
     }, [fetchAuctionableItems]);
-
 
     const onFinish = async (values) => {
         setLoading(true);
@@ -46,39 +48,55 @@ const CreateAuction = () => {
             if (isNaN(startingPrice) || startingPrice < 100 || startingPrice > 9999) {
                 throw new Error('起標價格必須在 100-9999 之間！');
             }
-            console.log('Submitting auction form:', values);
+
+            const buyoutPrice = values.buyoutPrice ? parseInt(values.buyoutPrice) : null;
+            if (buyoutPrice && (isNaN(buyoutPrice) || buyoutPrice <= startingPrice)) {
+                throw new Error('直接得標價必須大於起標價格！');
+            }
+
             let endTime = values.endTime;
             if (endTime && moment(endTime).isValid()) {
-                endTime = moment.utc(endTime).set({ hour: 23, minute: 59, second: 59 }).toISOString();
+                endTime = moment(endTime).utc().endOf('day').toISOString();
             } else {
                 throw new Error('請選擇截止時間！');
             }
+
             const now = moment.utc();
+            console.log('EndTime submitted:', endTime, 'Now (UTC):', now.format());
             if (moment.utc(endTime).isBefore(now)) {
                 throw new Error('截止時間必須晚於現在！');
             }
-            // 提取 bossKillId 作為 itemId
-            const itemId = values.itemId.split('_')[0];
-            await axios.post('http://localhost:5000/api/auctions', {
+
+            const selectedItem = itemOptions.find(option => option.value === values.itemId);
+            if (!selectedItem) {
+                throw new Error('無效的物品選擇！');
+            }
+            const itemId = selectedItem.bossKillId;
+
+            console.log('Submitting auction form:', { itemId, startingPrice, buyoutPrice, endTime });
+            const res = await axios.post(`${BASE_URL}/api/auctions`, {
                 itemId,
                 startingPrice,
+                buyoutPrice, // 發送直接得標價
                 endTime,
+                status: 'active',
             }, {
                 headers: { 'x-auth-token': token },
             });
-            message.success('競標創建成功！');
+            console.log('Auction creation response:', res.data);
+            alert('競標創建成功！');
             form.resetFields();
-            setDate(null); // 重置 date 狀態
+            setDate(null);
             navigate('/auction');
         } catch (err) {
-            console.error('Create auction error:', err);
-            message.error(`創建失敗: ${err.message || err.response?.data?.msg}`);
+            console.error('Create auction error:', err.response?.data || err);
+            alert(`創建失敗: ${err.message || err.response?.data?.msg}`);
         } finally {
             setLoading(false);
         }
     };
 
-    const [date, setDate] = useState(new Date());
+    const [date, setDate] = useState(null);
 
     return (
         <ErrorBoundary>
@@ -90,7 +108,7 @@ const CreateAuction = () => {
                             name="createAuction"
                             onFinish={onFinish}
                             layout="vertical"
-                            initialValues={{ startingPrice: 100 }} // 無預設 endTime
+                            initialValues={{ startingPrice: 100 }}
                             requiredMark={true}
                         >
                             <Row gutter={16}>
@@ -139,10 +157,39 @@ const CreateAuction = () => {
                                             placeholder="輸入 100-9999 鑽石"
                                             onKeyPress={(e) => {
                                                 const charCode = e.which ? e.which : e.keyCode;
-                                                if (charCode < 48 || charCode > 57) e.preventDefault(); // 僅允許數字
+                                                if (charCode < 48 || charCode > 57) e.preventDefault();
                                             }}
                                             min={100}
                                             max={9999}
+                                        />
+                                    </Form.Item>
+                                </Col>
+                                <Col xs={24} sm={24} md={24}>
+                                    <Form.Item
+                                        name="buyoutPrice"
+                                        label="直接得標價 (鑽石，可選)"
+                                        rules={[
+                                            {
+                                                validator: (_, value) => {
+                                                    if (!value) return Promise.resolve(); // 可選字段
+                                                    const numValue = parseInt(value);
+                                                    const startingPrice = parseInt(form.getFieldValue('startingPrice'));
+                                                    if (isNaN(numValue)) return Promise.reject(new Error('請輸入有效的數字！'));
+                                                    if (numValue <= startingPrice) return Promise.reject(new Error('直接得標價必須大於起標價格！'));
+                                                    return Promise.resolve();
+                                                },
+                                            },
+                                        ]}
+                                        hasFeedback
+                                    >
+                                        <Input
+                                            type="number"
+                                            placeholder="輸入直接得標價（大於起標價格）"
+                                            onKeyPress={(e) => {
+                                                const charCode = e.which ? e.which : e.keyCode;
+                                                if (charCode < 48 || charCode > 57) e.preventDefault();
+                                            }}
+                                            min={100}
                                         />
                                     </Form.Item>
                                 </Col>
@@ -154,27 +201,32 @@ const CreateAuction = () => {
                                             { required: true, message: '請選擇截止時間！' },
                                             {
                                                 validator: (_, value) => {
-
                                                     if (!value) return Promise.reject(new Error('請選擇截止時間！'));
-
-                                                    if (!value.isValid()) return Promise.reject(new Error('無效的日期格式！'));
-                                                    const now = moment();
-
-                                                    if (value.isBefore(now)) return Promise.reject(new Error('截止時間必須晚於現在！'));
+                                                    if (!moment(value).isValid()) return Promise.reject(new Error('無效的日期格式！'));
+                                                    const now = moment().utc();
+                                                    if (moment(value).utc().isAfter(now)) {
+                                                        return Promise.reject(new Error('截止時間必須晚於現在！'));
+                                                    }
                                                     return Promise.resolve();
                                                 },
                                             },
                                         ]}
                                         hasFeedback
-                                        getValueFromEvent={(date, dateString) => (date ? date : null)} // 傳遞 moment 對象
                                     >
                                         <DatePicker
                                             format="YYYY-MM-DD"
                                             placeholder="請選擇截止日期（時間將設為23:59:59）"
-                                            selected={date}
-                                            onChange={(date) => setDate(date)}
+                                            value={date}
+                                            onChange={(date) => {
+                                                console.log('DatePicker changed:', date);
+                                                setDate(date);
+                                                form.setFieldsValue({ endTime: date });
+                                            }}
+                                            disabledDate={(current) => {
+                                                return current && current < moment().startOf('day');
+                                            }}
                                             style={{ width: '100%' }}
-                                            getPopupContainer={trigger => trigger.parentElement} // 確保彈出層正確顯示
+                                            getPopupContainer={trigger => trigger.parentElement}
                                         />
                                     </Form.Item>
                                 </Col>

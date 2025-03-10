@@ -14,6 +14,10 @@ const AuctionSchema = new mongoose.Schema({
         type: Number,
         required: true,
     },
+    buyoutPrice: {
+        type: Number,
+        default: null, // 可選字段，默認為 null 表示無直接得標價
+    },
     endTime: {
         type: Date,
         required: true,
@@ -31,6 +35,11 @@ const AuctionSchema = new mongoose.Schema({
     createdAt: {
         type: Date,
         default: Date.now,
+    },
+    status: {
+        type: String,
+        enum: ['active', 'pending', 'completed', 'cancelled'], // 限制狀態值
+        default: 'active', // 默認為 active
     },
 });
 

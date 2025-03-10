@@ -5,33 +5,52 @@ import axios from 'axios';
 import { Spin, message, Alert, Select, Button } from 'antd';
 import moment from 'moment';
 
+// 定義 status 的中文映射
+const statusMap = {
+    active: '活躍',
+    pending: '待處理',
+    completed: '已結算',
+    cancelled: '已取消',
+};
+
+// 定義 status 選項
+const statusOptions = [
+    { value: 'active', label: '活躍' },
+    { value: 'pending', label: '待處理' },
+    { value: 'completed', label: '已結算' },
+    { value: 'cancelled', label: '已取消' },
+];
+
 const { Option } = Select;
 
 const Auction = () => {
     const [auctions, setAuctions] = useState([]);
-    const [loading, setLoading] = useState(true);
+    const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
-    const [sortBy, setSortBy] = useState('createdAt'); // 默認按創建時間排序
-    const [filterStatus, setFilterStatus] = useState('active'); // 默認篩選活躍競標
+    const [sortBy, setSortBy] = useState('createdAt');
+    const [filterStatus, setFilterStatus] = useState('active'); // 默認過濾活躍狀態
     const navigate = useNavigate();
     const token = localStorage.getItem('token');
+    const BASE_URL = 'http://localhost:5000';
 
-    // 獲取競標數據
+    // 獲取競標列表
     const fetchAuctions = useCallback(async (status = filterStatus, sort = sortBy) => {
         setLoading(true);
         setError(null);
         try {
-            const res = await axios.get(`http://localhost:5000/api/auctions?status=${status}`, {
+            const res = await axios.get(`${BASE_URL}/api/auctions?status=${status}`, {
                 headers: { 'x-auth-token': token },
             });
-            console.log('Fetched auctions response:', res.data);
+            console.log('Fetched auctions response with status filter:', { status, data: res.data });
             if (Array.isArray(res.data)) {
-                // 按指定字段排序
-                const sortedAuctions = [...res.data].sort((a, b) => {
+                const filteredAuctions = res.data.filter(auction => auction.status === status);
+                console.log('Filtered auctions by status:', filteredAuctions);
+                const sortedAuctions = [...filteredAuctions].sort((a, b) => {
                     if (sort === 'currentPrice') return b.currentPrice - a.currentPrice;
                     if (sort === 'endTime') return moment(b.endTime).diff(moment(a.endTime));
-                    return moment(b.createdAt).diff(moment(a.createdAt)); // 默認按創建時間
+                    return moment(b.createdAt).diff(moment(a.createdAt));
                 });
+                console.log('Sorted auctions:', sortedAuctions);
                 setAuctions(sortedAuctions);
             } else {
                 throw new Error('後端返回數據格式錯誤，應為陣列');
@@ -57,25 +76,21 @@ const Auction = () => {
         }
     }, [filterStatus, sortBy, token, navigate]);
 
-    // 實時更新（每 30 秒刷新）
+    // 初次加載時獲取數據，但不設置間隔刷新
     useEffect(() => {
         fetchAuctions();
-        const interval = setInterval(() => {
-            fetchAuctions();
-        }, 30000); // 每 30 秒刷新一次
-        return () => clearInterval(interval); // 組件卸載時清除
     }, [fetchAuctions]);
 
-    // 處理篩選變化
+    // 處理狀態過濾變化
     const handleStatusChange = (value) => {
         setFilterStatus(value);
-        fetchAuctions(value, sortBy);
+        // 不自動刷新，等待手動觸發
     };
 
     // 處理排序變化
     const handleSortChange = (value) => {
         setSortBy(value);
-        fetchAuctions(filterStatus, value);
+        // 不自動刷新，等待手動觸發
     };
 
     // 手動刷新
@@ -86,11 +101,15 @@ const Auction = () => {
     return (
         <div style={{ padding: '20px' }}>
             <h1>競標頁面</h1>
-            <div style={{ marginBottom: '20px', display: 'flex', gap: '10px' }}>
+
+            {/* 過濾和排序控制面板 */}
+            <div style={{ marginBottom: '20px', display: 'flex', gap: '10px', alignItems: 'center' }}>
                 <Select value={filterStatus} onChange={handleStatusChange} style={{ width: 120 }}>
-                    <Option value="active">活躍</Option>
-                    <Option value="pending">待處理</Option>
-                    <Option value="settled">已結算</Option>
+                    {statusOptions.map(option => (
+                        <Option key={option.value} value={option.value}>
+                            {option.label}
+                        </Option>
+                    ))}
                 </Select>
                 <Select value={sortBy} onChange={handleSortChange} style={{ width: 150 }}>
                     <Option value="createdAt">創建時間</Option>
@@ -101,8 +120,10 @@ const Auction = () => {
                     手動刷新
                 </Button>
             </div>
+
+            {/* 加載、錯誤或數據顯示 */}
             {loading ? (
-                <Spin tip="加載中..." />
+                <Spin tip="加載中..." style={{ display: 'block', textAlign: 'center' }} />
             ) : error ? (
                 <Alert
                     message="錯誤"
@@ -116,11 +137,18 @@ const Auction = () => {
                             重新加載
                         </Button>
                     }
+                    style={{ marginBottom: '20px' }}
                 />
             ) : auctions.length > 0 ? (
                 <AuctionList auctions={auctions} fetchAuctions={fetchAuctions} />
             ) : (
-                <p>目前沒有符合條件的競標。</p>
+                <Alert
+                    message="無數據"
+                    description="目前沒有符合條件的競標。請檢查過濾條件或創建新競標。"
+                    type="info"
+                    showIcon
+                    style={{ marginBottom: '20px' }}
+                />
             )}
         </div>
     );

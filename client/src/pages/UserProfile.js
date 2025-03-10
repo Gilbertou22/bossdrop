@@ -11,44 +11,56 @@ const UserProfile = ({ visible, onCancel }) => {
     const token = localStorage.getItem('token');
     const navigate = useNavigate();
 
+    // 調試信息
     useEffect(() => {
-        if (!token) {
-            message.error('請先登入！');
-            navigate('/login');
-            return;
-        }
-        fetchUserProfile();
-    }, [token, navigate]);
+        console.log('UserProfile page mounted');
+        return () => console.log('UserProfile page unmounted');
+    }, []);
 
-    const fetchUserProfile = async () => {
-        try {
-            setLoading(true);
-            const res = await axios.get('http://localhost:5000/api/users/profile', {
-                headers: { 'x-auth-token': token },
-            });
-            console.log('Fetched user profile response:', res.data);
-            form.setFieldsValue({
-                world_name: res.data.world_name,
-                character_name: res.data.character_name,
-                discord_id: res.data.discord_id || '',
-                raid_level: res.data.raid_level || 0,
-            });
-        } catch (err) {
-            console.error('Fetch user profile error:', {
-                status: err.response?.status,
-                data: err.response?.data,
-                message: err.message,
-            });
-            if (err.response?.status === 401 || err.response?.status === 403 || err.response?.status === 404 || err.response?.status === 500) {
-                message.error('請求失敗，請重新登入或檢查服務器:', err.response?.data?.msg);
-                navigate('/login');
-            } else {
-                message.error(`載入用戶資料失敗: ${err.response?.data?.msg || err.message}`);
+    // 僅在模態窗口可見時執行
+    useEffect(() => {
+        if (!visible) return;
+
+        const fetchUserProfile = async () => {
+            if (!token) {
+                console.log('UserProfile: No token found');
+                return; // 不執行重定向
             }
-        } finally {
-            setLoading(false);
-        }
-    };
+
+            try {
+                setLoading(true);
+                const res = await axios.get('http://localhost:5000/api/users/profile', {
+                    headers: { 'x-auth-token': token },
+                });
+                console.log('Fetched user profile response:', res.data);
+                form.setFieldsValue({
+                    world_name: res.data.world_name,
+                    character_name: res.data.character_name,
+                    discord_id: res.data.discord_id || '',
+                    raid_level: res.data.raid_level || 0,
+                });
+            } catch (err) {
+                console.error('Fetch user profile error:', {
+                    status: err.response?.status,
+                    data: err.response?.data,
+                    message: err.message,
+                });
+                if (err.response?.status === 401 || err.response?.status === 403 || err.response?.status === 404 || err.response?.status === 500) {
+                    message.error('請求失敗，請重新登入或檢查服務器:', err.response?.data?.msg);
+                    // 僅在模態窗口可見時重定向
+                    if (visible) {
+                        navigate('/login');
+                    }
+                } else {
+                    message.error(`載入用戶資料失敗: ${err.response?.data?.msg || err.message}`);
+                }
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchUserProfile();
+    }, [visible, token, navigate]);
 
     const onFinish = async (values) => {
         try {
@@ -73,10 +85,10 @@ const UserProfile = ({ visible, onCancel }) => {
             });
             if (err.response?.status === 403) {
                 message.error('權限不足，請檢查後端日志:', err.response?.data?.msg);
-                navigate('/login');
+                if (visible) navigate('/login');
             } else if (err.response?.status === 401 || err.response?.status === 404 || err.response?.status === 500) {
                 message.error('請求失敗，請重新登入或檢查服務器:', err.response?.data?.msg);
-                navigate('/login');
+                if (visible) navigate('/login');
             } else if (err.code === 'ECONNABORTED') {
                 message.error('請求超時，請稍後重試');
             } else {
@@ -90,7 +102,7 @@ const UserProfile = ({ visible, onCancel }) => {
     return (
         <Modal
             title="修改個人資料"
-            visible={visible}
+            open={visible}
             onOk={() => form.submit()}
             onCancel={onCancel}
             footer={[

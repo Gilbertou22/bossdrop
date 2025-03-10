@@ -11,7 +11,7 @@ const startItemExpirationCron = () => {
         }
 
         // 每小時檢查一次（可根據需求調整）
-        const task = cron.schedule('0 * * * * *', async () => {
+        const task = cron.schedule('0 * * * *', async () => {
             try {
                 console.log('Running item expiration check at:', new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' }));
 

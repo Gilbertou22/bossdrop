@@ -31,8 +31,7 @@ const Navbar = () => {
 
     useEffect(() => {
         if (token) {
-            fetchUserInfo();
-            fetchPendingCount(); // 定期檢查待結算數量
+            fetchUserInfo();            
         }
     }, [token]);
 
@@ -55,29 +54,6 @@ const Navbar = () => {
             }
         }
     };
-
-    const fetchPendingCount = async () => {
-        try {
-            const res = await axios.get('http://localhost:5000/api/auctions/pending-count', {
-                headers: { 'x-auth-token': token },
-            });
-            setPendingCount(res.data.count || 0);
-            console.log('Fetched pending count:', res.data.count);
-        } catch (err) {
-            console.error('Fetch pending count error:', {
-                status: err.response?.status,
-                data: err.response?.data,
-                message: err.message,
-            });
-            message.error(`獲取待處理競標數量失敗: ${err.response?.data?.msg || err.message}`);
-        }
-    };
-
-    useEffect(() => {
-        fetchPendingCount(); // 初始加載
-        const interval = setInterval(fetchPendingCount, 60000); // 每分鐘更新
-        return () => clearInterval(interval); // 清理
-    }, []);
 
     const handleLogout = () => {
         localStorage.removeItem('token');

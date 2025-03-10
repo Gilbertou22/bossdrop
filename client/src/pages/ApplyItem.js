@@ -1,122 +1,58 @@
 import React, { useState, useEffect } from 'react';
-import { Form, Button, Select, message, Modal } from 'antd';
+import { Form, Input, Button, Select, message, Modal } from 'antd';
 import axios from 'axios';
-import moment from 'moment';
 import { useNavigate } from 'react-router-dom';
+import moment from 'moment';
 
 const { Option } = Select;
+
+const BASE_URL = 'http://localhost:5000';
 
 const ApplyItem = () => {
     const [form] = Form.useForm();
     const [kills, setKills] = useState([]);
-    const [items, setItems] = useState([]);
-    const [filteredKills, setFilteredKills] = useState([]);
     const [filteredItems, setFilteredItems] = useState([]);
-    const [existingApplications, setExistingApplications] = useState({});
-    const [currentUser, setCurrentUser] = useState(null);
-    const [errorModalVisible, setErrorModalVisible] = useState(false);
     const [errorMsg, setErrorMsg] = useState('');
+    const [errorModalVisible, setErrorModalVisible] = useState(false);
+    const [userApplications, setUserApplications] = useState([]);
     const navigate = useNavigate();
+    const token = localStorage.getItem('token');
 
     useEffect(() => {
         fetchKills();
-        fetchItems();
-        fetchCurrentUser();
         fetchUserApplications();
     }, []);
 
     const fetchKills = async () => {
         try {
-            const token = localStorage.getItem('token');
-            const res = await axios.get('http://localhost:5000/api/boss-kills', {
+            const res = await axios.get(`${BASE_URL}/api/boss-kills`, {
                 headers: { 'x-auth-token': token },
             });
-            console.log('Fetched kills:', res.data);
             setKills(res.data);
-            const unassignedKills = res.data.filter(
-                kill => kill.status === 'pending' && !kill.final_recipient
-            );
-            setFilteredKills(unassignedKills);
         } catch (err) {
-            message.error('載入擊殺記錄失敗: ' + (err.message || '未知錯誤'));
-            console.error('Fetch kills error:', err);
-        }
-    };
-
-    const fetchItems = async () => {
-        try {
-            const res = await axios.get('http://localhost:5000/api/items');
-            setItems(res.data);
-        } catch (err) {
-            message.error('載入物品失敗: ' + (err.message || '未知錯誤'));
-            console.error('Fetch items error:', err);
-        }
-    };
-
-    const fetchCurrentUser = async () => {
-        try {
-            const token = localStorage.getItem('token');
-            if (token) {
-                const res = await axios.get('http://localhost:5000/api/users/me', {
-                    headers: { 'x-auth-token': token },
-                });
-                setCurrentUser(res.data.character_name);
-            }
-        } catch (err) {
-            message.error('載入用戶信息失敗: ' + (err.message || '未知錯誤'));
-            console.error('Fetch current user error:', err);
+            message.error('載入擊殺記錄失敗: ' + (err.response?.data?.msg || err.message));
         }
     };
 
     const fetchUserApplications = async () => {
         try {
-            const token = localStorage.getItem('token');
-            if (token && currentUser) {
-                const res = await axios.get('http://localhost:5000/api/applications', {
-                    headers: { 'x-auth-token': token },
-                });
-                const userApplications = res.data.filter(app => app.user_id.character_name === currentUser);
-                const applicationMap = {};
-                userApplications.forEach(app => {
-                    applicationMap[`${app.kill_id}_${app.item_id}`] = true; // 使用 item_id
-                });
-                setExistingApplications(applicationMap);
-            }
+            const res = await axios.get(`${BASE_URL}/api/applications/user`, {
+                headers: { 'x-auth-token': token },
+            });
+            const activeApplications = res.data.filter(app => app.status === 'pending' || app.status === 'approved');
+            setUserApplications(activeApplications.map(app => `${app.kill_id._id}_${app.item_id}`));
         } catch (err) {
-            message.error('載入用戶申請失敗: ' + (err.message || '未知錯誤'));
             console.error('Fetch user applications error:', err);
+            message.warning('無法載入申請記錄，限制可能不準確');
         }
     };
 
-    const handleKillChange = (killId) => {
-        const selectedKill = kills.find(kill => kill._id === killId);
+    const handleKillChange = (value) => {
+        const selectedKill = kills.find(kill => kill._id === value);
         if (selectedKill) {
-            const availableItems = selectedKill.dropped_items
-                .filter(item => !(selectedKill.status === 'assigned' && selectedKill.final_recipient && selectedKill.final_recipient !== ''))
-                .map(item => ({
-                    name: item.name,
-                    type: item.type,
-                    item_id: item._id,
-                }));
-            console.log('Available items for kill:', availableItems);
-            setFilteredItems(availableItems);
-            form.setFieldsValue({ item_name: undefined });
-        } else {
-            setFilteredItems([]);
+            setFilteredItems(selectedKill.dropped_items);
         }
-    };
-
-    const onFinish = (values) => {
-        console.log('onFinish triggered with values:', values);
-        if (window.confirm(
-            `確認提交以下申請？\n\n` +
-            `- 擊殺記錄: ${values.kill_id}\n` +
-            `- 物品名稱: ${values.item_name}`
-        )) {
-            handleSubmit(values);
-        } else {
-            console.log('Submission cancelled');
-        }
+        form.setFieldsValue({ item_name: undefined });
     };
 
     const handleSubmit = async (values) => {
@@ -130,16 +66,24 @@ const ApplyItem = () => {
             }
             const selectedKill = kills.find(kill => kill._id === values.kill_id);
             const selectedItem = filteredItems.find(item => item.name === values.item_name);
-            if (!selectedItem || !selectedItem.item_id) {
+            if (!selectedItem || !selectedItem._id) {
                 console.error('Selected item does not have an item_id:', selectedItem);
                 throw new Error('物品缺少唯一標識，請聯繫管理員');
             }
-            console.log('Sending request with item_id:', selectedItem.item_id);
+            const applicationKey = `${values.kill_id}_${selectedItem._id}`;
+            if (userApplications.includes(applicationKey)) {
+                throw new Error('您已為此物品提交申請，無法再次申請！');
+            }
+            console.log('Sending request with data:', {
+                kill_id: values.kill_id,
+                item_id: selectedItem._id,
+                item_name: values.item_name,
+            });
             const res = await axios.post(
-                'http://localhost:5000/api/applications',
+                `${BASE_URL}/api/applications`,
                 {
                     kill_id: values.kill_id,
-                    item_id: selectedItem.item_id,
+                    item_id: selectedItem._id,
                     item_name: values.item_name,
                 },
                 { headers: { 'x-auth-token': token } }
@@ -152,28 +96,24 @@ const ApplyItem = () => {
             form.resetFields();
             fetchUserApplications();
         } catch (err) {
-            console.error('Submit error:', err);
-            const errorMsg = err.response?.data?.msg || err.message || '申請失敗，請稍後重試';
+            console.error('Submit error:', err.response?.data || err);
+            const errorMsg = err.response?.data?.msg || err.message || '申請失敗，請稍後再試';
             setErrorMsg(errorMsg);
             setErrorModalVisible(true);
         }
     };
 
-    const isApplied = (killId, itemName) => {
-        return currentUser && existingApplications[`${killId}_${itemName}`];
-    };
-
     return (
-        <div style={{ maxWidth: 400, margin: '50px auto' }}>
-            <h2>申請掉落物品</h2>
-            <Form form={form} name="apply_item" onFinish={onFinish} layout="vertical">
+        <div style={{ padding: '20px', maxWidth: '600px', margin: '0 auto' }}>
+            <h2>申請物品</h2>
+            <Form form={form} name="apply-item" onFinish={handleSubmit} layout="vertical">
                 <Form.Item
                     name="kill_id"
-                    label="擊殺記錄"
-                    rules={[{ required: true, message: '請選擇擊殺記錄！' }]}
+                    label="選擇擊殺記錄"
+                    rules={[{ required: true, message: '請選擇擊殺記錄' }]}
                 >
-                    <Select placeholder="選擇擊殺記錄" onChange={handleKillChange} disabled={filteredKills.length === 0}>
-                        {filteredKills.map(kill => (
+                    <Select placeholder="選擇擊殺記錄" onChange={handleKillChange} allowClear>
+                        {kills.map(kill => (
                             <Option key={kill._id} value={kill._id}>
                                 {kill.boss_name} - {moment(kill.kill_time).format('YYYY-MM-DD HH:mm')}
                             </Option>
@@ -182,45 +122,33 @@ const ApplyItem = () => {
                 </Form.Item>
                 <Form.Item
                     name="item_name"
-                    label="物品名稱"
-                    rules={[{ required: true, message: '請選擇物品名稱！' }]}
+                    label="選擇物品"
+                    rules={[{ required: true, message: '請選擇物品' }]}
                 >
-                    <Select placeholder="選擇物品" disabled={filteredItems.length === 0}>
-                        {filteredItems.map(item => (
-                            <Option
-                                key={item.item_id}
-                                value={item.name}
-                                disabled={isApplied(form.getFieldValue('kill_id'), item.name)}
-                            >
-                                {item.name} ({item.type})
-                            </Option>
-                        ))}
+                    <Select placeholder="選擇物品" disabled={!form.getFieldValue('kill_id')}>
+                        {filteredItems.map(item => {
+                            const applicationKey = `${form.getFieldValue('kill_id')}_${item._id}`;
+                            const isApplied = userApplications.includes(applicationKey);
+                            return (
+                                <Option key={item._id} value={item.name} disabled={isApplied}>
+                                    {item.name} ({item.type}, 截止 {moment(item.apply_deadline).format('YYYY-MM-DD')})
+                                    {isApplied && ' [已申請]'}
+                                </Option>
+                            );
+                        })}
                     </Select>
                 </Form.Item>
                 <Form.Item>
-                    <Button
-                        type="primary"
-                        htmlType="submit"
-                        block
-                        disabled={filteredItems.length === 0 || isApplied(form.getFieldValue('kill_id'), form.getFieldValue('item_name'))}
-                    >
+                    <Button type="primary" htmlType="submit">
                         提交申請
                     </Button>
                 </Form.Item>
             </Form>
-
             <Modal
                 title="錯誤"
-                open={errorModalVisible}
+                visible={errorModalVisible}
                 onOk={() => setErrorModalVisible(false)}
                 onCancel={() => setErrorModalVisible(false)}
-                footer={[
-                    <Button key="ok" type="primary" onClick={() => setErrorModalVisible(false)}>
-                        確認
-                    </Button>,
-                ]}
-                style={{ top: '20%', textAlign: 'center' }}
-                bodyStyle={{ padding: '20px', fontSize: '16px', color: '#333' }}
             >
                 <p>{errorMsg}</p>
             </Modal>

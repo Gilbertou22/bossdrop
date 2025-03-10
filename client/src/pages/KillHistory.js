@@ -57,23 +57,25 @@ const KillHistory = () => {
                 headers: { 'x-auth-token': token },
             });
             console.log('Fetched user applications raw:', res.data);
-            const activeApplications = res.data
-                .filter(app => app && (app.status === 'pending' || app.status === 'approved'))
-                .map(app => {
-                    if (!app.item_id) {
-                        console.warn('Missing item_id in application:', app);
-                        return null;
-                    }
-                    return `${userId}_${app.item_id}`;
-                })
-                .filter(app => app !== null);
+            const activeApplications = res.data.filter(app => {
+                if (!app) {
+                    console.warn('Invalid application entry:', app);
+                    return false;
+                }
+                if (!app.item_id) {
+                    console.warn('Missing item_id in application:', app);
+                    return false;
+                }
+                console.log('Application status:', app.status);
+                return app.status === 'pending' || app.status === 'approved';
+            });
             console.log('Processed user applications:', activeApplications);
             if (activeApplications.length === 0) {
-                console.warn('No active applications found for user:', userId, 'Raw data:', res.data);
+                console.warn('No active applications after filtering. Raw data:', res.data);
             }
             setUserApplications(activeApplications);
         } catch (err) {
-            console.error('Fetch user applications error:', err);
+            console.error('Fetch user applications error:', err.response?.data || err.message);
             message.warning('無法載入申請記錄，申請中標示可能不準確');
         }
     };
@@ -99,9 +101,7 @@ const KillHistory = () => {
                 return;
             }
 
-            let filteredHistory = res.data;
-
-            filteredHistory = filteredHistory.map(record => {
+            const updatedHistory = res.data.map(record => {
                 const applyingItems = record.dropped_items
                     ?.filter(item => {
                         const itemId = item._id || item.id;
@@ -109,9 +109,12 @@ const KillHistory = () => {
                             console.warn(`Missing item_id in dropped_items for record ${record._id}:`, item);
                             return false;
                         }
-                        const itemKey = `${userId}_${itemId}`;
-                        console.log(`Checking itemKey: ${itemKey}, in userApplications:`, userApplications.includes(itemKey));
-                        return userApplications.includes(itemKey);
+                        return userApplications.some(app => {
+                            const appKillId = app.kill_id && app.kill_id._id ? app.kill_id._id.toString() : null;
+                            return appKillId === record._id.toString() &&
+                                app.item_id && app.item_id.toString() === itemId.toString() &&
+                                app.status === 'pending';
+                        });
                     })
                     ?.map(item => item.name) || [];
                 console.log(`Record ${record._id} applyingItems:`, applyingItems);
@@ -121,13 +124,13 @@ const KillHistory = () => {
                 };
             });
 
-            const updatedHistory = filteredHistory.map(record => ({
+            const finalHistory = updatedHistory.map(record => ({
                 ...record,
                 screenshots: record.screenshots
                     ? record.screenshots.map(src => (src ? `${BASE_URL}/${src.replace('./', '')}` : ''))
                     : [],
             }));
-            setHistory(updatedHistory);
+            setHistory(finalHistory);
         } catch (err) {
             console.error('Fetch kill history error:', err);
             message.error(`載入擊殺歷史失敗: ${err.response?.data?.msg || err.message}`);
@@ -178,6 +181,19 @@ const KillHistory = () => {
         );
     };
 
+    const getApplicationDetails = (killId, itemId) => {
+        console.log(`Looking for application with killId: ${killId}, itemId: ${itemId}`);
+        const app = userApplications.find(app => {
+            const appKillId = app.kill_id && app.kill_id._id ? app.kill_id._id.toString() : null;
+            const match = appKillId === killId.toString() &&
+                app.item_id && app.item_id.toString() === itemId.toString() &&
+                app.status === 'pending';
+            console.log(`Checking application:`, app, `appKillId: ${appKillId}, Match: ${match}`);
+            return match;
+        });
+        return app;
+    };
+
     const columns = [
         {
             title: '擊殺時間',
@@ -211,12 +227,14 @@ const KillHistory = () => {
                 if (!items || !Array.isArray(items)) return '無';
                 return items.map(item => {
                     const itemId = item._id || item.id;
-                    const itemKey = `${userId}_${itemId}`;
+                    const appDetails = getApplicationDetails(record._id, itemId);
                     return (
-                        <div key={itemKey}>
+                        <div key={itemId}>
                             {`${item.name} (${item.type}, 截止 ${moment(item.apply_deadline).format('YYYY-MM-DD')})`}
-                            {record.applyingItems.includes(item.name) && (
-                                <span style={{ color: 'red', marginLeft: '8px' }}>（申請中）</span>
+                            {appDetails && (
+                                <Tag color="blue" style={{ marginLeft: 8 }}>
+                                    申請中 (提交於: {moment(appDetails.created_at).format('MM-DD HH:mm')})
+                                </Tag>
                             )}
                         </div>
                     );

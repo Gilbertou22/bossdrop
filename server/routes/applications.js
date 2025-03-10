@@ -10,7 +10,6 @@ router.post('/', auth, async (req, res) => {
 
     try {
         console.log('Received request body:', req.body);
-        console.log('User from token:', user);
 
         if (!user || !user.character_name) {
             return res.status(401).json({
@@ -40,54 +39,29 @@ router.post('/', auth, async (req, res) => {
             });
         }
 
-        if (kill.status === 'assigned' && kill.final_recipient) {
-            return res.status(403).json({
-                code: 403,
-                msg: '該物品已分配，無法申請',
-                detail: `擊殺記錄 ${kill_id} 的物品已分配給 ${kill.final_recipient}。`,
-                suggestion: '請選擇其他未分配的物品或聯繫管理員。',
-            });
-        }
-
-        const existingApplication = await Application.findOne({
-            user_id: user.id,
-            kill_id,
-            item_id,
-        });
-        if (existingApplication) {
-            return res.status(403).json({
-                code: 403,
-                msg: '你已針對此擊殺和物品提交過申請',
-                detail: `您針對 ${kill.boss_name} 的 ${item_name} 已提交申請 (ID: ${existingApplication._id})。`,
-                suggestion: '請檢查現有申請或聯繫管理員。',
-            });
-        }
-
-        let attendees = kill.attendees || [];
-        if (!Array.isArray(attendees)) {
-            attendees = attendees.split(',').map(a => a.trim());
-        }
-        console.log('Attendees from kill:', attendees);
-
-        const isAttendee = attendees.some(attendee => attendee === user.character_name);
-        if (!isAttendee) {
-            return res.status(403).json({
-                code: 403,
-                msg: '你未出席此擊殺，無法申請',
-                detail: `您的角色 ${user.character_name} 未在 ${kill.boss_name} 的出席名單中。`,
-                suggestion: '請確認參加資格或聯繫管理員。',
-            });
-        }
-
-        // 調試 dropped_items
-        console.log('Kill dropped items:', kill.dropped_items);
-        const droppedItem = kill.dropped_items.find(item => item._id && item._id.toString() === item_id && item.name === item_name);
+        const droppedItem = kill.dropped_items.find(item => item._id.toString() === item_id);
         if (!droppedItem) {
             return res.status(400).json({
                 code: 400,
                 msg: '該物品未在此次擊殺中掉落或 item_id 無效',
                 detail: `${item_name} 的 item_id (${item_id}) 不在 ${kill.boss_name} 的掉落列表中。`,
                 suggestion: '請選擇正確的掉落物品或檢查數據。',
+            });
+        }
+
+        // 檢查是否已申請
+        const existingApplication = await Application.findOne({
+            user_id: user.id,
+            kill_id,
+            item_id,
+            status: { $in: ['pending', 'approved'] }
+        });
+        if (existingApplication) {
+            return res.status(400).json({
+                code: 400,
+                msg: '重複申請',
+                detail: `您已為 ${item_name} 提交申請，狀態為 ${existingApplication.status}，無法再次申請。`,
+                suggestion: '請等待審核結果或聯繫管理員。',
             });
         }
 
@@ -172,13 +146,23 @@ router.get('/', auth, adminOnly, async (req, res) => {
 
 router.get('/user', auth, async (req, res) => {
     try {
-        const applications = await Application.find({ user_id: req.user.id }).select('user_id item_id item_name');
-        console.log('Fetched applications for user:', applications);
-        const formattedApplications = applications.map(app => `${app.user_id}_${app.item_id}`);
-        res.json(formattedApplications);
+        const applications = await Application.find({ user_id: req.user.id })
+            .select('user_id kill_id item_id item_name status created_at')
+            .populate('user_id', 'character_name')
+            .populate('kill_id', 'boss_name kill_time');
+        console.log('Fetched applications from database:', applications); // 調試數據庫查詢結果
+        if (!applications || applications.length === 0) {
+            console.warn('No applications found for user:', req.user.id);
+            return res.json([]);
+        }
+        res.json(applications);
     } catch (err) {
+        console.error('Fetch applications error:', err);
         res.status(500).json({ msg: '獲取申請記錄失敗', error: err.message });
     }
 });
 
+// 其他路由保持不變...
+
+module.exports = router;
 module.exports = router;

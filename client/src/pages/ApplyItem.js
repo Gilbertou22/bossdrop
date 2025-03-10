@@ -19,17 +19,24 @@ const ApplyItem = () => {
     const token = localStorage.getItem('token');
 
     useEffect(() => {
+        if (!token) {
+            message.error('請先登錄！');
+            navigate('/login');
+            return;
+        }
         fetchKills();
         fetchUserApplications();
-    }, []);
+    }, [token, navigate]);
 
     const fetchKills = async () => {
         try {
             const res = await axios.get(`${BASE_URL}/api/boss-kills`, {
                 headers: { 'x-auth-token': token },
             });
+            console.log('Fetched kills:', res.data);
             setKills(res.data);
         } catch (err) {
+            console.error('Fetch kills error:', err.response?.data || err.message);
             message.error('載入擊殺記錄失敗: ' + (err.response?.data?.msg || err.message));
         }
     };
@@ -39,10 +46,11 @@ const ApplyItem = () => {
             const res = await axios.get(`${BASE_URL}/api/applications/user`, {
                 headers: { 'x-auth-token': token },
             });
+            console.log('Fetched user applications:', res.data);
             const activeApplications = res.data.filter(app => app.status === 'pending' || app.status === 'approved');
             setUserApplications(activeApplications.map(app => `${app.kill_id._id}_${app.item_id}`));
         } catch (err) {
-            console.error('Fetch user applications error:', err);
+            console.error('Fetch user applications error:', err.response?.data || err.message);
             message.warning('無法載入申請記錄，限制可能不準確');
         }
     };
@@ -50,9 +58,12 @@ const ApplyItem = () => {
     const handleKillChange = (value) => {
         const selectedKill = kills.find(kill => kill._id === value);
         if (selectedKill) {
-            setFilteredItems(selectedKill.dropped_items);
+            setFilteredItems(selectedKill.dropped_items || []);
+        } else {
+            setFilteredItems([]);
         }
         form.setFieldsValue({ item_name: undefined });
+        console.log('Selected kill:', selectedKill);
     };
 
     const handleSubmit = async (values) => {
@@ -66,6 +77,9 @@ const ApplyItem = () => {
             }
             const selectedKill = kills.find(kill => kill._id === values.kill_id);
             const selectedItem = filteredItems.find(item => item.name === values.item_name);
+            if (!selectedKill) {
+                throw new Error('選擇的擊殺記錄無效');
+            }
             if (!selectedItem || !selectedItem._id) {
                 console.error('Selected item does not have an item_id:', selectedItem);
                 throw new Error('物品缺少唯一標識，請聯繫管理員');
@@ -89,12 +103,13 @@ const ApplyItem = () => {
                 { headers: { 'x-auth-token': token } }
             );
             console.log('API response:', res.data);
-            alert(res.data.msg || '申請提交成功，等待審核！');
+            message.success(res.data.msg || '申請提交成功！'); // 顯示成功提示
+            // 延遲 1 秒後跳轉到 /kill-history
             setTimeout(() => {
-                navigate('/');
+                navigate('/kill-history');
             }, 1000);
             form.resetFields();
-            fetchUserApplications();
+            fetchUserApplications(); // 刷新申請記錄
         } catch (err) {
             console.error('Submit error:', err.response?.data || err);
             const errorMsg = err.response?.data?.msg || err.message || '申請失敗，請稍後再試';

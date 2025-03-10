@@ -4,6 +4,7 @@ const User = require('../models/User');
 const multer = require('multer');
 const bcrypt = require('bcrypt');
 const path = require('path');
+const jsonwebtoken = require('jsonwebtoken'); // 明確使用 jsonwebtoken
 const { auth, adminOnly } = require('../middleware/auth'); // 移除 adminOnly
 
 const storage = multer.diskStorage({
@@ -69,7 +70,8 @@ router.post('/register', upload.single('screenshot'), async (req, res) => {
             },
         };
 
-        const token = jwt.sign(payload, process.env.JWT_SECRET || 'your-secret-key', { expiresIn: 3600 });
+        // 使用 jsonwebtoken 而非 jwt
+        const token = jsonwebtoken.sign(payload, process.env.JWT_SECRET || 'your-secret-key', { expiresIn: 3600 });
         res.json({ user_id: user._id, token, msg: '註冊成功，等待審核！' });
     } catch (err) {
         console.error('Register error:', err.message);

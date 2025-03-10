@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Table, Button, DatePicker, Input, message, Image, Card, Spin, Alert, Tag } from 'antd';
+import { Table, Button, DatePicker, Input, message, Image, Card, Spin, Alert, Tag, Tooltip } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
 import axios from 'axios';
 import moment from 'moment';
@@ -17,6 +17,7 @@ const KillHistory = () => {
     const token = localStorage.getItem('token');
     const [userId, setUserId] = useState(null);
     const [userApplications, setUserApplications] = useState([]);
+    const [itemApplications, setItemApplications] = useState({}); // 存儲每個物品的申請者信息
 
     useEffect(() => {
         if (!token) {
@@ -80,6 +81,20 @@ const KillHistory = () => {
         }
     };
 
+    const fetchItemApplications = async (kill_id, item_id) => {
+        try {
+            const res = await axios.get(`${BASE_URL}/api/applications/by-kill-and-item`, {
+                headers: { 'x-auth-token': token },
+                params: { kill_id, item_id },
+            });
+            console.log(`Fetched applications for kill_id: ${kill_id}, item_id: ${item_id}:`, res.data);
+            return res.data;
+        } catch (err) {
+            console.error(`Fetch applications error for kill_id: ${kill_id}, item_id: ${item_id}:`, err.response?.data || err.message);
+            return [];
+        }
+    };
+
     const fetchHistory = async () => {
         try {
             setLoading(true);
@@ -123,6 +138,22 @@ const KillHistory = () => {
                     applyingItems,
                 };
             });
+
+            // 為管理員視圖獲取每個物品的申請者信息
+            if (role === 'admin') {
+                const applicationsMap = {};
+                for (const record of updatedHistory) {
+                    for (const item of record.dropped_items || []) {
+                        const itemId = item._id || item.id;
+                        if (itemId) {
+                            const key = `${record._id}_${itemId}`;
+                            const applications = await fetchItemApplications(record._id, itemId);
+                            applicationsMap[key] = applications;
+                        }
+                    }
+                }
+                setItemApplications(applicationsMap);
+            }
 
             const finalHistory = updatedHistory.map(record => ({
                 ...record,
@@ -228,13 +259,33 @@ const KillHistory = () => {
                 return items.map(item => {
                     const itemId = item._id || item.id;
                     const appDetails = getApplicationDetails(record._id, itemId);
+                    const applicationKey = `${record._id}_${itemId}`;
+                    const applicants = role === 'admin' ? itemApplications[applicationKey] || [] : [];
+
                     return (
                         <div key={itemId}>
                             {`${item.name} (${item.type}, 截止 ${moment(item.apply_deadline).format('YYYY-MM-DD')})`}
-                            {appDetails && (
+                            {role !== 'admin' && appDetails && (
                                 <Tag color="blue" style={{ marginLeft: 8 }}>
                                     申請中 (提交於: {moment(appDetails.created_at).format('MM-DD HH:mm')})
                                 </Tag>
+                            )}
+                            {role === 'admin' && applicants.length > 0 && (
+                                <Tooltip
+                                    title={
+                                        <ul style={{ paddingLeft: 15, margin: 0 }}>
+                                            {applicants.map(app => (
+                                                <li key={app._id}>
+                                                    {app.user_id.character_name} ({app.status}) - 提交於: {moment(app.created_at).format('MM-DD HH:mm')}
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    }
+                                >
+                                    <Tag color="blue" style={{ marginLeft: 8, cursor: 'pointer' }}>
+                                        申請者: {applicants.length} 人
+                                    </Tag>
+                                </Tooltip>
                             )}
                         </div>
                     );

@@ -162,7 +162,34 @@ router.get('/user', auth, async (req, res) => {
     }
 });
 
-// 其他路由保持不變...
+// 新增端點：根據 kill_id 和 item_id 查詢所有申請記錄（僅限管理員）
+router.get('/by-kill-and-item', auth, adminOnly, async (req, res) => {
+    const { kill_id, item_id } = req.query;
 
-module.exports = router;
+    try {
+        if (!kill_id || !item_id) {
+            return res.status(400).json({
+                code: 400,
+                msg: '缺少必填字段',
+                detail: `Missing required fields: ${!kill_id ? 'kill_id' : ''} ${!item_id ? 'item_id' : ''}`,
+                suggestion: '請提供所有必填字段後重試。',
+            });
+        }
+
+        const applications = await Application.find({
+            kill_id,
+            item_id,
+            status: { $in: ['pending', 'approved'] } // 僅顯示待審核和已通過的申請
+        })
+            .select('user_id status created_at')
+            .populate('user_id', 'character_name');
+
+        console.log(`Fetched applications for kill_id: ${kill_id}, item_id: ${item_id}:`, applications);
+        res.json(applications);
+    } catch (err) {
+        console.error('Fetch applications by kill and item error:', err);
+        res.status(500).json({ msg: '獲取申請記錄失敗', error: err.message });
+    }
+});
+
 module.exports = router;

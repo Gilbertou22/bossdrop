@@ -166,10 +166,22 @@ const BossKillForm = () => {
         setItemOptions(filteredOptions);
     };
 
+    const handleAttendeesChange = (value) => {
+        if (value.includes('all')) {
+            // 選擇全部時，設置為所有 userOptions
+            const allAttendees = userOptions.map(option => option.value);
+            form.setFieldsValue({ attendees: allAttendees });
+        } else {
+            form.setFieldsValue({ attendees: value.filter(val => val !== 'all') });
+        }
+        console.log('Selected attendees:', value);
+    };
+
     return (
         <div style={{ maxWidth: 1000, margin: '50px auto' }}>
             <h2>記錄擊殺</h2>
-            <Form form={form}
+            <Form
+                form={form}
                 name="boss_kill"
                 onFinish={onFinish}
                 layout="vertical"
@@ -207,7 +219,6 @@ const BossKillForm = () => {
                                 onChange={(date) => setDate(date)}
                                 style={{ width: '100%' }}
                                 getPopupContainer={trigger => trigger.parentElement}
-
                             />
                         </Form.Item>
                         <Form.Item
@@ -247,12 +258,12 @@ const BossKillForm = () => {
                                 allowClear
                                 style={{ width: '100%' }}
                                 placeholder="請選擇出席成員（可多選）"
-                                onChange={(value) => {
-                                    console.log('Selected attendees:', value);
-                                    form.setFieldsValue({ attendees: value });
-                                }}
+                                onChange={handleAttendeesChange}
                                 value={form.getFieldValue('attendees')}
                             >
+                                <Option key="all" value="all">
+                                    選擇全部
+                                </Option>
                                 {userOptions.map(option => (
                                     <Option key={option.value} value={option.value}>
                                         {option.label}

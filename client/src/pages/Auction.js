@@ -5,7 +5,8 @@ import axios from 'axios';
 import { Spin, message, Alert, Select, Button } from 'antd';
 import moment from 'moment';
 
-// 定義 status 的中文映射
+const { Option } = Select;
+
 const statusMap = {
     active: '活躍',
     pending: '待處理',
@@ -13,7 +14,6 @@ const statusMap = {
     cancelled: '已取消',
 };
 
-// 定義 status 選項
 const statusOptions = [
     { value: 'active', label: '活躍' },
     { value: 'pending', label: '待處理' },
@@ -21,19 +21,33 @@ const statusOptions = [
     { value: 'cancelled', label: '已取消' },
 ];
 
-const { Option } = Select;
+const BASE_URL = 'http://localhost:5000';
 
 const Auction = () => {
     const [auctions, setAuctions] = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
     const [sortBy, setSortBy] = useState('createdAt');
-    const [filterStatus, setFilterStatus] = useState('active'); // 默認過濾活躍狀態
+    const [filterStatus, setFilterStatus] = useState('active');
+    const [userDiamonds, setUserDiamonds] = useState(0);
+    const [userRole, setUserRole] = useState(null);
     const navigate = useNavigate();
     const token = localStorage.getItem('token');
-    const BASE_URL = 'http://localhost:5000';
 
-    // 獲取競標列表
+    const fetchUserInfo = async () => {
+        try {
+            const res = await axios.get(`${BASE_URL}/api/users/me`, {
+                headers: { 'x-auth-token': token },
+            });
+            setUserDiamonds(res.data.diamonds || 0);
+            setUserRole(res.data.role || 'user');
+        } catch (err) {
+            console.error('Fetch user info error:', err);
+            message.error('無法獲取用戶信息，請重新登錄');
+            navigate('/login');
+        }
+    };
+
     const fetchAuctions = useCallback(async (status = filterStatus, sort = sortBy) => {
         setLoading(true);
         setError(null);
@@ -76,33 +90,49 @@ const Auction = () => {
         }
     }, [filterStatus, sortBy, token, navigate]);
 
-    // 初次加載時獲取數據，但不設置間隔刷新
     useEffect(() => {
+        if (!token) {
+            message.error('請先登錄！');
+            navigate('/login');
+            return;
+        }
+        fetchUserInfo();
         fetchAuctions();
-    }, [fetchAuctions]);
+    }, [fetchAuctions, navigate, token]);
 
-    // 處理狀態過濾變化
     const handleStatusChange = (value) => {
         setFilterStatus(value);
-        // 不自動刷新，等待手動觸發
     };
 
-    // 處理排序變化
     const handleSortChange = (value) => {
         setSortBy(value);
-        // 不自動刷新，等待手動觸發
     };
 
-    // 手動刷新
     const handleRefresh = () => {
         fetchAuctions(filterStatus, sortBy);
+    };
+
+    const handleSettleAuction = async (auctionId) => {
+        try {
+            const res = await axios.put(`${BASE_URL}/api/auctions/${auctionId}/settle`, {}, {
+                headers: { 'x-auth-token': token },
+            });
+            message.success(res.data.msg);
+            fetchAuctions();
+        } catch (err) {
+            console.error('Settle auction error:', err.response?.data || err);
+            message.error(`結算失敗: ${err.response?.data?.msg || err.message}`);
+        }
     };
 
     return (
         <div style={{ padding: '20px' }}>
             <h1>競標頁面</h1>
+            <div style={{ marginBottom: '20px' }}>
+                <p>您的鑽石餘額：{userDiamonds} 鑽石</p>
+                <Button onClick={() => navigate('/notifications')}>查看通知</Button>
+            </div>
 
-            {/* 過濾和排序控制面板 */}
             <div style={{ marginBottom: '20px', display: 'flex', gap: '10px', alignItems: 'center' }}>
                 <Select value={filterStatus} onChange={handleStatusChange} style={{ width: 120 }}>
                     {statusOptions.map(option => (
@@ -121,7 +151,6 @@ const Auction = () => {
                 </Button>
             </div>
 
-            {/* 加載、錯誤或數據顯示 */}
             {loading ? (
                 <Spin tip="加載中..." style={{ display: 'block', textAlign: 'center' }} />
             ) : error ? (
@@ -140,7 +169,12 @@ const Auction = () => {
                     style={{ marginBottom: '20px' }}
                 />
             ) : auctions.length > 0 ? (
-                <AuctionList auctions={auctions} fetchAuctions={fetchAuctions} />
+                <AuctionList
+                    auctions={auctions}
+                    fetchAuctions={fetchAuctions}
+                    userRole={userRole}
+                    handleSettleAuction={handleSettleAuction}
+                />
             ) : (
                 <Alert
                     message="無數據"

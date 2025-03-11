@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Table, Button, DatePicker, Input, message, Image, Card, Spin, Alert, Tag, Tooltip } from 'antd';
+import { Table, Button, DatePicker, Input, message, Image, Card, Spin, Alert, Tag, Tooltip, Popconfirm } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
 import axios from 'axios';
 import moment from 'moment';
@@ -14,10 +14,11 @@ const KillHistory = () => {
     const [role, setRole] = useState(null);
     const [currentUser, setCurrentUser] = useState(null);
     const [loading, setLoading] = useState(false);
+    const [applying, setApplying] = useState(false); // 控制快速申請的加載狀態
     const token = localStorage.getItem('token');
     const [userId, setUserId] = useState(null);
     const [userApplications, setUserApplications] = useState([]);
-    const [itemApplications, setItemApplications] = useState({}); // 存儲每個物品的申請者信息
+    const [itemApplications, setItemApplications] = useState({});
 
     useEffect(() => {
         if (!token) {
@@ -225,6 +226,45 @@ const KillHistory = () => {
         return app;
     };
 
+    const handleQuickApply = async (killId, itemId, itemName) => {
+        if (applying) return; // 防止重複點擊
+        setApplying(true);
+        try {
+            const token = localStorage.getItem('token');
+            if (!token) {
+                message.error('請先登錄！');
+                return;
+            }
+            const applicationKey = `${killId}_${itemId}`;
+            if (userApplications.some(app => {
+                const appKillId = app.kill_id && app.kill_id._id ? app.kill_id._id.toString() : null;
+                return appKillId === killId.toString() && app.item_id.toString() === itemId.toString();
+            })) {
+                message.warning('您已為此物品提交申請！');
+                return;
+            }
+            console.log(`Quick applying for killId: ${killId}, itemId: ${itemId}, itemName: ${itemName}`);
+            const res = await axios.post(
+                `${BASE_URL}/api/applications`,
+                {
+                    kill_id: killId,
+                    item_id: itemId,
+                    item_name: itemName,
+                },
+                { headers: { 'x-auth-token': token } }
+            );
+            console.log('Quick apply response:', res.data);
+            message.success(res.data.msg || '申請提交成功！');
+            await fetchUserApplications(); // 刷新申請記錄
+            fetchHistory(); // 刷新頁面數據
+        } catch (err) {
+            console.error('Quick apply error:', err.response?.data || err);
+            message.error(`申請失敗: ${err.response?.data?.msg || err.message}`);
+        } finally {
+            setApplying(false);
+        }
+    };
+
     const columns = [
         {
             title: '擊殺時間',
@@ -263,7 +303,7 @@ const KillHistory = () => {
                     const applicants = role === 'admin' ? itemApplications[applicationKey] || [] : [];
 
                     return (
-                        <div key={itemId}>
+                        <div key={itemId} style={{ marginBottom: '8px' }}>
                             {`${item.name} (${item.type}, 截止 ${moment(item.apply_deadline).format('YYYY-MM-DD')})`}
                             {role !== 'admin' && appDetails && (
                                 <Tag color="blue" style={{ marginLeft: 8 }}>
@@ -287,11 +327,29 @@ const KillHistory = () => {
                                     </Tag>
                                 </Tooltip>
                             )}
+                            {role !== 'admin' && !appDetails && (
+                                <Popconfirm
+                                    title="確認申請此物品？"
+                                    onConfirm={() => handleQuickApply(record._id, itemId, item.name)}
+                                    okText="是"
+                                    cancelText="否"
+                                >
+                                    <Button
+                                        type="primary"
+                                        size="small"
+                                        style={{ marginLeft: 8 }}
+                                        loading={applying}
+                                        disabled={applying}
+                                    >
+                                        快速申請
+                                    </Button>
+                                </Popconfirm>
+                            )}
                         </div>
                     );
-                }).reduce((prev, curr) => [prev, ', ', curr]);
+                });
             },
-            width: 250,
+            width: 300,
         },
         {
             title: '最終獲得者',
@@ -373,7 +431,7 @@ const KillHistory = () => {
                         搜索
                     </Button>
                 </div>
-                <Spin spinning={loading} size="large">
+                <Spin spinning={loading || applying} size="large">
                     {history.length === 0 && !loading ? (
                         <Alert
                             message="無數據"

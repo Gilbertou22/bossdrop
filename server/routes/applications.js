@@ -49,7 +49,22 @@ router.post('/', auth, async (req, res) => {
             });
         }
 
-        // 檢查是否已申請
+        // 檢查物品是否已被分配
+        const existingApprovedApplication = await Application.findOne({
+            kill_id,
+            item_id,
+            status: 'approved'
+        });
+        if (existingApprovedApplication) {
+            return res.status(400).json({
+                code: 400,
+                msg: '物品已被分配',
+                detail: `此物品 (${item_name}) 已於 ${moment(existingApprovedApplication.updatedAt).format('YYYY-MM-DD HH:mm')} 分配給 ${existingApprovedApplication.user_id.character_name}，無法再次申請。`,
+                suggestion: '請選擇其他未分配的物品。',
+            });
+        }
+
+        // 檢查當前用戶是否已申請
         const existingApplication = await Application.findOne({
             user_id: user.id,
             kill_id,
@@ -111,17 +126,73 @@ router.put('/:id/approve', auth, adminOnly, async (req, res) => {
                 suggestion: '請檢查申請 ID 或聯繫管理員。',
             });
         }
+        if (application.status !== 'pending') {
+            return res.status(400).json({
+                code: 400,
+                msg: '僅能審批待處理的申請',
+                detail: `申請 ID: ${id} 狀態為 ${application.status}，無法審批。`,
+                suggestion: '請檢查申請狀態。',
+            });
+        }
         application.status = 'approved';
         await application.save();
+
+        // 同步更新 BossKill
+        const bossKill = await BossKill.findById(application.kill_id);
+        if (bossKill) {
+            bossKill.final_recipient = application.user_id.character_name;
+            bossKill.status = 'assigned';
+            await bossKill.save();
+        }
+
         res.json({
             code: 200,
             msg: '申請已審批',
-            detail: `申請 ID: ${id} 已審批。`,
+            detail: `申請 ID: ${id} 已審批，分配給 ${application.user_id.character_name}。`,
         });
     } catch (err) {
         res.status(500).json({
             code: 500,
             msg: '審批申請失敗',
+            detail: err.message || '伺服器處理錯誤',
+            suggestion: '請稍後重試或聯繫管理員。',
+        });
+    }
+});
+
+// 新增拒絕路由
+router.put('/:id/reject', auth, adminOnly, async (req, res) => {
+    const { id } = req.params;
+    try {
+        const application = await Application.findById(id);
+        if (!application) {
+            return res.status(404).json({
+                code: 404,
+                msg: '申請不存在',
+                detail: `無法找到 ID 為 ${id} 的申請。`,
+                suggestion: '請檢查申請 ID 或聯繫管理員。',
+            });
+        }
+        if (application.status !== 'pending') {
+            return res.status(400).json({
+                code: 400,
+                msg: '僅能拒絕待處理的申請',
+                detail: `申請 ID: ${id} 狀態為 ${application.status}，無法拒絕。`,
+                suggestion: '請檢查申請狀態。',
+            });
+        }
+        application.status = 'rejected';
+        await application.save();
+
+        res.json({
+            code: 200,
+            msg: '申請已拒絕',
+            detail: `申請 ID: ${id} 已拒絕。`,
+        });
+    } catch (err) {
+        res.status(500).json({
+            code: 500,
+            msg: '拒絕申請失敗',
             detail: err.message || '伺服器處理錯誤',
             suggestion: '請稍後重試或聯繫管理員。',
         });
@@ -150,7 +221,7 @@ router.get('/user', auth, async (req, res) => {
             .select('user_id kill_id item_id item_name status created_at')
             .populate('user_id', 'character_name')
             .populate('kill_id', 'boss_name kill_time');
-        console.log('Fetched applications from database:', applications); // 調試數據庫查詢結果
+        console.log('Fetched applications from database:', applications);
         if (!applications || applications.length === 0) {
             console.warn('No applications found for user:', req.user.id);
             return res.json([]);
@@ -179,7 +250,7 @@ router.get('/by-kill-and-item', auth, adminOnly, async (req, res) => {
         const applications = await Application.find({
             kill_id,
             item_id,
-            status: { $in: ['pending', 'approved'] } // 僅顯示待審核和已通過的申請
+            status: { $in: ['pending', 'approved'] }
         })
             .select('user_id status created_at')
             .populate('user_id', 'character_name');

@@ -1,86 +1,102 @@
 import React, { useState, useEffect } from 'react';
-import { Table, Button, message, Modal, Form, Select, Tag } from 'antd';
+import { Table, Button, message, Popconfirm, Card, Spin, Row, Col, Alert, Tag } from 'antd';
 import axios from 'axios';
 import moment from 'moment';
 
-const { Option } = Select;
+const BASE_URL = 'http://localhost:5000';
 
 const ApproveApplications = () => {
     const [applications, setApplications] = useState([]);
-    const [isModalVisible, setIsModalVisible] = useState(false);
-    const [selectedApplication, setSelectedApplication] = useState(null);
-    const [form] = Form.useForm();
+    const [loading, setLoading] = useState(false);
+    const token = localStorage.getItem('token');
 
     useEffect(() => {
+        if (!token) {
+            message.error('請先登入！');
+            return;
+        }
         fetchApplications();
-    }, []);
+    }, [token]);
 
     const fetchApplications = async () => {
         try {
-            const token = localStorage.getItem('token');
-            const res = await axios.get('http://localhost:5000/api/applications', {
+            setLoading(true);
+            const res = await axios.get(`${BASE_URL}/api/applications`, {
                 headers: { 'x-auth-token': token },
             });
-            setApplications(res.data);
+            console.log('Fetched applications:', res.data);
+            // 過濾僅顯示 pending 狀態的申請
+            const pendingApplications = res.data.filter(app => app.status === 'pending');
+            setApplications(pendingApplications);
         } catch (err) {
-            message.error('載入申請列表失敗');
+            console.error('Fetch applications error:', err.response?.data || err);
+            message.error('載入申請列表失敗: ' + (err.response?.data?.msg || err.message));
+        } finally {
+            setLoading(false);
         }
     };
 
-    const showModal = (application) => {
-        setSelectedApplication(application);
-        form.setFieldsValue({ status: application.status });
-        setIsModalVisible(true);
-    };
-
-    const handleOk = async () => {
+    const handleUpdateStatus = async (id, status, finalRecipient = null) => {
         try {
-            const values = await form.validateFields();
+            setLoading(true);
             const token = localStorage.getItem('token');
-            const { status } = values;
-            const final_recipient = selectedApplication.user_id.character_name; // 自動填充為申請人
+            let updateMsg = '';
+            let bossKillUpdate = {};
 
             // 更新 Application 狀態
-            await axios.put(
-                `http://localhost:5000/api/applications/${selectedApplication._id}`,
-                { status },
-                { headers: { 'x-auth-token': token } }
-            );
+            if (status === 'approved') {
+                await axios.put(
+                    `${BASE_URL}/api/applications/${id}/approve`,
+                    {},
+                    { headers: { 'x-auth-token': token } }
+                );
+                updateMsg = '已審批';
+                bossKillUpdate = {
+                    final_recipient: finalRecipient,
+                    status: 'assigned',
+                };
+            } else if (status === 'rejected') {
+                await axios.put(
+                    `${BASE_URL}/api/applications/${id}/reject`,
+                    {},
+                    { headers: { 'x-auth-token': token } }
+                );
+                updateMsg = '已拒絕';
+            }
 
-            // 同時更新 BossKill 記錄
-            await axios.put(
-                `http://localhost:5000/api/boss-kills/${selectedApplication.kill_id._id}`,
-                {
-                    final_recipient,
-                    status: status === 'assigned' ? 'assigned' : 'pending', // 同步狀態
-                },
-                { headers: { 'x-auth-token': token } }
-            );
+            // 同步更新 BossKill（僅在批准時）
+            if (status === 'approved') {
+                const application = applications.find(app => app._id === id);
+                const bossKillId = application?.kill_id?._id;
+                if (bossKillId) {
+                    await axios.put(
+                        `${BASE_URL}/api/boss-kills/${bossKillId}`,
+                        bossKillUpdate,
+                        { headers: { 'x-auth-token': token } }
+                    );
+                }
+            }
 
-            message.success('申請狀態和擊殺記錄更新成功');
-            setIsModalVisible(false);
-            fetchApplications();
+            message.success(`申請 ${updateMsg}成功`);
+            fetchApplications(); // 刷新列表
         } catch (err) {
-            message.error('更新失敗: ' + err.message);
+            console.error('Update status error:', err.response?.data || err);
+            message.error(`更新失敗: ${err.response?.data?.msg || err.message}`);
+        } finally {
+            setLoading(false);
         }
     };
 
-    const handleCancel = () => {
-        setIsModalVisible(false);
-        form.resetFields();
-    };
-
-    const getStatusDisplay = (status) => {
+    const getStatusTag = (status) => {
         switch (status) {
             case 'pending':
                 return <Tag color="blue">待分配</Tag>;
-            case 'assigned':
-                return <Tag color="green">已分配</Tag>;
             case 'approved':
+                return <Tag color="green">已審批</Tag>;
             case 'rejected':
-                return <Tag color="gray">{status}</Tag>; // 保留兼容性，但不常用
+                return <Tag color="red">已拒絕</Tag>;
             default:
-                return status;
+                return <Tag>{status}</Tag>;
         }
     };
 
@@ -89,75 +105,117 @@ const ApproveApplications = () => {
             title: '申請人',
             dataIndex: 'user_id',
             key: 'user_id',
-            render: (user) => user.character_name,
+            render: (user) => user?.character_name || '未知',
+            responsive: ['md'], // 手機隱藏
         },
         {
             title: '擊殺記錄',
             dataIndex: 'kill_id',
             key: 'kill_id',
-            render: (kill) => `${kill.boss_name} - ${moment(kill.kill_time).format('YYYY-MM-DD HH:mm')}`,
+            render: (kill) => `${kill?.boss_name || '未知'} - ${moment(kill?.kill_time).format('YYYY-MM-DD HH:mm') || '無時間'}`,
+            responsive: ['md'], // 手機隱藏
         },
         {
             title: '物品名稱',
             dataIndex: 'item_name',
             key: 'item_name',
+            responsive: ['sm'], // 手機顯示
+        },
+        {
+            title: '申請時間',
+            dataIndex: 'created_at',
+            key: 'created_at',
+            render: (text) => moment(text).format('YYYY-MM-DD HH:mm'),
+            responsive: ['md'], // 手機隱藏
         },
         {
             title: '狀態',
             dataIndex: 'status',
             key: 'status',
-            render: (status) => getStatusDisplay(status),
+            render: getStatusTag,
+            responsive: ['sm'], // 手機顯示
         },
         {
             title: '最終獲得者',
             dataIndex: 'kill_id',
             key: 'final_recipient',
-            render: (kill) => kill.final_recipient || '未分配',
+            render: (kill) => kill?.final_recipient || '未分配',
+            responsive: ['md'], // 手機隱藏
         },
         {
             title: '操作',
-            key: 'action',
+            key: 'actions',
             render: (_, record) => (
                 record.status === 'pending' ? (
-                    <Button type="link" onClick={() => showModal(record)}>
-                        分配/更新
-                    </Button>
+                    <Row gutter={[8, 8]} justify="center">
+                        <Col xs={12} sm={10} md={10}>
+                            <Popconfirm
+                                title="確認批准此申請？"
+                                onConfirm={() => handleUpdateStatus(record._id, 'approved', record.user_id.character_name)}
+                                okText="是"
+                                cancelText="否"
+                            >
+                                <Button
+                                    type="primary"
+                                    size="large"
+                                    block
+                                    style={{ marginBottom: 8 }}
+                                >
+                                    批准
+                                </Button>
+                            </Popconfirm>
+                        </Col>
+                        <Col xs={12} sm={10} md={10}>
+                            <Popconfirm
+                                title="確認拒絕此申請？"
+                                onConfirm={() => handleUpdateStatus(record._id, 'rejected')}
+                                okText="是"
+                                cancelText="否"
+                            >
+                                <Button
+                                    type="danger"
+                                    size="large"
+                                    block
+                                >
+                                    拒絕
+                                </Button>
+                            </Popconfirm>
+                        </Col>
+                    </Row>
                 ) : null
             ),
+            responsive: ['sm'], // 手機顯示
         },
     ];
 
     return (
-        <div style={{ maxWidth: 1000, margin: '50px auto' }}>
-            <h2>批准申請物品</h2>
-            <Table
-                dataSource={applications}
-                columns={columns}
-                rowKey="_id"
-                bordered
-                pagination={{ pageSize: 10 }}
-            />
-            <Modal
-                title="更新申請狀態"
-                visible={isModalVisible}
-                onOk={handleOk}
-                onCancel={handleCancel}
-                okButtonProps={{ disabled: !selectedApplication || selectedApplication.status !== 'pending' }}
+        <div style={{ padding: '20px', backgroundColor: '#f0f2f5', minHeight: '100vh' }}>
+            <Card
+                title={<h2 style={{ margin: 0, fontSize: '24px', color: '#1890ff' }}>批准申請物品</h2>}
+                bordered={false}
+                style={{ boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)', borderRadius: '8px' }}
             >
-                <Form form={form} layout="vertical">
-                    <Form.Item
-                        name="status"
-                        label="狀態"
-                        rules={[{ required: true, message: '請選擇狀態！' }]}
-                    >
-                        <Select placeholder="選擇狀態" disabled={selectedApplication?.status !== 'pending'}>
-                            <Option value="pending">待分配</Option>
-                            <Option value="assigned">已分配</Option>
-                        </Select>
-                    </Form.Item>
-                    {/* 自動填充 final_recipient，無需選擇 */}
-                </Form>
-            </Modal>
+                <Spin spinning={loading} size="large">
+                    {applications.length === 0 && !loading ? (
+                        <Alert
+                            message="無待審核申請"
+                            description="目前沒有待審核的申請記錄。"
+                            type="info"
+                            showIcon
+                            style={{ marginBottom: '16px' }}
+                        />
+                    ) : (
+                        <Table
+                            dataSource={applications}
+                            columns={columns}
+                            rowKey="_id"
+                            bordered
+                            pagination={{ pageSize: 10, showSizeChanger: true, pageSizeOptions: ['10', '20', '50'] }}
+                            scroll={{ x: 'max-content' }}
+                        />
+                    )}
+                </Spin>
+            </Card>
         </div>
     );
 };

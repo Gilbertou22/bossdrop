@@ -84,6 +84,12 @@ const ApplyItem = () => {
                 console.error('Selected item does not have an item_id:', selectedItem);
                 throw new Error('物品缺少唯一標識，請聯繫管理員');
             }
+
+            // 檢查物品是否已被分配
+            if (selectedKill.status === 'assigned' && selectedKill.final_recipient) {
+                throw new Error(`此物品 (${selectedItem.name}) 已分配給 ${selectedKill.final_recipient}，無法再次申請！`);
+            }
+
             const applicationKey = `${values.kill_id}_${selectedItem._id}`;
             if (userApplications.includes(applicationKey)) {
                 throw new Error('您已為此物品提交申請，無法再次申請！');
@@ -103,13 +109,12 @@ const ApplyItem = () => {
                 { headers: { 'x-auth-token': token } }
             );
             console.log('API response:', res.data);
-            message.success(res.data.msg || '申請提交成功！'); // 顯示成功提示
-            // 延遲 1 秒後跳轉到 /kill-history
+            message.success(res.data.msg || '申請提交成功！');
             setTimeout(() => {
                 navigate('/kill-history');
             }, 1000);
             form.resetFields();
-            fetchUserApplications(); // 刷新申請記錄
+            fetchUserApplications();
         } catch (err) {
             console.error('Submit error:', err.response?.data || err);
             const errorMsg = err.response?.data?.msg || err.message || '申請失敗，請稍後再試';
@@ -144,10 +149,13 @@ const ApplyItem = () => {
                         {filteredItems.map(item => {
                             const applicationKey = `${form.getFieldValue('kill_id')}_${item._id}`;
                             const isApplied = userApplications.includes(applicationKey);
+                            const selectedKill = kills.find(kill => kill._id === form.getFieldValue('kill_id'));
+                            const isAssigned = selectedKill?.status === 'assigned' && selectedKill?.final_recipient;
                             return (
-                                <Option key={item._id} value={item.name} disabled={isApplied}>
+                                <Option key={item._id} value={item.name} disabled={isApplied || isAssigned}>
                                     {item.name} ({item.type}, 截止 {moment(item.apply_deadline).format('YYYY-MM-DD')})
                                     {isApplied && ' [已申請]'}
+                                    {isAssigned && ` [已分配給 ${selectedKill.final_recipient}]`}
                                 </Option>
                             );
                         })}

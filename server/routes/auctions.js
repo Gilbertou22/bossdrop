@@ -394,20 +394,19 @@ router.put('/:id/settle', auth, async (req, res) => {
         // 結算前檢查餘額並發送通知
         if (highestBidder.diamonds < auction.currentPrice) {
             let itemName = '未知物品';
-
             if (mongoose.Types.ObjectId.isValid(auction.itemId)) {
                 const bossKill = await BossKill.findById(auction.itemId).populate('dropped_items');
                 if (bossKill && bossKill.dropped_items?.length) {
-                    // 假設使用第一個 dropped_item（可根據業務邏輯調整）
                     itemName = bossKill.dropped_items[0].name || '未知物品';
                 }
-            } else {
-                console.warn(`Invalid itemId for auction ${auction._id}:`, auction.itemId);
             }
+
+            const formattedMessage = `系統：您的拍賣 ${itemName} (ID: ${id}) 結算時餘額不足（餘額: ${highestBidder.diamonds}，需: ${auction.currentPrice} 鑽石）。請充值後聯繫管理員。`;
 
             const notification = new Notification({
                 userId: highestBidder._id,
-                message: `您的拍賣 ${itemName} (ID: ${id}) 結算時餘額不足（餘額: ${highestBidder.diamonds}，需: ${auction.currentPrice} 鑽石）。請充值後聯繫管理員。`,
+                message: formattedMessage, // 嵌入系統作為發送人
+                auctionId: id,
             });
             await notification.save();
             await Auction.findByIdAndUpdate(id, { status: 'pending' });
@@ -432,6 +431,239 @@ router.put('/:id/settle', auth, async (req, res) => {
         res.status(500).json({
             code: 500,
             msg: '拍賣結算失敗',
+            detail: err.message || '伺服器處理錯誤',
+            suggestion: '請稍後重試或聯繫管理員。',
+        });
+    }
+});
+
+// 取消拍賣路由
+router.put('/:id/cancel', auth, async (req, res) => {
+    const { id } = req.params;
+    try {
+        if (req.user.role !== 'admin') {
+            return res.status(403).json({
+                code: 403,
+                msg: '無權操作',
+                detail: '只有管理員可以取消拍賣。',
+            });
+        }
+
+        if (!mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({
+                code: 400,
+                msg: '無效的拍賣 ID',
+                detail: `提供的 auctionId (${id}) 不是有效的 MongoDB ObjectId。`,
+                suggestion: '請刷新頁面並重試，或聯繫管理員。',
+            });
+        }
+
+        const auction = await Auction.findById(id)
+            .lean()
+            .populate('highestBidder', 'character_name');
+        if (!auction) {
+            return res.status(404).json({
+                code: 404,
+                msg: '拍賣不存在',
+                detail: `無法找到 ID 為 ${id} 的拍賣。`,
+                suggestion: '請刷新頁面後重試或聯繫管理員檢查數據庫。',
+            });
+        }
+
+        if (auction.status !== 'active' && auction.status !== 'pending') {
+            return res.status(400).json({
+                code: 400,
+                msg: '拍賣狀態無效',
+                detail: `拍賣 ${id} 狀態為 ${auction.status}，無法取消。`,
+                suggestion: '只有活躍或待處理狀態的拍賣可以被取消。',
+            });
+        }
+
+        let itemName = '未知物品';
+        if (mongoose.Types.ObjectId.isValid(auction.itemId)) {
+            const bossKill = await BossKill.findById(auction.itemId).populate('dropped_items');
+            if (bossKill && bossKill.dropped_items?.length) {
+                itemName = bossKill.dropped_items[0].name || '未知物品';
+            }
+        }
+
+        // 查找所有出價者
+        const bids = await Bid.find({ auctionId: id }).populate('userId', 'character_name');
+        const bidders = bids.map(bid => bid.userId);
+
+        // 發送通知給所有出價者
+        const notifications = bidders.map(bidder => new Notification({
+            userId: bidder._id,
+            message: `拍賣 ${itemName} (ID: ${id}) 已被管理員取消。`,
+            auctionId: id, // 添加 auctionId
+        }));
+
+        if (notifications.length > 0) {
+            await Notification.insertMany(notifications);
+        }
+
+        // 更新拍賣狀態為 cancelled
+        await Auction.findByIdAndUpdate(id, { status: 'cancelled', highestBidder: null });
+
+        res.status(200).json({
+            code: 200,
+            msg: '拍賣已取消',
+            detail: `拍賣 ${id} 已成功取消，所有出價者已收到通知。`,
+        });
+    } catch (err) {
+        console.error('Error cancelling auction:', err);
+        res.status(500).json({
+            code: 500,
+            msg: '取消拍賣失敗',
+            detail: err.message || '伺服器處理錯誤',
+            suggestion: '請稍後重試或聯繫管理員。',
+        });
+    }
+});
+
+// 重新分配拍賣路由
+router.put('/:id/reassign', auth, async (req, res) => {
+    const { id } = req.params;
+    try {
+        if (req.user.role !== 'admin') {
+            return res.status(403).json({
+                code: 403,
+                msg: '無權操作',
+                detail: '只有管理員可以重新分配拍賣。',
+            });
+        }
+
+        if (!mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({
+                code: 400,
+                msg: '無效的拍賣 ID',
+                detail: `提供的 auctionId (${id}) 不是有效的 MongoDB ObjectId。`,
+                suggestion: '請刷新頁面並重試，或聯繫管理員。',
+            });
+        }
+
+        const auction = await Auction.findById(id)
+            .populate('highestBidder', 'character_name');
+        if (!auction) {
+            return res.status(404).json({
+                code: 404,
+                msg: '拍賣不存在',
+                detail: `無法找到 ID 為 ${id} 的拍賣。`,
+                suggestion: '請刷新頁面後重試或聯繫管理員檢查數據庫。',
+            });
+        }
+
+        if (auction.status !== 'pending') {
+            return res.status(400).json({
+                code: 400,
+                msg: '拍賣狀態無效',
+                detail: `拍賣 ${id} 狀態為 ${auction.status}，無法重新分配。`,
+                suggestion: '只有待處理狀態的拍賣可以被重新分配。',
+            });
+        }
+
+        let itemName = '未知物品';
+        if (mongoose.Types.ObjectId.isValid(auction.itemId)) {
+            const bossKill = await BossKill.findById(auction.itemId).populate('dropped_items');
+            if (bossKill && bossKill.dropped_items?.length) {
+                itemName = bossKill.dropped_items[0].name || '未知物品';
+            }
+        }
+
+        // 查找所有出價，按金額降序排列
+        const bids = await Bid.find({ auctionId: id })
+            .populate('userId', 'character_name diamonds')
+            .sort({ amount: -1 });
+
+        if (!bids.length) {
+            // 如果沒有出價者，結束拍賣
+            await Auction.findByIdAndUpdate(id, { status: 'completed', highestBidder: null });
+            return res.status(200).json({
+                code: 200,
+                msg: '拍賣已結束，無中標者',
+                detail: `拍賣 ${id} 無有效出價，已標記為完成。`,
+            });
+        }
+
+        // 找到次高出價者（排除當前最高出價者）
+        const currentHighestBidderId = auction.highestBidder ? auction.highestBidder._id.toString() : null;
+        const nextHighestBid = bids.find(bid => bid.userId._id.toString() !== currentHighestBidderId);
+
+        if (!nextHighestBid) {
+            // 如果沒有其他出價者，結束拍賣
+            const notification = new Notification({
+                userId: currentHighestBidderId,
+                message: `您的拍賣 ${itemName} (ID: ${id}) 因無其他出價者已被結束。`,
+            });
+            await notification.save();
+
+            await Auction.findByIdAndUpdate(id, { status: 'completed', highestBidder: null });
+            return res.status(200).json({
+                code: 200,
+                msg: '拍賣已結束，無其他出價者',
+                detail: `拍賣 ${id} 無其他出價者，已標記為完成。`,
+            });
+        }
+
+        // 檢查次高出價者的餘額
+        const nextHighestBidder = nextHighestBid.userId;
+        if (nextHighestBidder.diamonds < nextHighestBid.amount) {
+            const notification = new Notification({
+                userId: nextHighestBidder._id,
+                message: `您的拍賣 ${itemName} (ID: ${id}) 已被重新分配給您，但您的餘額不足（餘額: ${nextHighestBidder.diamonds}，需: ${nextHighestBid.amount} 鑽石）。請充值後聯繫管理員。`,
+            });
+            await notification.save();
+
+            await Auction.findByIdAndUpdate(id, {
+                highestBidder: nextHighestBidder._id,
+                currentPrice: nextHighestBid.amount,
+                status: 'pending',
+            });
+
+            return res.status(400).json({
+                code: 400,
+                msg: '次高出價者餘額不足',
+                detail: `用戶 ${nextHighestBidder.character_name} 鑽石餘額 (${nextHighestBidder.diamonds}) 不足以支付 ${nextHighestBid.amount} 鑽石。`,
+                suggestion: '請為用戶充值或再次重新分配。',
+            });
+        }
+
+        // 通知原中標者
+        if (currentHighestBidderId) {
+            const notification = new Notification({
+                userId: currentHighestBidderId,
+                message: `您的拍賣 ${itemName} (ID: ${id}) 因餘額不足已被重新分配給其他出價者。`,
+                auctionId: id, // 添加 auctionId
+            });
+            await notification.save();
+        }
+
+        const notification = new Notification({
+            userId: nextHighestBidder._id,
+            message: `拍賣 ${itemName} (ID: ${id}) 已被重新分配給您，您的出價為 ${nextHighestBid.amount} 鑽石。請確保結算前餘額足夠。`,
+            auctionId: id, // 添加 auctionId
+        });
+        await notification.save();
+
+        // 更新拍賣數據
+        await Auction.findByIdAndUpdate(id, {
+            highestBidder: nextHighestBidder._id,
+            currentPrice: nextHighestBid.amount,
+            status: 'completed',
+        });
+
+        await User.findByIdAndUpdate(nextHighestBidder._id, { $inc: { diamonds: -nextHighestBid.amount } });
+
+        res.status(200).json({
+            code: 200,
+            msg: '拍賣重新分配成功',
+            detail: `拍賣 ${id} 已重新分配給用戶 ${nextHighestBidder.character_name}，出價為 ${nextHighestBid.amount} 鑽石。`,
+        });
+    } catch (err) {
+        console.error('Error reassigning auction:', err);
+        res.status(500).json({
+            code: 500,
+            msg: '重新分配拍賣失敗',
             detail: err.message || '伺服器處理錯誤',
             suggestion: '請稍後重試或聯繫管理員。',
         });

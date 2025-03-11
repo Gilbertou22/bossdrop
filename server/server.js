@@ -33,6 +33,8 @@ app.use('/api/items', require('./routes/items'));
 console.log('Items route loaded');
 app.use('/api/pending', require('./routes/pending')); // 新增路由
 console.log('Pending route loaded');
+app.use('/api/notifications', require('./routes/notifications')); // 新增路由
+console.log('notifications route loaded');
 
 try {
     startAuctionCron();

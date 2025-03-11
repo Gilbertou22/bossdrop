@@ -7,8 +7,10 @@ const { Option } = Select;
 const ManageUsers = () => {
     const [users, setUsers] = useState([]);
     const [isModalVisible, setIsModalVisible] = useState(false);
+    const [isBroadcastModalVisible, setIsBroadcastModalVisible] = useState(false); // 新增狀態
     const [editingUser, setEditingUser] = useState(null);
     const [form] = Form.useForm();
+    const [broadcastForm] = Form.useForm(); // 新增表單
     const token = localStorage.getItem('token');
 
     useEffect(() => {
@@ -159,6 +161,28 @@ const ManageUsers = () => {
         });
     };
 
+    const handleBroadcast = async () => {
+        try {
+            const values = await broadcastForm.validateFields();
+            if (!values.message.trim()) {
+                message.error('請輸入通知內容！');
+                return;
+            }
+
+            const res = await axios.post(
+                'http://localhost:5000/api/notifications/broadcast',
+                { message: values.message, auctionId: values.auctionId || null },
+                { headers: { 'x-auth-token': token } }
+            );
+            message.success(res.data.msg);
+            setIsBroadcastModalVisible(false);
+            broadcastForm.resetFields();
+        } catch (err) {
+            console.error('Broadcast error:', err.response?.data || err);
+            message.error(`發送通知失敗: ${err.response?.data?.msg || err.message}`);
+        }
+    };
+
     const columns = [
         { title: '世界名稱', dataIndex: 'world_name', key: 'world_name' },
         { title: '角色名稱', dataIndex: 'character_name', key: 'character_name' },
@@ -187,9 +211,14 @@ const ManageUsers = () => {
     return (
         <div style={{ maxWidth: 1000, margin: '50px auto' }}>
             <h2>管理用戶</h2>
-            <Button type="primary" onClick={() => showModal()} style={{ marginBottom: 16 }} disabled={!token}>
-                添加用戶
-            </Button>
+            <div style={{ marginBottom: 16 }}>
+                <Button type="primary" onClick={() => showModal()} style={{ marginRight: 16 }} disabled={!token}>
+                    添加用戶
+                </Button>
+                <Button type="primary" onClick={() => setIsBroadcastModalVisible(true)} disabled={!token}>
+                    發送廣播通知
+                </Button>
+            </div>
             {users.length === 0 ? (
                 <p style={{ color: '#888' }}>暫無用戶數據，請添加用戶或檢查權限。</p>
             ) : (
@@ -270,7 +299,7 @@ const ManageUsers = () => {
                             >
                                 <Select>
                                     <Option value="user">用戶</Option>
-                                    <Option value="moderator">版主</Option> {/* 新增 moderator */}
+                                    <Option value="moderator">版主</Option>
                                     <Option value="admin">管理員</Option>
                                 </Select>
                             </Form.Item>
@@ -284,8 +313,8 @@ const ManageUsers = () => {
                                     type="password"
                                     placeholder={editingUser ? '留空以保留原密碼' : '請輸入密碼'}
                                     onChange={(e) => {
-                                        form.setFieldsValue({ confirm_password: '' }); // 重置確認密碼
-                                        console.log('Password changed to:', e.target.value); // 調試
+                                        form.setFieldsValue({ confirm_password: '' });
+                                        console.log('Password changed to:', e.target.value);
                                     }}
                                 />
                             </Form.Item>
@@ -297,17 +326,39 @@ const ManageUsers = () => {
                                     { required: !editingUser, message: '請確認密碼！' },
                                     { validator: validateConfirmPassword },
                                 ]}
-                                validateTrigger={['onChange', 'onBlur']} // 確保觸發
+                                validateTrigger={['onChange', 'onBlur']}
                                 style={{ marginBottom: 16 }}
                             >
                                 <Input
                                     type="password"
                                     placeholder={editingUser ? '留空' : '請再次輸入密碼'}
-                                    onChange={() => console.log('Confirm password changed')} // 調試
+                                    onChange={() => console.log('Confirm password changed')}
                                 />
                             </Form.Item>
                         </Col>
                     </Row>
+                </Form>
+            </Modal>
+            <Modal
+                title="發送廣播通知"
+                visible={isBroadcastModalVisible}
+                onOk={handleBroadcast}
+                onCancel={() => setIsBroadcastModalVisible(false)}
+                okText="發送"
+                cancelText="取消"
+            >
+                <Form form={broadcastForm} layout="vertical">
+                    <Form.Item
+                        name="message"
+                        label="通知內容"
+                        rules={[{ required: true, message: '請輸入通知內容！' }]}
+                    >
+                        <Input.TextArea rows={4} placeholder="輸入通知內容" />
+                    </Form.Item>
+                    <Form.Item name="auctionId" label="拍賣 ID (可選)">
+                        <Input placeholder="輸入拍賣 ID (留空則不關聯)" />
+                    </Form.Item>
+                    <p>注意：通知將發送給所有用戶。</p>
                 </Form>
             </Modal>
         </div>

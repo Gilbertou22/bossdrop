@@ -94,6 +94,32 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, handleSettleAuction })
     );
   };
 
+  const handleCancelAuction = async (auctionId) => {
+    try {
+      const res = await axios.put(`${BASE_URL}/api/auctions/${auctionId}/cancel`, {}, {
+        headers: { 'x-auth-token': token },
+      });
+      message.success(res.data.msg);
+      fetchAuctions();
+    } catch (err) {
+      console.error('Cancel auction error:', err.response?.data || err);
+      message.error(`取消拍賣失敗: ${err.response?.data?.msg || err.message}`);
+    }
+  };
+
+  const handleReassignAuction = async (auctionId) => {
+    try {
+      const res = await axios.put(`${BASE_URL}/api/auctions/${auctionId}/reassign`, {}, {
+        headers: { 'x-auth-token': token },
+      });
+      message.success(res.data.msg);
+      fetchAuctions();
+    } catch (err) {
+      console.error('Reassign auction error:', err.response?.data || err);
+      message.error(`重新分配拍賣失敗: ${err.response?.data?.msg || err.message}`);
+    }
+  };
+
   const columns = [
     {
       title: '競標 ID',
@@ -168,15 +194,51 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, handleSettleAuction })
           >
             出價
           </Button>
-          {userRole === 'admin' && record.status !== 'completed' && (
-            <Popconfirm
-              title="確認結算此拍賣？"
-              onConfirm={() => handleSettleAuction(record._id)}
-              okText="是"
-              cancelText="否"
-            >
-              <Button type="default">結算</Button>
-            </Popconfirm>
+          {userRole === 'admin' && record.status !== 'completed' && record.status !== 'cancelled' && (
+            <>
+              <Popconfirm
+                title="確認結算此拍賣？"
+                onConfirm={() => handleSettleAuction(record._id)}
+                okText="是"
+                cancelText="否"
+                disabled={record.status !== 'active' && record.status !== 'completed'}
+              >
+                <Button
+                  type="default"
+                  disabled={record.status !== 'active' && record.status !== 'completed'}
+                >
+                  結算
+                </Button>
+              </Popconfirm>
+              <Popconfirm
+                title="確認取消此拍賣？"
+                onConfirm={() => handleCancelAuction(record._id)}
+                okText="是"
+                cancelText="否"
+                disabled={record.status !== 'active' && record.status !== 'pending'}
+              >
+                <Button
+                  type="danger"
+                  disabled={record.status !== 'active' && record.status !== 'pending'}
+                >
+                  取消
+                </Button>
+              </Popconfirm>
+              <Popconfirm
+                title="確認重新分配此拍賣？"
+                onConfirm={() => handleReassignAuction(record._id)}
+                okText="是"
+                cancelText="否"
+                disabled={record.status !== 'pending'}
+              >
+                <Button
+                  type="default"
+                  disabled={record.status !== 'pending'}
+                >
+                  重新分配
+                </Button>
+              </Popconfirm>
+            </>
           )}
         </div>
       ),
@@ -387,9 +449,9 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, handleSettleAuction })
         okText="提交出價"
         cancelText="取消"
       >
-        <p>當前價格: {selectedAuction?.currentPrice || 0} 鑽石</p>
+        <p>當前價格: ${selectedAuction?.currentPrice || 0} 鑽石</p>
         {selectedAuction?.buyoutPrice && (
-          <p>直接得標價: {selectedAuction.buyoutPrice} 鑽石</p>
+          <p>直接得標價: ${selectedAuction.buyoutPrice} 鑽石</p>
         )}
         <Input
           type="number"

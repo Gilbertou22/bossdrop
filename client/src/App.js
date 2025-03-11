@@ -15,16 +15,18 @@ import RoleRoute from './components/RoleRoute';
 import Navbar from './components/Navbar';
 import KillHistory from './pages/KillHistory';
 import UserProfile from './pages/UserProfile';
+import Notifications from './pages/Notifications'; // 導入 Notifications 組件
 import React, { useState } from 'react';
+import { NotificationProvider } from './components/NotificationContext';
 
 function App() {
-
   const [profileVisible, setProfileVisible] = useState(false);
-  
+
   // 調試信息
   console.log('App rendered, checking routes');
 
   return (
+    <NotificationProvider>
     <Router>
       <div className="App">
         <Navbar />
@@ -112,11 +114,22 @@ function App() {
               </RoleRoute>
             }
           />
+          <Route
+            path="/notifications"
+            element={
+              <RoleRoute allowedRoles={['user', 'moderator', 'admin']}>
+                <Notifications />
+              </RoleRoute>
+            }
+          />
+          {/* 處理未匹配的路由 */}
+          <Route path="*" element={<h1>404 - 頁面未找到</h1>} />
         </Routes>
         <UserProfile visible={profileVisible} onCancel={() => setProfileVisible(false)} />
       </div>
-    </Router>
+      </Router>
+    </NotificationProvider>
   );
-};
+}
 
 export default App;

@@ -4,6 +4,19 @@ const Application = require('../models/Application');
 const BossKill = require('../models/BossKill');
 const { auth, adminOnly } = require('../middleware/auth');
 
+router.get('/pending-count', auth, async (req, res) => {
+    try {
+        if (req.user.role !== 'admin') {
+            return res.status(403).json({ code: 403, msg: '無權限訪問' });
+        }
+        const pendingCount = await Application.countDocuments({ status: 'pending' });
+        res.json({ pendingCount });
+    } catch (err) {
+        console.error('Error fetching pending applications:', err);
+        res.status(500).json({ code: 500, msg: '獲取待審核申請失敗' });
+    }
+});
+
 router.post('/', auth, async (req, res) => {
     const { kill_id, item_id, item_name } = req.body;
     const user = req.user;
@@ -260,6 +273,38 @@ router.get('/by-kill-and-item', auth, adminOnly, async (req, res) => {
     } catch (err) {
         console.error('Fetch applications by kill and item error:', err);
         res.status(500).json({ msg: '獲取申請記錄失敗', error: err.message });
+    }
+});
+
+router.get('/trend', auth, async (req, res) => {
+    try {
+        if (req.user.role !== 'admin') {
+            return res.status(403).json({ code: 403, msg: '無權限訪問' });
+        }
+        const { range = 30 } = req.query; // 默認為 30 天
+        const now = new Date();
+        const startDate = new Date(now.getTime() - range * 24 * 60 * 60 * 1000);
+        const trendData = await Application.aggregate([
+            {
+                $match: {
+                    createdAt: { $gte: startDate, $lte: now },
+                    status: { $ne: 'approved' }, // 僅統計未審核的申請
+                },
+            },
+            {
+                $group: {
+                    _id: {
+                        $dateToString: { format: '%Y-%m-%d', date: '$createdAt' },
+                    },
+                    count: { $sum: 1 },
+                },
+            },
+            { $sort: { _id: 1 } },
+        ]);
+        res.json(trendData);
+    } catch (err) {
+        console.error('Error fetching application trend:', err);
+        res.status(500).json({ code: 500, msg: '獲取申請趨勢失敗' });
     }
 });
 

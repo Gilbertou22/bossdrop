@@ -36,6 +36,20 @@ router.use((req, res, next) => {
     next();
 });
 
+router.get('/stats', auth, async (req, res) => {
+    try {
+        if (req.user.role !== 'admin') {
+            return res.status(403).json({ code: 403, msg: '無權限訪問' });
+        }
+        const totalUsers = await User.countDocuments();
+        const activeUsers = await User.countDocuments({ status: 'active' });
+        res.json({ totalUsers, activeUsers });
+    } catch (err) {
+        console.error('Error fetching user stats:', err);
+        res.status(500).json({ code: 500, msg: '獲取用戶統計失敗' });
+    }
+});
+
 // 註冊用戶
 router.post('/register', upload.single('screenshot'), async (req, res) => {
     const { world_name, character_name, discord_id, raid_level, password } = req.body;
@@ -199,6 +213,37 @@ router.get('/me', auth, async (req, res) => {
     } catch (err) {
         console.error('Error fetching user:', err);
         res.status(500).json({ msg: '伺服器錯誤，請稍後重試', error: err.message });
+    }
+});
+
+router.get('/growth', auth, async (req, res) => {
+    try {
+        if (req.user.role !== 'admin') {
+            return res.status(403).json({ code: 403, msg: '無權限訪問' });
+        }
+        const { range = 30 } = req.query; // 默認為 30 天
+        const now = new Date();
+        const startDate = new Date(now.getTime() - range * 24 * 60 * 60 * 1000);
+        const growthData = await User.aggregate([
+            {
+                $match: {
+                    createdAt: { $gte: startDate, $lte: now },
+                },
+            },
+            {
+                $group: {
+                    _id: {
+                        $dateToString: { format: '%Y-%m-%d', date: '$createdAt' },
+                    },
+                    count: { $sum: 1 },
+                },
+            },
+            { $sort: { _id: 1 } },
+        ]);
+        res.json(growthData);
+    } catch (err) {
+        console.error('Error fetching user growth:', err);
+        res.status(500).json({ code: 500, msg: '獲取用戶增長數據失敗' });
     }
 });
 

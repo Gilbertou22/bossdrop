@@ -35,6 +35,8 @@ app.use('/api/pending', require('./routes/pending')); // 新增路由
 console.log('Pending route loaded');
 app.use('/api/notifications', require('./routes/notifications')); // 新增路由
 console.log('notifications route loaded');
+app.use('/api/alerts', require('./routes/alerts')); // 新增路由
+console.log('Alerts route loaded');
 
 try {
     startAuctionCron();

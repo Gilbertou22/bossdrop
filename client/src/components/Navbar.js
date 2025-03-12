@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Menu, Layout, Dropdown, Avatar, Badge, Button, Popover } from 'antd';
 import {
     LoginOutlined,
@@ -28,12 +28,10 @@ const Navbar = () => {
     const navigate = useNavigate();
     const location = useLocation();
     const token = localStorage.getItem('token');
+    const { unreadCount, setUnreadCount, notifications, setNotifications } = useNotification();
     const [user, setUser] = useState(null);
     const [profileVisible, setProfileVisible] = useState(false);
     const [pendingCount, setPendingCount] = useState(0);
-    const [notifications, setNotifications] = useState([]);
-    //const [unreadCount, setUnreadCount] = useState(0);
-    const { unreadCount, setUnreadCount } = useNotification();
 
     useEffect(() => {
         if (token) {
@@ -49,16 +47,11 @@ const Navbar = () => {
                 headers: { 'x-auth-token': token },
             });
             setUser(res.data);
-            console.log('Fetched user info:', res.data);
         } catch (err) {
             console.error('Fetch user info error:', err.response?.data || err.message);
-            if (err.response?.status === 404) {
-                message.error('用戶信息路徑未找到，請檢查後端配置');
-            } else if (err.response?.status === 401 || err.response?.status === 403 || err.response?.status === 500) {
-                message.error('請求失敗，請重新登入:', err.response?.data?.msg);
+            if (err.response?.status === 401 || err.response?.status === 403) {
+                message.error('請求失敗，請重新登入');
                 navigate('/login');
-            } else {
-                message.error('載入用戶信息失敗:', err.response?.data?.msg || err.message);
             }
         }
     };
@@ -100,7 +93,7 @@ const Navbar = () => {
             }));
             setNotifications(enrichedNotifications);
             setUnreadCount(res.data.unreadCount);
-            console.log('Navbar: Fetched unreadCount:', res.data.unreadCount); // 調試
+            console.log('Navbar: Fetched unreadCount:', res.data.unreadCount);
         } catch (err) {
             console.error('Fetch notifications error:', err);
             message.error('無法獲取通知，請重新登錄');
@@ -110,18 +103,14 @@ const Navbar = () => {
 
     const markAsRead = async (notificationId) => {
         try {
-            console.log('Navbar: Marking as read for notificationId:', notificationId); // 調試
-            const res = await axios.put(
+            console.log('Navbar: Marking as read for notificationId:', notificationId);
+            await axios.put(
                 `http://localhost:5000/api/notifications/${notificationId}/read`,
                 {},
                 { headers: { 'x-auth-token': token } }
             );
             message.success('通知已標記為已讀');
-            // 立即更新本地狀態
-            setNotifications(notifications.map(n =>
-                n._id === notificationId ? { ...n, read: true } : n
-            ));
-            // 等待 fetchNotifications 完成後更新 unreadCount
+            setNotifications(notifications.map(n => n._id === notificationId ? { ...n, read: true } : n));
             await fetchNotifications();
         } catch (err) {
             console.error('Navbar: Mark as read error:', err);

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Card, Avatar, List, Badge, message, Spin } from 'antd';
 import axios from 'axios';
 import moment from 'moment';
@@ -8,10 +8,8 @@ import { useNotification } from '../components/NotificationContext';
 const BASE_URL = 'http://localhost:5000';
 
 const Notifications = () => {
-    const [notifications, setNotifications] = useState([]);
-    const { unreadCount, setUnreadCount } = useNotification();
+    const { notifications, setNotifications, unreadCount, setUnreadCount } = useNotification();
     const [loading, setLoading] = useState(false);
-    //const [unreadCount, setUnreadCount] = useState(0);
     const token = localStorage.getItem('token');
     const navigate = useNavigate();
 
@@ -46,7 +44,7 @@ const Notifications = () => {
             }));
             setNotifications(enrichedNotifications);
             setUnreadCount(res.data.unreadCount);
-            console.log('Notifications fetched, unreadCount:', res.data.unreadCount); // 調試
+            console.log('Notifications: Fetched unreadCount:', res.data.unreadCount);
         } catch (err) {
             console.error('Fetch notifications error:', err);
             message.error('無法獲取通知，請重新登錄');
@@ -58,14 +56,12 @@ const Notifications = () => {
 
     const markAsRead = async (id) => {
         try {
-            console.log('Marking as read for notificationId:', id); // 調試
+            console.log('Notifications: Marking as read for notificationId:', id);
             await axios.put(`${BASE_URL}/api/notifications/${id}/read`, {}, {
                 headers: { 'x-auth-token': token },
             });
             message.success('通知已標記為已讀');
-            // 立即更新本地狀態
             setNotifications(notifications.map(n => n._id === id ? { ...n, read: true } : n));
-            // 等待 fetchNotifications 完成後更新 unreadCount
             await fetchNotifications();
         } catch (err) {
             console.error('Mark as read error:', err);

@@ -301,6 +301,20 @@ const KillHistory = () => {
                     const appDetails = getApplicationDetails(record._id, itemId);
                     const applicationKey = `${record._id}_${itemId}`;
                     const applicants = role === 'admin' ? itemApplications[applicationKey] || [] : [];
+                    // 計算 effectiveStatus
+                    let effectiveStatus = item.status ? item.status.toLowerCase() : 'pending';
+                    const isExpired = item.apply_deadline && new Date(item.apply_deadline) < new Date();
+                    if (isExpired && effectiveStatus !== 'assigned') {
+                        effectiveStatus = 'expired';
+                    }
+                    // 檢查是否有已批准的申請
+                    const hasApprovedApplication = applicants.some(app => app.status === 'approved');
+                    if (hasApprovedApplication && effectiveStatus !== 'expired') {
+                        effectiveStatus = 'assigned';
+                    }
+                    const canApply = effectiveStatus === 'pending';
+
+                    console.log(`Item ${itemId} status: ${item.status}, effectiveStatus: ${effectiveStatus}, apply_deadline: ${item.apply_deadline}, isExpired: ${isExpired}, hasApprovedApplication: ${hasApprovedApplication}, canApply: ${canApply}, appDetails:`, appDetails);
 
                     return (
                         <div key={itemId} style={{ marginBottom: '8px' }}>
@@ -327,7 +341,7 @@ const KillHistory = () => {
                                     </Tag>
                                 </Tooltip>
                             )}
-                            {role !== 'admin' && !appDetails && (
+                            {role !== 'admin' && !appDetails && canApply && (
                                 <Popconfirm
                                     title="確認申請此物品？"
                                     onConfirm={() => handleQuickApply(record._id, itemId, item.name)}
@@ -344,7 +358,7 @@ const KillHistory = () => {
                                         快速申請
                                     </Button>
                                 </Popconfirm>
-                            )}
+                            )}                         
                         </div>
                     );
                 });

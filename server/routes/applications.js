@@ -287,7 +287,7 @@ router.get('/by-kill-and-item', auth, adminOnly, async (req, res) => {
         const applications = await Application.find({
             kill_id,
             item_id,
-            status: { $in: ['pending', 'approved'] },
+            //status: { $in: ['pending', 'approved'] },
         })
             .select('user_id status created_at')
             .populate('user_id', 'character_name');

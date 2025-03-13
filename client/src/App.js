@@ -14,6 +14,7 @@ import ManageUsers from './pages/ManageUsers';
 import RoleRoute from './components/RoleRoute';
 import Navbar from './components/Navbar';
 import KillHistory from './pages/KillHistory';
+import KillDetail from './pages/KillDetail';
 import UserProfile from './pages/UserProfile';
 import Notifications from './pages/Notifications'; // 導入 Notifications 組件
 import Guilds from './pages/GuildSettings'; // 導入 Guilds 組件
@@ -114,6 +115,14 @@ function App() {
                 <KillHistory />
               </RoleRoute>
             }
+            />
+            <Route
+              path="/kill-detail/:id"
+              element={
+                <RoleRoute allowedRoles={['user', 'moderator', 'admin']}>
+                  <KillDetail />
+                </RoleRoute>
+              }
             />
             <Route
             path="/guilds"

@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Row, Col, Button, DatePicker, Input, message, Image, Card, Spin, Alert, Tag, Tooltip, Popconfirm } from 'antd';
-import { SearchOutlined } from '@ant-design/icons';
+import { SearchOutlined, EditOutlined } from '@ant-design/icons';
 import axios from 'axios';
 import moment from 'moment';
+import KillDetailModal from './KillDetailModal'; // 導入獨立元件
 
 const { RangePicker } = DatePicker;
 
@@ -19,6 +20,10 @@ const KillHistory = () => {
     const [userId, setUserId] = useState(null);
     const [userApplications, setUserApplications] = useState([]);
     const [itemApplications, setItemApplications] = useState({});
+    const [visible, setVisible] = useState(false);
+    const [selectedKill, setSelectedKill] = useState(null);
+    const [modalLoading, setModalLoading] = useState(false);
+    const [isEditing, setIsEditing] = useState(false); // 控制編輯模式
 
     useEffect(() => {
         if (!token) {
@@ -89,10 +94,29 @@ const KillHistory = () => {
                 params: { kill_id, item_id },
             });
             console.log(`Fetched applications for kill_id: ${kill_id}, item_id: ${item_id}:`, res.data);
-            return res.data;
+            return res.data || [];
         } catch (err) {
             console.error(`Fetch applications error for kill_id: ${kill_id}, item_id: ${item_id}:`, err.response?.data || err.message);
             return [];
+        }
+    };
+
+    const fetchKillDetail = async (killId) => {
+        setModalLoading(true);
+        try {
+            const res = await axios.get(`${BASE_URL}/api/boss-kills/${killId}`, {
+                headers: { 'x-auth-token': token },
+            });
+            const detail = res.data;
+            detail.screenshots = detail.screenshots
+                ? detail.screenshots.map(src => (src ? `${BASE_URL}/${src.replace('./', '')}` : ''))
+                : [];
+            setSelectedKill(detail);
+        } catch (err) {
+            console.error('Fetch kill detail error:', err);
+            message.error(`載入詳情失敗: ${err.response?.data?.msg || err.message}`);
+        } finally {
+            setModalLoading(false);
         }
     };
 
@@ -264,15 +288,33 @@ const KillHistory = () => {
         }
     };
 
+    const handleShowDetail = (killId, editing = false) => {
+        fetchKillDetail(killId);
+        setIsEditing(editing);
+        setVisible(true);
+    };
+
+    const handleCloseModal = () => {
+        setVisible(false);
+        setSelectedKill(null);
+        setIsEditing(false);
+    };
+
+    const handleUpdate = () => {
+        fetchHistory(); // 刷新主頁數據
+        handleCloseModal();
+    };
+
     // 渲染網格項
     const renderGridItem = (record) => {
         const firstScreenshot = record.screenshots[0] || 'https://via.placeholder.com/300x200'; // 默認圖片
         const killTime = moment(record.kill_time).format('MM-DD HH:mm');
+        const relativeTime = moment(record.kill_time).fromNow(); // 相對時間，如 "18小時前"
         const itemName = record.dropped_items && record.dropped_items.length > 0 ? record.dropped_items[0].name : '無';
         const bossName = record.boss_name || '未知首領';
 
         // 文字內容（參考圖片）
-        const textContent = `[${killTime}]</br> ${itemName}`;
+        const textContent = `[${killTime}] ${itemName} 由 ${bossName}`;
 
         return (
             <Col xs={24} sm={12} md={8} lg={4} key={record._id} style={{ marginBottom: '8px' }}>
@@ -302,16 +344,16 @@ const KillHistory = () => {
                                     top: '50%',
                                     left: '50%',
                                     transform: 'translate(-50%, -50%)',
-                                    color: 'rgb(255, 0, 43)',
-                                    fontSize: '20px',
-                                    fontWeight: 'bold',                                  
+                                    color: 'rgba(255, 255, 255, 0.97)',
+                                    fontSize: '18px',
+                                    fontWeight: 'bold',
                                     background: 'rgba(0, 0, 0, 0.5)',
                                     padding: '8px 16px',
                                     borderRadius: '8px',
                                     wordBreak: 'break-all',
                                     lineHeight: '1.5',
                                     width: '80%',
-                                    textShadow: '1px 1px 3px rgb(255, 255, 255)',
+                                    textShadow: '0 0 10px rgba(228, 243, 17, 0.87)',
                                     textAlign: 'center',
                                 }}
                             >
@@ -321,7 +363,7 @@ const KillHistory = () => {
                     }
                     actions={[
                         <Tooltip title="查看詳情">
-                            <Button type="link" onClick={() => console.log(`Detail for ${record._id}`)}>詳情</Button>
+                            <Button type="link" onClick={() => handleShowDetail(record._id, false)}>詳情</Button>
                         </Tooltip>,
                         role !== 'admin' && record.dropped_items.some(item => {
                             const itemId = item._id || item.id;
@@ -342,7 +384,12 @@ const KillHistory = () => {
                                 <Button type="primary" loading={applying} disabled={applying}>快速申請</Button>
                             </Popconfirm>
                         ),
-                        role === 'admin' && (
+                        role === 'admin' && record.status === 'pending' && (
+                            <Tooltip title="編輯">
+                                <Button type="link" icon={<EditOutlined />} onClick={() => handleShowDetail(record._id, true)}>編輯</Button>
+                            </Tooltip>
+                        ),
+                        role === 'admin' && record.status === 'pending' && (
                             <Popconfirm
                                 title="確認刪除此記錄？"
                                 onConfirm={() => console.log(`Delete ${record._id}`)}
@@ -355,10 +402,15 @@ const KillHistory = () => {
                     ]}
                 >
                     <Card.Meta
-                        title={<span>{record.boss_name || '未知首領'}</span>}
+                        title={
+                            <>
+                                <span style={{ fontSize: '12px', color: '#888' }}>{relativeTime}</span>
+                                <br />
+                                <span>{record.boss_name || '未知首領'}</span>
+                            </>
+                        }
                         description={
                             <>
-                                <p>擊殺時間: {moment(record.kill_time).format('YYYY-MM-DD HH:mm')}</p>
                                 <p>狀態: {getStatusTag(record.status)}</p>
                                 <p>掉落物品: {record.dropped_items.map(item => item.name).join(', ') || '無'}</p>
                             </>
@@ -417,9 +469,30 @@ const KillHistory = () => {
                     )}
                 </Spin>
             </Card>
+
+            {/* 使用獨立元件 */}
+            <KillDetailModal
+                visible={visible}
+                onCancel={handleCloseModal}
+                killData={selectedKill}
+                onUpdate={handleUpdate}
+                token={token}
+                initialEditing={isEditing}
+            />
+
             <style jsx global>{`
                 .ant-image {
                     position: static !important; /* 覆蓋 Ant Design 的 position: relative */
+                }
+                .ant-image .ant-image-mask {
+                    position: static !important; /* 修復 MASK 遮蓋問題 */
+                }
+                .ant-descriptions-item-label {
+                    background-color: #f5f5f5;
+                    padding: 8px 16px;
+                }
+                .ant-descriptions-item-content {
+                    padding: 8px 16px;
                 }
             `}</style>
         </div>

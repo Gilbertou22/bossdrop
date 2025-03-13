@@ -78,6 +78,18 @@ router.get('/', auth, async (req, res) => {
     }
 });
 
+router.get('/:id', auth, async (req, res) => {
+    try {
+        const kill = await BossKill.findById(req.params.id).lean();
+        if (!kill) {
+            return res.status(404).json({ msg: '擊殺記錄不存在' });
+        }
+        res.json(kill);
+    } catch (err) {
+        res.status(500).json({ msg: '獲取詳情失敗', error: err.message });
+    }
+});
+
 // 獲取所有擊殺記錄（分頁）
 router.get('/all', auth, adminOnly, async (req, res) => {
     try {
@@ -139,8 +151,7 @@ router.get('/all', auth, adminOnly, async (req, res) => {
 
 // 更新擊殺記錄 (管理員)
 router.put('/:id', auth, adminOnly, async (req, res) => {
-    const { final_recipient, status, dropped_items } = req.body;
-
+    const { status, final_recipient, attendees } = req.body;
     try {
         const bossKill = await BossKill.findById(req.params.id);
         if (!bossKill) {
@@ -151,20 +162,14 @@ router.put('/:id', auth, adminOnly, async (req, res) => {
             });
         }
 
-        if (final_recipient) bossKill.final_recipient = final_recipient;
-        if (status && ['pending', 'assigned', 'expired'].includes(status)) bossKill.status = status;
-        if (dropped_items) {
-            bossKill.dropped_items = dropped_items.map(item => ({
-                ...item,
-                _id: item._id || new mongoose.Types.ObjectId(),
-                status: item.status || 'pending',
-                final_recipient: item.final_recipient || null,
-            }));
-        }
+        if (status) bossKill.status = status;
+        if (final_recipient) bossKill.final_recipient = final_recipient; // 保持只讀，但允許後端檢查
+        if (attendees) bossKill.attendees = attendees; // 更新參與者
 
         await bossKill.save();
         res.json({ msg: '擊殺記錄更新成功', bossKill });
     } catch (err) {
+        console.error('Update boss kill error:', err);
         res.status(500).json({
             code: 500,
             msg: '更新擊殺記錄失敗',
@@ -173,6 +178,7 @@ router.put('/:id', auth, adminOnly, async (req, res) => {
         });
     }
 });
+
 
 router.post('/', auth, adminOnly, upload.array('screenshots', 5), async (req, res) => {
     const { boss_name, kill_time, dropped_items, attendees, final_recipient, status, apply_deadline_days } = req.body;

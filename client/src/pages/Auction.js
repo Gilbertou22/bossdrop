@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { Spin, message, Alert, Select, Button } from 'antd';
 import moment from 'moment';
+import formatNumber from '../utils/formatNumber';
 
 const { Option } = Select;
 
@@ -129,8 +130,8 @@ const Auction = () => {
         <div style={{ padding: '20px' }}>
             <h1>競標頁面</h1>
             <div style={{ marginBottom: '20px' }}>
-                <p>您的鑽石餘額：{userDiamonds} 鑽石</p>
-                <Button onClick={() => navigate('/notifications')}>查看通知</Button>
+                <p>您的鑽石餘額：{formatNumber(userDiamonds)} 💎</p>
+             
             </div>
 
             <div style={{ marginBottom: '20px', display: 'flex', gap: '10px', alignItems: 'center' }}>

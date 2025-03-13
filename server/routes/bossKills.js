@@ -174,7 +174,6 @@ router.put('/:id', auth, adminOnly, async (req, res) => {
     }
 });
 
-// 創建擊殺記錄 (管理員)
 router.post('/', auth, adminOnly, upload.array('screenshots', 5), async (req, res) => {
     const { boss_name, kill_time, dropped_items, attendees, final_recipient, status, apply_deadline_days } = req.body;
 
@@ -211,21 +210,26 @@ router.post('/', auth, adminOnly, upload.array('screenshots', 5), async (req, re
             });
         }
 
-        const bossKill = new BossKill({
-            boss_name,
-            kill_time,
-            dropped_items: items,
-            attendees: parsedAttendees,
-            screenshots,
-            final_recipient: final_recipient || null,
-            status: status || 'pending',
-            userId: req.user.id,
-        });
+        // 為每個物品創建獨立記錄
+        const results = [];
+        for (const item of items) {
+            const bossKill = new BossKill({
+                boss_name,
+                kill_time,
+                dropped_items: [item],
+                attendees: parsedAttendees,
+                screenshots,
+                final_recipient: final_recipient || null,
+                status: status || 'pending',
+                userId: req.user.id,
+            });
+            await bossKill.save();
+            results.push({ kill_id: bossKill._id });
+        }
 
-        await bossKill.save();
-        res.status(201).json({ kill_id: bossKill._id });
+        res.status(201).json({ msg: '擊殺記錄創建成功', results });
     } catch (err) {
-        console.error('Error saving boss kill:', err);
+        console.error('Error saving boss kills:', err);
         res.status(500).json({
             code: 500,
             msg: '保存擊殺記錄失敗',

@@ -37,6 +37,8 @@ app.use('/api/notifications', require('./routes/notifications')); // 新增路�
 console.log('notifications route loaded');
 app.use('/api/alerts', require('./routes/alerts')); // 新增路由
 console.log('Alerts route loaded');
+app.use('/api/guilds', require('./routes/guilds')); // 新增路由
+console.log('Guilds route loaded');
 
 try {
     startAuctionCron();

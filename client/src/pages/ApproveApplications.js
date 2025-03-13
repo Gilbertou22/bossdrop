@@ -1,7 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Table, Button, message, Popconfirm, Card, Spin, Row, Col, Alert, Tag } from 'antd';
+import { Table, Button, message, Popconfirm, Card, Spin, Alert, Tag, Input, Select } from 'antd';
+import { SearchOutlined, CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons';
 import axios from 'axios';
 import moment from 'moment';
+
+const { Search } = Input;
+const { Option } = Select;
 
 const BASE_URL = 'http://localhost:5000';
 
@@ -9,25 +13,53 @@ const ApproveApplications = () => {
     const [applications, setApplications] = useState([]);
     const [loading, setLoading] = useState(false);
     const token = localStorage.getItem('token');
+    const [filters, setFilters] = useState({ search: '', status: 'pending' });
+    const [role, setRole] = useState(null);
 
     useEffect(() => {
         if (!token) {
-            message.error('請先登入！');
+            message.error('請先登入以查看申請列表！');
             return;
         }
-        fetchApplications();
+        fetchUserInfo();
     }, [token]);
+
+    useEffect(() => {
+        if (role === 'admin') {
+            fetchApplications();
+        }
+    }, [role, filters]);
+
+    const fetchUserInfo = async () => {
+        try {
+            setLoading(true);
+            const res = await axios.get(`${BASE_URL}/api/users/me`, {
+                headers: { 'x-auth-token': token },
+            });
+            setRole(res.data.role);
+            console.log('Fetched user info - role:', res.data.role);
+        } catch (err) {
+            console.error('Fetch user info error:', err);
+            message.error('載入用戶信息失敗: ' + (err.response?.data?.msg || err.message));
+        } finally {
+            setLoading(false);
+        }
+    };
 
     const fetchApplications = async () => {
         try {
             setLoading(true);
+            const params = {
+                status: filters.status === 'all' ? undefined : filters.status,
+                search: filters.search || undefined,
+            };
+            console.log('Fetching applications with params:', params); // 調試參數
             const res = await axios.get(`${BASE_URL}/api/applications`, {
                 headers: { 'x-auth-token': token },
+                params,
             });
-            console.log('Fetched applications:', res.data);
-            // 過濾僅顯示 pending 狀態的申請
-            const pendingApplications = res.data.filter(app => app.status === 'pending');
-            setApplications(pendingApplications);
+            console.log('Fetched applications data:', res.data); // 調試返回數據
+            setApplications(res.data);
         } catch (err) {
             console.error('Fetch applications error:', err.response?.data || err);
             message.error('載入申請列表失敗: ' + (err.response?.data?.msg || err.message));
@@ -36,52 +68,37 @@ const ApproveApplications = () => {
         }
     };
 
-    const handleUpdateStatus = async (id, status, finalRecipient = null) => {
+    const handleApprove = async (id) => {
         try {
             setLoading(true);
-            const token = localStorage.getItem('token');
-            let updateMsg = '';
-            let bossKillUpdate = {};
-
-            // 更新 Application 狀態
-            if (status === 'approved') {
-                await axios.put(
-                    `${BASE_URL}/api/applications/${id}/approve`,
-                    {},
-                    { headers: { 'x-auth-token': token } }
-                );
-                updateMsg = '已審批';
-                bossKillUpdate = {
-                    final_recipient: finalRecipient,
-                    status: 'assigned',
-                };
-            } else if (status === 'rejected') {
-                await axios.put(
-                    `${BASE_URL}/api/applications/${id}/reject`,
-                    {},
-                    { headers: { 'x-auth-token': token } }
-                );
-                updateMsg = '已拒絕';
-            }
-
-            // 同步更新 BossKill（僅在批准時）
-            if (status === 'approved') {
-                const application = applications.find(app => app._id === id);
-                const bossKillId = application?.kill_id?._id;
-                if (bossKillId) {
-                    await axios.put(
-                        `${BASE_URL}/api/boss-kills/${bossKillId}`,
-                        bossKillUpdate,
-                        { headers: { 'x-auth-token': token } }
-                    );
-                }
-            }
-
-            message.success(`申請 ${updateMsg}成功`);
-            fetchApplications(); // 刷新列表
+            const res = await axios.put(
+                `${BASE_URL}/api/applications/${id}/approve`,
+                {},
+                { headers: { 'x-auth-token': token } }
+            );
+            message.success(res.data.msg || '申請已批准');
+            fetchApplications();
         } catch (err) {
-            console.error('Update status error:', err.response?.data || err);
-            message.error(`更新失敗: ${err.response?.data?.msg || err.message}`);
+            console.error('Approve application error:', err.response?.data || err);
+            message.error(`批准申請失敗: ${err.response?.data?.msg || err.message}`);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleReject = async (id) => {
+        try {
+            setLoading(true);
+            const res = await axios.put(
+                `${BASE_URL}/api/applications/${id}/reject`,
+                {},
+                { headers: { 'x-auth-token': token } }
+            );
+            message.success(res.data.msg || '申請已拒絕');
+            fetchApplications();
+        } catch (err) {
+            console.error('Reject application error:', err.response?.data || err);
+            message.error(`拒絕申請失敗: ${err.response?.data?.msg || err.message}`);
         } finally {
             setLoading(false);
         }
@@ -90,7 +107,7 @@ const ApproveApplications = () => {
     const getStatusTag = (status) => {
         switch (status) {
             case 'pending':
-                return <Tag color="blue">待分配</Tag>;
+                return <Tag color="gold">待分配</Tag>;
             case 'approved':
                 return <Tag color="green">已審批</Tag>;
             case 'rejected':
@@ -102,89 +119,88 @@ const ApproveApplications = () => {
 
     const columns = [
         {
+            title: '申請ID',
+            dataIndex: '_id',
+            key: '_id',
+            width: 150,
+        },
+        {
             title: '申請人',
             dataIndex: 'user_id',
             key: 'user_id',
             render: (user) => user?.character_name || '未知',
-            responsive: ['md'], // 手機隱藏
+            width: 150,
         },
         {
             title: '擊殺記錄',
             dataIndex: 'kill_id',
             key: 'kill_id',
             render: (kill) => `${kill?.boss_name || '未知'} - ${moment(kill?.kill_time).format('YYYY-MM-DD HH:mm') || '無時間'}`,
-            responsive: ['md'], // 手機隱藏
+            width: 200,
         },
         {
             title: '物品名稱',
             dataIndex: 'item_name',
             key: 'item_name',
-            responsive: ['sm'], // 手機顯示
+            width: 150,
         },
         {
             title: '申請時間',
             dataIndex: 'created_at',
             key: 'created_at',
             render: (text) => moment(text).format('YYYY-MM-DD HH:mm'),
-            responsive: ['md'], // 手機隱藏
+            width: 150,
         },
         {
             title: '狀態',
             dataIndex: 'status',
             key: 'status',
             render: getStatusTag,
-            responsive: ['sm'], // 手機顯示
-        },
-        {
-            title: '最終獲得者',
-            dataIndex: 'kill_id',
-            key: 'final_recipient',
-            render: (kill) => kill?.final_recipient || '未分配',
-            responsive: ['md'], // 手機隱藏
+            width: 120,
         },
         {
             title: '操作',
             key: 'actions',
-            render: (_, record) => (
+            render: (text, record) => (
                 record.status === 'pending' ? (
-                    <Row gutter={[8, 8]} justify="center">
-                        <Col xs={12} sm={10} md={10}>
-                            <Popconfirm
-                                title="確認批准此申請？"
-                                onConfirm={() => handleUpdateStatus(record._id, 'approved', record.user_id.character_name)}
-                                okText="是"
-                                cancelText="否"
+                    <>
+                        <Popconfirm
+                            title="確認批准此申請？"
+                            onConfirm={() => handleApprove(record._id)}
+                            okText="是"
+                            cancelText="否"
+                        >
+                            <Button
+                                type="primary"
+                                icon={<CheckCircleOutlined />}
+                                style={{ marginRight: 8 }}
+                                loading={loading}
+                                disabled={loading}
                             >
-                                <Button
-                                    type="primary"
-                                    size="large"
-                                    block
-                                    style={{ marginBottom: 8 }}
-                                >
-                                    批准
-                                </Button>
-                            </Popconfirm>
-                        </Col>
-                        <Col xs={12} sm={10} md={10}>
-                            <Popconfirm
-                                title="確認拒絕此申請？"
-                                onConfirm={() => handleUpdateStatus(record._id, 'rejected')}
-                                okText="是"
-                                cancelText="否"
+                                批准
+                            </Button>
+                        </Popconfirm>
+                        <Popconfirm
+                            title="確認拒絕此申請？"
+                            onConfirm={() => handleReject(record._id)}
+                            okText="是"
+                            cancelText="否"
+                        >
+                            <Button
+                                type="danger"
+                                icon={<CloseCircleOutlined />}
+                                loading={loading}
+                                disabled={loading}
                             >
-                                <Button
-                                    type="danger"
-                                    size="large"
-                                    block
-                                >
-                                    拒絕
-                                </Button>
-                            </Popconfirm>
-                        </Col>
-                    </Row>
-                ) : null
+                                拒絕
+                            </Button>
+                        </Popconfirm>
+                    </>
+                ) : (
+                    <Tag color="default">已處理</Tag>
+                )
             ),
-            responsive: ['sm'], // 手機顯示
+            width: 200,
         },
     ];
 
@@ -195,11 +211,29 @@ const ApproveApplications = () => {
                 bordered={false}
                 style={{ boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)', borderRadius: '8px' }}
             >
+                <div style={{ marginBottom: '16px', display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+                    <Search
+                        placeholder="搜索申請人或物品名稱"
+                        onSearch={fetchApplications}
+                        onChange={(e) => setFilters(prev => ({ ...prev, search: e.target.value }))}
+                        style={{ width: 200 }}
+                        enterButton={<SearchOutlined />}
+                    />
+                    <Select
+                        value={filters.status}
+                        onChange={(value) => setFilters(prev => ({ ...prev, status: value }))}
+                        style={{ width: 200 }}
+                        onSelect={fetchApplications}
+                    >
+                        <Option value="pending">待處理</Option>
+                        <Option value="all">全部</Option>
+                    </Select>
+                </div>
                 <Spin spinning={loading} size="large">
                     {applications.length === 0 && !loading ? (
                         <Alert
                             message="無待審核申請"
-                            description="目前沒有待審核的申請記錄。"
+                            description="目前沒有符合條件的申請記錄。"
                             type="info"
                             showIcon
                             style={{ marginBottom: '16px' }}

@@ -168,7 +168,7 @@ const Navbar = () => {
                         { key: '/boss-kill', label: '記錄擊殺', icon: <FileDoneOutlined /> },
                         { key: '/manage-bosses', label: '管理首領', icon: <TeamOutlined /> },
                         { key: '/manage-items', label: '管理物品', icon: <GiftOutlined /> },
-                        { key: '/manage-users', label: '管理用戶', icon: <UserOutlined /> },
+                        { key: '/manage-users', label: '管理盟友', icon: <UserOutlined /> },
                         { key: '/stats', label: '統計報表', icon: <BarChartOutlined /> },
                     ],
                 }

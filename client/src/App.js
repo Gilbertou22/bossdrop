@@ -16,6 +16,7 @@ import Navbar from './components/Navbar';
 import KillHistory from './pages/KillHistory';
 import UserProfile from './pages/UserProfile';
 import Notifications from './pages/Notifications'; // 導入 Notifications 組件
+import Guilds from './pages/GuildSettings'; // 導入 Guilds 組件
 import React, { useState } from 'react';
 import { NotificationProvider } from './components/NotificationContext';
 
@@ -113,7 +114,15 @@ function App() {
                 <KillHistory />
               </RoleRoute>
             }
-          />
+            />
+            <Route
+            path="/guilds"
+            element={
+              <RoleRoute allowedRoles={['admin']}>
+                <Guilds />
+              </RoleRoute>
+            }
+          /> 
           <Route
             path="/notifications"
             element={

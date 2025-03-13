@@ -175,61 +175,63 @@ const Home = () => {
                                 您的鑽石餘額：{formatNumber(user.diamonds)} 💎
                             </Text>
                         )}
-                        <Divider />
-                        <Space>
-                            <Button
-                                type="primary"
-                                icon={<FileDoneOutlined />}
-                                onClick={() => navigate('/apply-item')}
-                            >
-                                申請物品
-                            </Button>
-                            <Button
-                                type="primary"
-                                icon={<ShoppingOutlined />}
-                                onClick={() => navigate('/auction')}
-                            >
-                                參與競標
-                            </Button>
-                            <Button
-                                type="primary"
-                                icon={<TeamOutlined />}
-                                onClick={() => navigate('/kill-history')}
-                            >
-                                查看擊殺歷史
-                            </Button>
-                        </Space>
-                    </Card>
-
-                    <Card title="未讀通知" style={{ marginBottom: '20px' }}>
-                        {notifications.length > 0 ? (
-                            <List
-                                itemLayout="horizontal"
-                                dataSource={notifications.slice(0, 3)}
-                                renderItem={(notification) => (
-                                    <List.Item
-                                        onClick={() => {
-                                            if (notification.auctionId) navigate(`/auction/${notification.auctionId}`);
-                                        }}
-                                        style={{ cursor: notification.auctionId ? 'pointer' : 'default' }}
-                                    >
-                                        <List.Item.Meta
-                                            avatar={<Avatar src={notification.imageUrl} />}
-                                            title={<Text>{notification.message}</Text>}
-                                            description={<Text type="secondary">{moment(notification.createdAt).fromNow()}</Text>}
-                                        />
-                                    </List.Item>
-                                )}
-                            />
-                        ) : (
-                            <Text type="secondary">暫無未讀通知</Text>
-                        )}
-                        <div style={{ textAlign: 'center', marginTop: '10px' }}>
-                            <Button type="link" onClick={() => navigate('/notifications')}>
-                                查看所有通知
-                            </Button>
-                        </div>
-                    </Card>
+                            <Divider />
+                            {user && user.role === 'admin' && adminStats && (
+                                <Card title="快速操作">
+                                    <Space wrap>
+                                        <Button
+                                            type="primary"
+                                            icon={<FileDoneOutlined />}
+                                            onClick={() => navigate('/approve-applications')}
+                                        >
+                                            審核申請
+                                        </Button>
+                                        <Button
+                                            type="primary"
+                                            icon={<ShoppingOutlined />}
+                                            onClick={() => navigate('/create-auction')}
+                                        >
+                                            創建拍賣
+                                        </Button>
+                                        <Button
+                                            type="primary"
+                                            icon={<UserOutlined />}
+                                            onClick={() => navigate('/manage-users')}
+                                        >
+                                            管理用戶
+                                        </Button>
+                                        <Button
+                                            type="primary"
+                                            icon={<BarChartOutlined />}
+                                            onClick={() => navigate('/stats')}
+                                        >
+                                            查看統計報表
+                                        </Button>
+                                        <Button
+                                            type="primary"
+                                            icon={<FileDoneOutlined />}
+                                            onClick={() => navigate('/apply-item')}
+                                        >
+                                            申請物品
+                                        </Button>
+                                        <Button
+                                            type="primary"
+                                            icon={<ShoppingOutlined />}
+                                            onClick={() => navigate('/auction')}
+                                        >
+                                            參與競標
+                                        </Button>
+                                        <Button
+                                            type="primary"
+                                            icon={<TeamOutlined />}
+                                            onClick={() => navigate('/kill-history')}
+                                        >
+                                            查看擊殺歷史
+                                        </Button>
+                                    </Space>
+                                </Card>         
+                            )}    
+                    </Card>          
 
                     <Card title="熱門拍賣（即將結束）" style={{ marginBottom: '20px' }}>
                         {auctions.length > 0 ? (
@@ -409,38 +411,6 @@ const Home = () => {
                                 </div>
                             </Card>
 
-                            <Card title="快速操作">
-                                <Space wrap>
-                                    <Button
-                                        type="primary"
-                                        icon={<FileDoneOutlined />}
-                                        onClick={() => navigate('/approve-applications')}
-                                    >
-                                        審核申請
-                                    </Button>
-                                    <Button
-                                        type="primary"
-                                        icon={<ShoppingOutlined />}
-                                        onClick={() => navigate('/create-auction')}
-                                    >
-                                        創建拍賣
-                                    </Button>
-                                    <Button
-                                        type="primary"
-                                        icon={<UserOutlined />}
-                                        onClick={() => navigate('/manage-users')}
-                                    >
-                                        管理用戶
-                                    </Button>
-                                    <Button
-                                        type="primary"
-                                        icon={<BarChartOutlined />}
-                                        onClick={() => navigate('/stats')}
-                                    >
-                                        查看統計報表
-                                    </Button>
-                                </Space>
-                            </Card>
                         </>
                     )}
                 </>

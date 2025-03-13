@@ -4,8 +4,8 @@ const User = require('../models/User');
 const multer = require('multer');
 const bcrypt = require('bcrypt');
 const path = require('path');
-const jsonwebtoken = require('jsonwebtoken'); // 明確使用 jsonwebtoken
-const { auth, adminOnly } = require('../middleware/auth'); // 移除 adminOnly
+const jsonwebtoken = require('jsonwebtoken');
+const { auth, adminOnly } = require('../middleware/auth');
 
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
@@ -30,7 +30,6 @@ const upload = multer({
     },
 });
 
-// 全局路由日志
 router.use((req, res, next) => {
     console.log(`Incoming request: ${req.method} ${req.path} - User:`, req.user);
     next();
@@ -38,6 +37,9 @@ router.use((req, res, next) => {
 
 router.get('/stats', auth, async (req, res) => {
     try {
+        if (!req.user) {
+            return res.status(401).json({ code: 401, msg: '未授權，缺少用戶信息' });
+        }
         if (req.user.role !== 'admin') {
             return res.status(403).json({ code: 403, msg: '無權限訪問' });
         }
@@ -50,10 +52,8 @@ router.get('/stats', auth, async (req, res) => {
     }
 });
 
-// 註冊用戶
 router.post('/register', upload.single('screenshot'), async (req, res) => {
     const { world_name, character_name, discord_id, raid_level, password } = req.body;
-
     try {
         let user = await User.findOne({ character_name });
         if (user) {
@@ -84,7 +84,6 @@ router.post('/register', upload.single('screenshot'), async (req, res) => {
             },
         };
 
-        // 使用 jsonwebtoken 而非 jwt
         const token = jsonwebtoken.sign(payload, process.env.JWT_SECRET || 'your-secret-key', { expiresIn: 3600 });
         res.json({ user_id: user._id, token, msg: '註冊成功，等待審核！' });
     } catch (err) {
@@ -93,7 +92,6 @@ router.post('/register', upload.single('screenshot'), async (req, res) => {
     }
 });
 
-// 獲取所有用戶 (僅管理員)
 router.get('/', auth, adminOnly, async (req, res) => {
     try {
         const users = await User.find().select('world_name character_name discord_id raid_level diamonds status screenshot role');
@@ -103,9 +101,7 @@ router.get('/', auth, adminOnly, async (req, res) => {
     }
 });
 
-// 獲取當前用戶信息
 router.get('/profile', auth, async (req, res) => {
-    console.log('GET /profile - req.user:', req.user);
     try {
         if (!req.user || !req.user.id) {
             return res.status(401).json({ msg: '無效的用戶身份' });
@@ -121,13 +117,28 @@ router.get('/profile', auth, async (req, res) => {
     }
 });
 
-// 更新用戶 (僅管理員)
-router.put('/users/:id', auth, adminOnly, upload.single('screenshot'), async (req, res) => {
-    console.log('PUT /users/:id request - req.user:', req.user, 'params.id:', req.params.id);
+
+router.delete('/api/users/:id', auth, adminOnly, async (req, res) => {
+    try {
+        const user = await User.findById(req.params.id);
+        if (!user) return res.status(404).json({ msg: '用戶不存在', detail: `ID ${req.params.id} 未找到` });
+        await user.remove();
+        res.json({ msg: '用戶刪除成功' });
+    } catch (err) {
+        res.status(500).json({ msg: '刪除用戶失敗', error: err.message });
+    }
+});
+
+
+router.put('/:id', auth, adminOnly, upload.single('screenshot'), async (req, res) => {
+    console.log('PUT /api/users/:id request - req.user:', req.user, 'params.id:', req.params.id);
     const { world_name, character_name, discord_id, raid_level, diamonds, status, role, password } = req.body;
     try {
         const user = await User.findById(req.params.id);
-        if (!user) return res.status(404).json({ msg: '用戶不存在' });
+        if (!user) {
+            console.log(`User not found for ID: ${req.params.id}`);
+            return res.status(404).json({ msg: '用戶不存在', detail: `ID ${req.params.id} 未找到` });
+        }
         if (character_name && character_name !== user.character_name) {
             const existingUser = await User.findOne({ character_name });
             if (existingUser) return res.status(400).json({ msg: '角色名稱已存在' });
@@ -145,34 +156,22 @@ router.put('/users/:id', auth, adminOnly, upload.single('screenshot'), async (re
             user.password = await bcrypt.hash(password, salt);
         }
         await user.save();
+        console.log(`User updated successfully: ${user._id}`);
         res.json({ msg: '用戶更新成功', user });
     } catch (err) {
+        console.error('Update user error:', err);
         res.status(500).json({ msg: '更新用戶失敗', error: err.message });
     }
 });
 
-// 刪除用戶 (僅管理員)
-router.delete('/users/:id', auth, adminOnly, async (req, res) => {
-    try {
-        const user = await User.findById(req.params.id);
-        if (!user) return res.status(404).json({ msg: '用戶不存在' });
-        await user.remove();
-        res.json({ msg: '用戶刪除成功' });
-    } catch (err) {
-        res.status(500).json({ msg: '刪除用戶失敗', error: err.message });
-    }
-});
 
-// 更新自身資料
 router.put('/profile', auth, async (req, res) => {
-    console.log('PUT /profile request - req.user:', req.user); // 調試
     const { world_name, discord_id, raid_level } = req.body;
     try {
         if (!req.user || !req.user.id) {
             return res.status(401).json({ msg: '無效的用戶身份' });
         }
-        console.log('Finding user with id:', req.user.id); // 調試
-        const user = await User.findById(req.user.id); // 確保使用 req.user.id
+        const user = await User.findById(req.user.id);
         if (!user) return res.status(404).json({ msg: '用戶未找到' });
 
         user.world_name = world_name || user.world_name;
@@ -187,9 +186,7 @@ router.put('/profile', auth, async (req, res) => {
     }
 });
 
-// 獲取當前用戶信息
 router.get('/me', auth, async (req, res) => {
-    console.log('GET /me - req.user:', req.user);
     try {
         if (!req.user || !req.user.id) {
             return res.status(401).json({ msg: '無效的用戶身份' });
@@ -199,7 +196,7 @@ router.get('/me', auth, async (req, res) => {
             return res.status(404).json({ msg: '用戶不存在' });
         }
         res.json({
-            id: user._id.toString(), // 確保返回字符串格式的 _id
+            id: user._id.toString(),
             character_name: user.character_name,
             role: user.role,
             world_name: user.world_name,
@@ -209,7 +206,6 @@ router.get('/me', auth, async (req, res) => {
             status: user.status,
             screenshot: user.screenshot ? `${req.protocol}://${req.get('host')}/${user.screenshot.replace('./', '')}` : null,
         });
-        console.log('Response sent:', { id: user._id.toString(), character_name: user.character_name, role: user.role }); // 調試
     } catch (err) {
         console.error('Error fetching user:', err);
         res.status(500).json({ msg: '伺服器錯誤，請稍後重試', error: err.message });
@@ -221,7 +217,7 @@ router.get('/growth', auth, async (req, res) => {
         if (req.user.role !== 'admin') {
             return res.status(403).json({ code: 403, msg: '無權限訪問' });
         }
-        const { range = 30 } = req.query; // 默認為 30 天
+        const { range = 30 } = req.query;
         const now = new Date();
         const startDate = new Date(now.getTime() - range * 24 * 60 * 60 * 1000);
         const growthData = await User.aggregate([

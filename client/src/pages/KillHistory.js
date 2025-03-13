@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Table, Button, DatePicker, Input, message, Image, Card, Spin, Alert, Tag, Tooltip, Popconfirm } from 'antd';
+import { Row, Col, Button, DatePicker, Input, message, Image, Card, Spin, Alert, Tag, Tooltip, Popconfirm } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
 import axios from 'axios';
 import moment from 'moment';
@@ -14,7 +14,7 @@ const KillHistory = () => {
     const [role, setRole] = useState(null);
     const [currentUser, setCurrentUser] = useState(null);
     const [loading, setLoading] = useState(false);
-    const [applying, setApplying] = useState(false); // 控制快速申請的加載狀態
+    const [applying, setApplying] = useState(false);
     const token = localStorage.getItem('token');
     const [userId, setUserId] = useState(null);
     const [userApplications, setUserApplications] = useState([]);
@@ -140,7 +140,6 @@ const KillHistory = () => {
                 };
             });
 
-            // 為管理員視圖獲取每個物品的申請者信息
             if (role === 'admin') {
                 const applicationsMap = {};
                 for (const record of updatedHistory) {
@@ -227,7 +226,7 @@ const KillHistory = () => {
     };
 
     const handleQuickApply = async (killId, itemId, itemName) => {
-        if (applying) return; // 防止重複點擊
+        if (applying) return;
         setApplying(true);
         try {
             const token = localStorage.getItem('token');
@@ -255,8 +254,8 @@ const KillHistory = () => {
             );
             console.log('Quick apply response:', res.data);
             message.success(res.data.msg || '申請提交成功！');
-            await fetchUserApplications(); // 刷新申請記錄
-            fetchHistory(); // 刷新頁面數據
+            await fetchUserApplications();
+            fetchHistory();
         } catch (err) {
             console.error('Quick apply error:', err.response?.data || err);
             message.error(`申請失敗: ${err.response?.data?.msg || err.message}`);
@@ -265,153 +264,110 @@ const KillHistory = () => {
         }
     };
 
-    const columns = [
-        {
-            title: '擊殺時間',
-            dataIndex: 'kill_time',
-            key: 'kill_time',
-            sorter: (a, b) => moment(a.kill_time).unix() - moment(b.kill_time).unix(),
-            render: text => moment(text).format('YYYY-MM-DD HH:mm'),
-            width: 150,
-        },
-        {
-            title: '首領名稱',
-            dataIndex: 'boss_name',
-            key: 'boss_name',
-            sorter: (a, b) => a.boss_name.localeCompare(b.boss_name),
-            width: 150,
-        },
-        {
-            title: '參與者',
-            dataIndex: 'attendees',
-            key: 'attendees',
-            sorter: (a, b) => (a.attendees ? a.attendees.join() : '').localeCompare(b.attendees ? b.attendees.join() : ''),
-            render: attendees => attendees && Array.isArray(attendees) ? attendees.join(', ') : '無',
-            width: 200,
-        },
-        {
-            title: '掉落物品',
-            dataIndex: 'dropped_items',
-            key: 'dropped_items',
-            sorter: (a, b) => (a.dropped_items ? a.dropped_items[0]?.name : '').localeCompare(b.dropped_items ? b.dropped_items[0]?.name : ''),
-            render: (items, record) => {
-                if (!items || !Array.isArray(items)) return '無';
-                return items.map(item => {
-                    const itemId = item._id || item.id;
-                    const appDetails = getApplicationDetails(record._id, itemId);
-                    const applicationKey = `${record._id}_${itemId}`;
-                    const applicants = role === 'admin' ? itemApplications[applicationKey] || [] : [];
-                    // 計算 effectiveStatus
-                    let effectiveStatus = item.status ? item.status.toLowerCase() : 'pending';
-                    const isExpired = item.apply_deadline && new Date(item.apply_deadline) < new Date();
-                    if (isExpired && effectiveStatus !== 'assigned') {
-                        effectiveStatus = 'expired';
-                    }
-                    // 檢查是否有已批准的申請
-                    const hasApprovedApplication = applicants.some(app => app.status === 'approved');
-                    if (hasApprovedApplication && effectiveStatus !== 'expired') {
-                        effectiveStatus = 'assigned';
-                    }
-                    const canApply = effectiveStatus === 'pending';
+    // 渲染網格項
+    const renderGridItem = (record) => {
+        const firstScreenshot = record.screenshots[0] || 'https://via.placeholder.com/300x200'; // 默認圖片
+        const killTime = moment(record.kill_time).format('MM-DD HH:mm');
+        const itemName = record.dropped_items && record.dropped_items.length > 0 ? record.dropped_items[0].name : '無';
+        const bossName = record.boss_name || '未知首領';
 
-                    console.log(`Item ${itemId} status: ${item.status}, effectiveStatus: ${effectiveStatus}, apply_deadline: ${item.apply_deadline}, isExpired: ${isExpired}, hasApprovedApplication: ${hasApprovedApplication}, canApply: ${canApply}, appDetails:`, appDetails);
+        // 文字內容（參考圖片）
+        const textContent = `[${killTime}]</br> ${itemName}`;
 
-                    return (
-                        <div key={itemId} style={{ marginBottom: '8px' }}>
-                            {`${item.name} (${item.type}, 截止 ${moment(item.apply_deadline).format('YYYY-MM-DD')})`}
-                            {role !== 'admin' && appDetails && (
-                                <Tag color="blue" style={{ marginLeft: 8 }}>
-                                    申請中 (提交於: {moment(appDetails.created_at).format('MM-DD HH:mm')})
-                                </Tag>
-                            )}
-                            {role === 'admin' && applicants.length > 0 && (
-                                <Tooltip
-                                    title={
-                                        <ul style={{ paddingLeft: 15, margin: 0 }}>
-                                            {applicants.map(app => (
-                                                <li key={app._id}>
-                                                    {app.user_id.character_name} ({app.status}) - 提交於: {moment(app.created_at).format('MM-DD HH:mm')}
-                                                </li>
-                                            ))}
-                                        </ul>
-                                    }
-                                >
-                                    <Tag color="blue" style={{ marginLeft: 8, cursor: 'pointer' }}>
-                                        申請者: {applicants.length} 人
-                                    </Tag>
-                                </Tooltip>
-                            )}
-                            {role !== 'admin' && !appDetails && canApply && (
-                                <Popconfirm
-                                    title="確認申請此物品？"
-                                    onConfirm={() => handleQuickApply(record._id, itemId, item.name)}
-                                    okText="是"
-                                    cancelText="否"
-                                >
-                                    <Button
-                                        type="primary"
-                                        size="small"
-                                        style={{ marginLeft: 8 }}
-                                        loading={applying}
-                                        disabled={applying}
-                                    >
-                                        快速申請
-                                    </Button>
-                                </Popconfirm>
-                            )}                         
-                        </div>
-                    );
-                });
-            },
-            width: 300,
-        },
-        {
-            title: '最終獲得者',
-            dataIndex: 'final_recipient',
-            key: 'final_recipient',
-            width: 150,
-        },
-        {
-            title: '狀態',
-            dataIndex: 'status',
-            key: 'status',
-            sorter: (a, b) => a.status.localeCompare(b.status),
-            render: (status) => getStatusTag(status),
-            width: 120,
-        },
-        {
-            title: '創建時間',
-            dataIndex: 'created_at',
-            key: 'created_at',
-            sorter: (a, b) => moment(a.created_at).unix() - moment(b.created_at).unix(),
-            render: text => moment(text).format('YYYY-MM-DD HH:mm'),
-            width: 150,
-        },
-        {
-            title: '截圖',
-            dataIndex: 'screenshots',
-            key: 'screenshots',
-            render: screenshots => (
-                <Image.PreviewGroup>
-                    {screenshots && screenshots.length > 0 ? (
-                        screenshots.map((src, index) => (
+        return (
+            <Col xs={24} sm={12} md={8} lg={4} key={record._id} style={{ marginBottom: '8px' }}>
+                <Card
+                    hoverable
+                    cover={
+                        <div style={{ position: 'relative', width: '100%', paddingTop: '66.67%' }}>
                             <Image
-                                key={index}
-                                src={src}
-                                alt={`截圖 ${index + 1}`}
-                                style={{ width: '50px', height: '50px', objectFit: 'cover', marginRight: '8px' }}
-                                preview={{ mask: '點擊預覽' }}
-                                onError={(e) => console.log(`Image load error for ${src}:`, e)}
+                                src={firstScreenshot}
+                                alt="擊殺截圖"
+                                style={{
+                                    position: 'absolute',
+                                    top: 0,
+                                    left: 0,
+                                    width: '100%',
+                                    height: '100%',
+                                    objectFit: 'cover',
+                                }}
+                                onError={(e) => {
+                                    console.error(`Image load error for ${firstScreenshot}:`, e);
+                                    message.warning('截圖加載失敗，使用占位圖');
+                                }}
                             />
-                        ))
-                    ) : (
-                        '無'
-                    )}
-                </Image.PreviewGroup>
-            ),
-            width: 150,
-        },
-    ];
+                            <div
+                                style={{
+                                    position: 'absolute',
+                                    top: '50%',
+                                    left: '50%',
+                                    transform: 'translate(-50%, -50%)',
+                                    color: 'rgb(255, 0, 43)',
+                                    fontSize: '20px',
+                                    fontWeight: 'bold',                                  
+                                    background: 'rgba(0, 0, 0, 0.5)',
+                                    padding: '8px 16px',
+                                    borderRadius: '8px',
+                                    wordBreak: 'break-all',
+                                    lineHeight: '1.5',
+                                    width: '80%',
+                                    textShadow: '1px 1px 3px rgb(255, 255, 255)',
+                                    textAlign: 'center',
+                                }}
+                            >
+                                [{killTime}]<br /> {itemName}
+                            </div>
+                        </div>
+                    }
+                    actions={[
+                        <Tooltip title="查看詳情">
+                            <Button type="link" onClick={() => console.log(`Detail for ${record._id}`)}>詳情</Button>
+                        </Tooltip>,
+                        role !== 'admin' && record.dropped_items.some(item => {
+                            const itemId = item._id || item.id;
+                            const appDetails = getApplicationDetails(record._id, itemId);
+                            let effectiveStatus = item.status ? item.status.toLowerCase() : 'pending';
+                            const isExpired = item.apply_deadline && new Date(item.apply_deadline) < new Date();
+                            if (isExpired && effectiveStatus !== 'assigned') effectiveStatus = 'expired';
+                            const hasApprovedApplication = itemApplications[`${record._id}_${itemId}`]?.some(app => app.status === 'approved');
+                            if (hasApprovedApplication && effectiveStatus !== 'expired') effectiveStatus = 'assigned';
+                            return !appDetails && effectiveStatus === 'pending';
+                        }) && (
+                            <Popconfirm
+                                title="確認申請此物品？"
+                                onConfirm={() => handleQuickApply(record._id, record.dropped_items[0]._id || record.dropped_items[0].id, record.dropped_items[0].name)}
+                                okText="是"
+                                cancelText="否"
+                            >
+                                <Button type="primary" loading={applying} disabled={applying}>快速申請</Button>
+                            </Popconfirm>
+                        ),
+                        role === 'admin' && (
+                            <Popconfirm
+                                title="確認刪除此記錄？"
+                                onConfirm={() => console.log(`Delete ${record._id}`)}
+                                okText="是"
+                                cancelText="否"
+                            >
+                                <Button type="danger">刪除</Button>
+                            </Popconfirm>
+                        ),
+                    ]}
+                >
+                    <Card.Meta
+                        title={<span>{record.boss_name || '未知首領'}</span>}
+                        description={
+                            <>
+                                <p>擊殺時間: {moment(record.kill_time).format('YYYY-MM-DD HH:mm')}</p>
+                                <p>狀態: {getStatusTag(record.status)}</p>
+                                <p>掉落物品: {record.dropped_items.map(item => item.name).join(', ') || '無'}</p>
+                            </>
+                        }
+                    />
+                </Card>
+            </Col>
+        );
+    };
 
     return (
         <div style={{ padding: '20px', backgroundColor: '#f0f2f5' }}>
@@ -455,20 +411,17 @@ const KillHistory = () => {
                             style={{ marginBottom: '16px' }}
                         />
                     ) : (
-                        <Table
-                            dataSource={history}
-                            columns={columns}
-                            rowKey="_id"
-                            bordered
-                            pagination={{ pageSize: 10, showSizeChanger: true, pageSizeOptions: ['10', '20', '50'] }}
-                            onChange={(pagination, filters, sorter) => {
-                                console.log('Table sorted or paginated:', { pagination, filters, sorter });
-                            }}
-                            scroll={{ x: 'max-content' }}
-                        />
+                        <Row gutter={[8, 8]}>
+                            {history.map(record => renderGridItem(record))}
+                        </Row>
                     )}
                 </Spin>
             </Card>
+            <style jsx global>{`
+                .ant-image {
+                    position: static !important; /* 覆蓋 Ant Design 的 position: relative */
+                }
+            `}</style>
         </div>
     );
 };

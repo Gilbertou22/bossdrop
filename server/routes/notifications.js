@@ -5,6 +5,7 @@ const User = require('../models/User');
 const { auth } = require('../middleware/auth');
 const mongoose = require('mongoose');
 
+// 獲取用戶的通知
 router.get('/', auth, async (req, res) => {
     try {
         const notifications = await Notification.find({ userId: req.user.id })
@@ -23,6 +24,7 @@ router.get('/', auth, async (req, res) => {
     }
 });
 
+// 標記通知為已讀
 router.put('/:id/read', auth, async (req, res) => {
     const { id } = req.params;
     try {
@@ -59,9 +61,9 @@ router.put('/:id/read', auth, async (req, res) => {
     }
 });
 
+// 發送廣播通知
 router.post('/broadcast', auth, async (req, res) => {
     try {
-        console.log('Broadcast request received, req.user:', req.user); // 調試 req.user
         if (req.user.role !== 'admin' && req.user.role !== 'moderator') {
             return res.status(403).json({
                 code: 403,
@@ -97,18 +99,13 @@ router.post('/broadcast', auth, async (req, res) => {
             });
         }
 
-        // 查詢發送人信息
         const sender = await User.findById(req.user.id).lean();
-        console.log('Sender query result:', sender); // 調試 sender
         const senderName = sender?.character_name || '未知用戶';
-
-        // 拼接發送人到消息
         const formattedMessage = `${senderName}：${message}`;
-        console.log('Formatted message:', formattedMessage); // 調試 formattedMessage
 
         const notifications = users.map(user => new Notification({
             userId: user._id,
-            message: formattedMessage, // 嵌入發送人信息
+            message: formattedMessage,
             auctionId: auctionId || null,
             read: false,
         }));
@@ -125,6 +122,59 @@ router.post('/broadcast', auth, async (req, res) => {
         res.status(500).json({
             code: 500,
             msg: '發送廣播通知失敗',
+            detail: err.message || '伺服器處理錯誤',
+            suggestion: '請稍後重試或聯繫管理員。',
+        });
+    }
+});
+
+// 新增：發送單用戶通知
+router.post('/', auth, async (req, res) => {
+    try {
+        const { userId, message, type } = req.body;
+        if (!userId || !message) {
+            return res.status(400).json({
+                code: 400,
+                msg: '缺少必填字段',
+                detail: `Missing required fields: ${!userId ? 'userId' : ''} ${!message ? 'message' : ''}`,
+                suggestion: '請提供所有必填字段後重試。',
+            });
+        }
+
+        if (!mongoose.Types.ObjectId.isValid(userId)) {
+            return res.status(400).json({
+                code: 400,
+                msg: '無效的用戶 ID',
+                detail: `提供的 userId (${userId}) 不是有效的 MongoDB ObjectId。`,
+            });
+        }
+
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({
+                code: 404,
+                msg: '用戶不存在',
+                detail: `無法找到 ID 為 ${userId} 的用戶。`,
+            });
+        }
+
+        const notification = new Notification({
+            userId,
+            message,
+            type: type || 'system',
+        });
+        await notification.save();
+
+        res.status(201).json({
+            code: 201,
+            msg: '通知發送成功',
+            notification,
+        });
+    } catch (err) {
+        console.error('Error sending notification:', err);
+        res.status(500).json({
+            code: 500,
+            msg: '發送通知失敗',
             detail: err.message || '伺服器處理錯誤',
             suggestion: '請稍後重試或聯繫管理員。',
         });

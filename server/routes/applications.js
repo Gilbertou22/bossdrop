@@ -2,7 +2,9 @@ const express = require('express');
 const router = express.Router();
 const Application = require('../models/Application');
 const BossKill = require('../models/BossKill');
+const Notification = require('../models/Notification');
 const { auth, adminOnly } = require('../middleware/auth');
+const moment = require('moment');
 
 router.get('/pending-count', auth, async (req, res) => {
     try {
@@ -62,11 +64,10 @@ router.post('/', auth, async (req, res) => {
             });
         }
 
-        // 檢查物品是否已被分配
         const existingApprovedApplication = await Application.findOne({
             kill_id,
             item_id,
-            status: 'approved'
+            status: 'approved',
         });
         if (existingApprovedApplication) {
             return res.status(400).json({
@@ -77,12 +78,11 @@ router.post('/', auth, async (req, res) => {
             });
         }
 
-        // 檢查當前用戶是否已申請
         const existingApplication = await Application.findOne({
             user_id: user.id,
             kill_id,
             item_id,
-            status: { $in: ['pending', 'approved'] }
+            status: { $in: ['pending', 'approved'] },
         });
         if (existingApplication) {
             return res.status(400).json({
@@ -130,7 +130,10 @@ router.post('/', auth, async (req, res) => {
 router.put('/:id/approve', auth, adminOnly, async (req, res) => {
     const { id } = req.params;
     try {
-        const application = await Application.findById(id);
+        // 確保 populate user_id 和 kill_id 以獲取 character_name 和 boss_name
+        const application = await Application.findById(id)
+            .populate('user_id', 'character_name')
+            .populate('kill_id', 'boss_name');
         if (!application) {
             return res.status(404).json({
                 code: 404,
@@ -158,12 +161,22 @@ router.put('/:id/approve', auth, adminOnly, async (req, res) => {
             await bossKill.save();
         }
 
+        // 發送系統信息給申請者（只執行一次）
+        console.log(`Sending notification for application ${id} to user ${application.user_id._id}`);
+        await Notification.create({
+            userId: application.user_id._id,
+            message: `您的申請已通過，您獲得了 ${application.item_name}！`,
+            type: 'system',
+        });
+        console.log(`Notification sent for application ${id}`);
+
         res.json({
             code: 200,
             msg: '申請已審批',
             detail: `申請 ID: ${id} 已審批，分配給 ${application.user_id.character_name}。`,
         });
     } catch (err) {
+        console.error('Approve application error:', err);
         res.status(500).json({
             code: 500,
             msg: '審批申請失敗',
@@ -173,7 +186,7 @@ router.put('/:id/approve', auth, adminOnly, async (req, res) => {
     }
 });
 
-// 新增拒絕路由
+// 拒絕申請
 router.put('/:id/reject', auth, adminOnly, async (req, res) => {
     const { id } = req.params;
     try {
@@ -212,9 +225,19 @@ router.put('/:id/reject', auth, adminOnly, async (req, res) => {
     }
 });
 
+// 獲取所有申請（管理員）
 router.get('/', auth, adminOnly, async (req, res) => {
     try {
-        const applications = await Application.find()
+        const { status, search } = req.query; // 添加 status 和 search 參數
+        let query = {};
+        if (status && status !== 'all') query.status = status; // 過濾狀態
+        if (search) {
+            query.$or = [
+                { 'user_id.character_name': { $regex: search, $options: 'i' } },
+                { item_name: { $regex: search, $options: 'i' } },
+            ];
+        }
+        const applications = await Application.find(query)
             .populate('user_id', 'character_name')
             .populate('kill_id', 'boss_name kill_time');
         res.json(applications);
@@ -228,6 +251,7 @@ router.get('/', auth, adminOnly, async (req, res) => {
     }
 });
 
+// 獲取用戶的申請記錄
 router.get('/user', auth, async (req, res) => {
     try {
         const applications = await Application.find({ user_id: req.user.id })
@@ -246,7 +270,7 @@ router.get('/user', auth, async (req, res) => {
     }
 });
 
-// 新增端點：根據 kill_id 和 item_id 查詢所有申請記錄（僅限管理員）
+// 根據 kill_id 和 item_id 查詢申請記錄（管理員）
 router.get('/by-kill-and-item', auth, adminOnly, async (req, res) => {
     const { kill_id, item_id } = req.query;
 
@@ -263,7 +287,7 @@ router.get('/by-kill-and-item', auth, adminOnly, async (req, res) => {
         const applications = await Application.find({
             kill_id,
             item_id,
-            status: { $in: ['pending', 'approved'] }
+            status: { $in: ['pending', 'approved'] },
         })
             .select('user_id status created_at')
             .populate('user_id', 'character_name');
@@ -276,19 +300,20 @@ router.get('/by-kill-and-item', auth, adminOnly, async (req, res) => {
     }
 });
 
+// 獲取申請趨勢（管理員）
 router.get('/trend', auth, async (req, res) => {
     try {
         if (req.user.role !== 'admin') {
             return res.status(403).json({ code: 403, msg: '無權限訪問' });
         }
-        const { range = 30 } = req.query; // 默認為 30 天
+        const { range = 30 } = req.query;
         const now = new Date();
         const startDate = new Date(now.getTime() - range * 24 * 60 * 60 * 1000);
         const trendData = await Application.aggregate([
             {
                 $match: {
                     createdAt: { $gte: startDate, $lte: now },
-                    status: { $ne: 'approved' }, // 僅統計未審核的申請
+                    status: { $ne: 'approved' },
                 },
             },
             {

@@ -1,8 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const BossKill = require('../models/BossKill');
-const Auction = require('../models/Auction'); // 導入 Auction 模型
-const Item = require('../models/Item'); // 確認導入
+const Auction = require('../models/Auction');
+const Item = require('../models/Item');
 const { auth, adminOnly } = require('../middleware/auth');
 
 // 獲取可競標物品（從 BossKill 表中，狀態為 expired 且 final_recipient 為 NULL，且未發起競標）
@@ -22,7 +22,7 @@ router.get('/auctionable', auth, async (req, res) => {
         // 篩選出未發起競標的 BossKill
         const auctionableBossKills = await BossKill.find({
             ...query,
-            _id: { $nin: existingAuctions }, // 排除已發起競標的 _id
+            _id: { $nin: existingAuctions },
         }).select('_id dropped_items');
 
         console.log('Auctionable BossKills count:', auctionableBossKills.length, 'Data:', auctionableBossKills);
@@ -30,7 +30,7 @@ router.get('/auctionable', auth, async (req, res) => {
         // 映射 dropped_items 為可競標物品選項
         const auctionableItems = auctionableBossKills.reduce((acc, bossKill) => {
             const items = (bossKill.dropped_items || []).map(item => ({
-                _id: `${bossKill._id}_${item.name}`, // 唯一 ID 結合 bossKill 和 item
+                _id: `${bossKill._id}_${item.name}`,
                 name: item.name,
                 bossKillId: bossKill._id,
             }));
@@ -49,10 +49,19 @@ router.get('/auctionable', auth, async (req, res) => {
     }
 });
 
-// 獲取所有物品
+// 獲取所有物品（支持搜索和過濾）
 router.get('/', async (req, res) => {
     try {
-        const items = await Item.find();
+        const { search, type } = req.query;
+        let query = {};
+        if (type && type !== 'all') query.type = type;
+        if (search) {
+            query.$or = [
+                { name: { $regex: search, $options: 'i' } },
+                { description: { $regex: search, $options: 'i' } },
+            ];
+        }
+        const items = await Item.find(query).lean();
         res.json(items);
     } catch (err) {
         res.status(500).json({ msg: err.message });
@@ -61,9 +70,14 @@ router.get('/', async (req, res) => {
 
 // 創建物品（管理員）
 router.post('/', auth, adminOnly, async (req, res) => {
-    const { name, type, description } = req.body;
+    const { name, type, description, imageUrl } = req.body;
     try {
-        const item = new Item({ name, type, description });
+        // 檢查名稱是否唯一
+        const existingItem = await Item.findOne({ name });
+        if (existingItem) {
+            return res.status(400).json({ msg: '物品名稱已存在，請使用其他名稱' });
+        }
+        const item = new Item({ name, type, description, imageUrl });
         await item.save();
         res.status(201).json(item);
     } catch (err) {
@@ -73,11 +87,16 @@ router.post('/', auth, adminOnly, async (req, res) => {
 
 // 更新物品（管理員）
 router.put('/:id', auth, adminOnly, async (req, res) => {
-    const { name, type, description } = req.body;
+    const { name, type, description, imageUrl } = req.body;
     try {
+        // 檢查名稱是否與其他物品衝突
+        const existingItem = await Item.findOne({ name, _id: { $ne: req.params.id } });
+        if (existingItem) {
+            return res.status(400).json({ msg: '物品名稱已存在，請使用其他名稱' });
+        }
         const item = await Item.findByIdAndUpdate(
             req.params.id,
-            { name, type, description },
+            { name, type, description, imageUrl },
             { new: true, runValidators: true }
         );
         if (!item) return res.status(404).json({ msg: '物品不存在' });
@@ -95,6 +114,23 @@ router.delete('/:id', auth, adminOnly, async (req, res) => {
         res.json({ msg: '物品已刪除' });
     } catch (err) {
         res.status(500).json({ msg: err.message });
+    }
+});
+
+// 批量刪除物品（管理員）
+router.delete('/batch-delete', auth, adminOnly, async (req, res) => {
+    const { ids } = req.body;
+    try {
+        if (!ids || !Array.isArray(ids) || ids.length === 0) {
+            return res.status(400).json({ msg: '請提供有效的物品 ID 列表' });
+        }
+        const result = await Item.deleteMany({ _id: { $in: ids } });
+        if (result.deletedCount === 0) {
+            return res.status(404).json({ msg: '沒有找到任何物品進行刪除' });
+        }
+        res.json({ msg: `成功刪除 ${result.deletedCount} 個物品` });
+    } catch (err) {
+        res.status(500).json({ msg: '批量刪除失敗', error: err.message });
     }
 });
 

@@ -28,9 +28,10 @@ router.get('/', auth, async (req, res) => {
         }
         if (status) query.status = status;
 
-        if (req.user.role !== 'admin') {
-            query.attendees = req.user.character_name;
-        }
+        // 移除非管理員必須在 attendees 中的限制
+        // if (req.user.role !== 'admin') {
+        //     query.attendees = req.user.character_name;
+        // }
 
         console.log('Querying boss kills with:', query);
         const bossKills = await BossKill.find(query).lean();

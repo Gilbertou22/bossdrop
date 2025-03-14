@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Row, Col, Button, DatePicker, Input, message, Image, Card, Spin, Alert, Tag, Tooltip, Popconfirm } from 'antd';
-import { SearchOutlined, EditOutlined } from '@ant-design/icons';
+import { SearchOutlined, EditOutlined, PlusOutlined, CheckCircleOutlined, CheckOutlined } from '@ant-design/icons';
 import axios from 'axios';
 import moment from 'moment';
-import KillDetailModal from './KillDetailModal'; // 導入獨立元件
+import KillDetailModal from './KillDetailModal';
+import AddAttendeeModal from './AddAttendeeModal'; // 導入補單模態框
 
 const { RangePicker } = DatePicker;
 
@@ -23,7 +24,9 @@ const KillHistory = () => {
     const [visible, setVisible] = useState(false);
     const [selectedKill, setSelectedKill] = useState(null);
     const [modalLoading, setModalLoading] = useState(false);
-    const [isEditing, setIsEditing] = useState(false); // 控制編輯模式
+    const [isEditing, setIsEditing] = useState(false);
+    const [addVisible, setAddVisible] = useState(false); // 補單模態框可見性
+    const [addKillId, setAddKillId] = useState(null); // 補單的 killId
 
     useEffect(() => {
         if (!token) {
@@ -305,19 +308,52 @@ const KillHistory = () => {
         handleCloseModal();
     };
 
+    const handleShowAddModal = (killId) => {
+        setAddKillId(killId);
+        setAddVisible(true);
+    };
+
+    const handleCloseAddModal = () => {
+        setAddVisible(false);
+        setAddKillId(null);
+    };
+
+    const handleAddSubmit = () => {
+        fetchHistory(); // 刷新主頁數據
+        handleCloseAddModal();
+    };
+
     // 渲染網格項
     const renderGridItem = (record) => {
-        const firstScreenshot = record.screenshots[0] || 'https://via.placeholder.com/300x200'; // 默認圖片
+        const firstScreenshot = record.screenshots[0] ; // 默認圖片
         const killTime = moment(record.kill_time).format('MM-DD HH:mm');
         const relativeTime = moment(record.kill_time).fromNow(); // 相對時間，如 "18小時前"
         const itemName = record.dropped_items && record.dropped_items.length > 0 ? record.dropped_items[0].name : '無';
         const bossName = record.boss_name || '未知首領';
-
-        // 文字內容（參考圖片）
-        const textContent = `[${killTime}] ${itemName} 由 ${bossName}`;
+        const isAttendee = record.attendees?.includes(currentUser); // 檢查是否已參與
+        const canAddAttendee = record.status === 'pending' && !isAttendee; // 補單條件
 
         return (
-            <Col xs={24} sm={12} md={8} lg={4} key={record._id} style={{ marginBottom: '8px' }}>
+            <Col xs={24} sm={12} md={8} lg={4} key={record._id} style={{ marginBottom: '8px', position: 'relative' }}>
+                {isAttendee && (
+                    <div
+                        style={{
+                            position: 'absolute',
+                            top: 0,
+                            left: '3px',
+                            width: '30px',
+                            height: '30px',
+                            background: 'red',
+                            clipPath: 'polygon(0 0, 100% 0, 0 100%)', // 左上角三角形
+                            display: 'flex',
+                            justifyContent: 'center',
+                            alignItems: 'center',
+                            zIndex: 1,
+                        }}
+                    >
+                        <CheckOutlined style={{ position: 'absolute', color: 'white', fontSize: '16px', left: '3px', top: '2px', }} />
+                    </div>
+                )}
                 <Card
                     hoverable
                     cover={
@@ -381,8 +417,13 @@ const KillHistory = () => {
                                 okText="是"
                                 cancelText="否"
                             >
-                                <Button type="primary" loading={applying} disabled={applying}>快速申請</Button>
+                                <Button type="primary" loading={applying} disabled={applying}>申請</Button>
                             </Popconfirm>
+                        ),
+                        role !== 'admin' && canAddAttendee && (
+                            <Tooltip title="補登">
+                                <Button type="primary" onClick={() => handleShowAddModal(record._id)}>補登</Button>
+                            </Tooltip>
                         ),
                         role === 'admin' && record.status === 'pending' && (
                             <Tooltip title="編輯">
@@ -470,7 +511,7 @@ const KillHistory = () => {
                 </Spin>
             </Card>
 
-            {/* 使用獨立元件 */}
+            {/* 詳情模態框 */}
             <KillDetailModal
                 visible={visible}
                 onCancel={handleCloseModal}
@@ -478,6 +519,15 @@ const KillHistory = () => {
                 onUpdate={handleUpdate}
                 token={token}
                 initialEditing={isEditing}
+            />
+
+            {/* 補單模態框 */}
+            <AddAttendeeModal
+                visible={addVisible}
+                onCancel={handleCloseAddModal}
+                killId={addKillId}
+                token={token}
+                onSubmit={handleAddSubmit}
             />
 
             <style jsx global>{`

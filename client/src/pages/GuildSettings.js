@@ -125,10 +125,10 @@ const GuildSettings = () => {
                             <Col xs={24} sm={12}>
                                 <Form.Item
                                     name="applyDeadlineHours"
-                                    label="補單期限（小時）"
+                                    label="補登期限（小時）"
                                     rules={[
-                                        { required: true, message: '請輸入補單期限！' },
-                                        { type: 'number', min: 0, message: '補單期限不能小於 0！' },
+                                        { required: true, message: '請輸入補登期限！' },
+                                        { type: 'number', min: 0, message: '補登期限不能小於 0！' },
                                     ]}
                                     tooltip="建議不超過 48 小時，避免入帳延遲"
                                 >

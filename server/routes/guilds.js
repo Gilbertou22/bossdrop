@@ -6,8 +6,43 @@ const crypto = require('crypto');
 
 // 生成隨機團隊密碼
 const generateGuildPassword = () => {
-    return crypto.randomBytes(8).toString('hex'); // 隨機 16 字符密碼
+    return crypto.randomBytes(8).toString('hex');
 };
+
+// 預設旅團設定
+const defaultGuildSettings = {
+    settings: {
+        applyDeadlineHours: 48,
+        editDeadlineHours: 24,
+        deleteDeadlineHours: 24,
+        publicFundRate: 0.1,
+        creatorExtraShare: false,
+        leaderExtraShare: false,
+        restrictBilling: false,
+        withdrawMinAmount: 100,
+    },
+};
+
+router.get('/me', auth, async (req, res) => {
+    try {
+        const guild = await Guild.findOne({ createdBy: req.user.id }).lean();
+        if (!guild) {
+            return res.json(defaultGuildSettings);
+        }
+        res.json(guild);
+    } catch (err) {
+        res.status(500).json({ msg: '獲取旅團資訊失敗', error: err.message });
+    }
+});
+
+router.get('/', auth, async (req, res) => {
+    try {
+        const guilds = await Guild.find().select('name _id').lean();
+        res.json(guilds);
+    } catch (err) {
+        res.status(500).json({ msg: '獲取旅團列表失敗', error: err.message });
+    }
+});
 
 // 創建團隊
 router.post('/', auth, adminOnly, async (req, res) => {
@@ -36,8 +71,6 @@ router.get('/:id', auth, async (req, res) => {
         if (!guild) {
             return res.status(404).json({ msg: '團隊不存在' });
         }
-
-        // 檢查用戶是否有權限查看（簡單示例：創建者或成員）
         if (guild.createdBy.toString() !== req.user.id.toString()) {
             return res.status(403).json({ msg: '無權限訪問' });
         }

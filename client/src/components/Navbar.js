@@ -14,6 +14,8 @@ import {
     CheckCircleOutlined,
     UserOutlined,
     BellOutlined,
+    AuditOutlined,
+    CloudUploadOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import axios from 'axios';
@@ -170,6 +172,7 @@ const Navbar = () => {
                         { key: '/manage-items', label: '管理物品', icon: <GiftOutlined /> },
                         { key: '/manage-users', label: '管理盟友', icon: <UserOutlined /> },
                         { key: '/stats', label: '統計報表', icon: <BarChartOutlined /> },
+                        { key: '/approve-attend-request', label: '管理補登申請', icon: <CloudUploadOutlined /> },
                     ],
                 }
             );

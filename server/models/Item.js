@@ -2,9 +2,10 @@ const mongoose = require('mongoose');
 
 const itemSchema = new mongoose.Schema({
     name: { type: String, required: true },
-    type: { type: String, enum: ['equipment', 'skill'], required: true }, // 添加 type 字段
-    description: { type: String }, // 添加 description 字段
-    imageUrl: { type: String }, // 添加 imageUrl 字段
+    type: { type: String, enum: ['equipment', 'skill'], required: true },
+    description: { type: String },
+    imageUrl: { type: String },
+    level: { type: mongoose.Schema.Types.ObjectId, ref: 'ItemLevel', default: null }, // 新增 level 欄位，引用 ItemLevel
     status: { type: String, enum: ['pending', 'approved', 'expired'], default: 'pending' },
     applicant: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
     endTime: { type: Date },

@@ -53,7 +53,7 @@ router.get('/stats', auth, async (req, res) => {
 });
 
 router.post('/register', upload.single('screenshot'), async (req, res) => {
-    const { world_name, character_name, discord_id, raid_level, password } = req.body;
+    const { world_name, character_name, discord_id, raid_level, password, guildId } = req.body;
     try {
         let user = await User.findOne({ character_name });
         if (user) {
@@ -70,6 +70,7 @@ router.post('/register', upload.single('screenshot'), async (req, res) => {
             password,
             screenshot,
             status: 'pending',
+            guildId: guildId || null, // 可選旅團 ID
         });
 
         const salt = await bcrypt.genSalt(10);
@@ -94,7 +95,7 @@ router.post('/register', upload.single('screenshot'), async (req, res) => {
 
 router.get('/', auth, adminOnly, async (req, res) => {
     try {
-        const users = await User.find().select('world_name character_name discord_id raid_level diamonds status screenshot role');
+        const users = await User.find().select('world_name character_name discord_id raid_level diamonds status screenshot role guildId');
         res.json(users);
     } catch (err) {
         res.status(500).json({ msg: '獲取用戶列表失敗', error: err.message });
@@ -106,7 +107,7 @@ router.get('/profile', auth, async (req, res) => {
         if (!req.user || !req.user.id) {
             return res.status(401).json({ msg: '無效的用戶身份' });
         }
-        const user = await User.findById(req.user.id).select('character_name world_name discord_id raid_level diamonds status screenshot role');
+        const user = await User.findById(req.user.id).select('character_name world_name discord_id raid_level diamonds status screenshot role guildId');
         if (!user) {
             return res.status(404).json({ msg: '用戶不存在' });
         }
@@ -116,7 +117,6 @@ router.get('/profile', auth, async (req, res) => {
         res.status(500).json({ msg: '伺服器錯誤，請稍後重試' });
     }
 });
-
 
 router.delete('/api/users/:id', auth, adminOnly, async (req, res) => {
     try {
@@ -129,10 +129,9 @@ router.delete('/api/users/:id', auth, adminOnly, async (req, res) => {
     }
 });
 
-
 router.put('/:id', auth, adminOnly, upload.single('screenshot'), async (req, res) => {
     console.log('PUT /api/users/:id request - req.user:', req.user, 'params.id:', req.params.id);
-    const { world_name, character_name, discord_id, raid_level, diamonds, status, role, password } = req.body;
+    const { world_name, character_name, discord_id, raid_level, diamonds, status, role, password, guildId } = req.body;
     try {
         const user = await User.findById(req.params.id);
         if (!user) {
@@ -151,6 +150,7 @@ router.put('/:id', auth, adminOnly, upload.single('screenshot'), async (req, res
         user.status = status || user.status;
         user.screenshot = req.file ? req.file.path : user.screenshot;
         user.role = role || user.role;
+        user.guildId = guildId || user.guildId; // 更新旅團 ID
         if (password) {
             const salt = await bcrypt.genSalt(10);
             user.password = await bcrypt.hash(password, salt);
@@ -164,9 +164,8 @@ router.put('/:id', auth, adminOnly, upload.single('screenshot'), async (req, res
     }
 });
 
-
 router.put('/profile', auth, async (req, res) => {
-    const { world_name, discord_id, raid_level } = req.body;
+    const { world_name, discord_id, raid_level, guildId } = req.body;
     try {
         if (!req.user || !req.user.id) {
             return res.status(401).json({ msg: '無效的用戶身份' });
@@ -177,6 +176,7 @@ router.put('/profile', auth, async (req, res) => {
         user.world_name = world_name || user.world_name;
         user.discord_id = discord_id || user.discord_id;
         user.raid_level = raid_level !== undefined ? parseInt(raid_level) : user.raid_level;
+        user.guildId = guildId || user.guildId; // 更新旅團 ID
 
         await user.save();
         res.json({ msg: '用戶資料更新成功' });
@@ -191,7 +191,7 @@ router.get('/me', auth, async (req, res) => {
         if (!req.user || !req.user.id) {
             return res.status(401).json({ msg: '無效的用戶身份' });
         }
-        const user = await User.findById(req.user.id).select('character_name world_name discord_id raid_level diamonds status screenshot role _id');
+        const user = await User.findById(req.user.id).select('character_name world_name discord_id raid_level diamonds status screenshot role _id guildId');
         if (!user) {
             return res.status(404).json({ msg: '用戶不存在' });
         }
@@ -205,6 +205,7 @@ router.get('/me', auth, async (req, res) => {
             diamonds: user.diamonds,
             status: user.status,
             screenshot: user.screenshot ? `${req.protocol}://${req.get('host')}/${user.screenshot.replace('./', '')}` : null,
+            guildId: user.guildId, // 返回旅團 ID
         });
     } catch (err) {
         console.error('Error fetching user:', err);

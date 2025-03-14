@@ -27,6 +27,7 @@ const ManageUsers = () => {
     const [selectedRowKeys, setSelectedRowKeys] = useState([]);
     const [stats, setStats] = useState({ totalUsers: 0, activeUsers: 0 });
     const [growthData, setGrowthData] = useState([]);
+    const [guilds, setGuilds] = useState([]); // 旅團列表
     const token = localStorage.getItem('token');
     const [online, setOnline] = useState(navigator.onLine);
     const [deferredPrompt, setDeferredPrompt] = useState(null);
@@ -40,6 +41,22 @@ const ManageUsers = () => {
         window.addEventListener('online', () => setOnline(true));
         window.addEventListener('offline', () => setOnline(false));
     }, []);
+
+    useEffect(() => {
+        fetchGuilds(); // 獲取旅團列表
+    }, []);
+
+    const fetchGuilds = async () => {
+        try {
+            const res = await axios.get(`${BASE_URL}/api/guilds`, {
+                headers: { 'x-auth-token': token },
+            });
+            setGuilds(res.data);
+        } catch (err) {
+            console.error('Fetch guilds error:', err);
+            message.error('載入旅團列表失敗');
+        }
+    };
 
     const handleInstallPWA = () => {
         if (deferredPrompt) {
@@ -151,6 +168,7 @@ const ManageUsers = () => {
             status: user?.status || 'pending',
             screenshot: user?.screenshot || '',
             role: user?.role || 'user',
+            guildId: user?.guildId || null, // 設置旅團 ID
             password: '',
             confirm_password: '',
         });
@@ -350,6 +368,13 @@ const ManageUsers = () => {
             width: 100,
         },
         { title: '角色', dataIndex: 'role', key: 'role', width: 120 },
+        {
+            title: '旅團',
+            dataIndex: 'guildId',
+            key: 'guildId',
+            width: 150,
+            render: (guildId) => guilds.find(g => g._id === guildId)?.name || '無',
+        },
         {
             title: '操作',
             key: 'action',
@@ -623,6 +648,22 @@ const ManageUsers = () => {
                                 </Select>
                             </Form.Item>
                             <Form.Item
+                                name="guildId"
+                                label="旅團"
+                                rules={[{ message: '請選擇旅團！' }]}
+                            >
+                                <Select
+                                    placeholder="選擇旅團"
+                                    allowClear
+                                >
+                                    {guilds.map(guild => (
+                                        <Option key={guild._id} value={guild._id}>
+                                            {guild.name}
+                                        </Option>
+                                    ))}
+                                </Select>
+                            </Form.Item>
+                            <Form.Item
                                 name="password"
                                 label="密碼"
                                 rules={[{ required: !editingUser, message: '請輸入密碼！' }]}
@@ -675,6 +716,7 @@ const ManageUsers = () => {
                             ) : '無'}
                         </Descriptions.Item>
                         <Descriptions.Item label="角色">{selectedUser.role}</Descriptions.Item>
+                        <Descriptions.Item label="旅團">{guilds.find(g => g._id === selectedUser.guildId)?.name || '無'}</Descriptions.Item>
                         <Descriptions.Item label="創建時間">{moment(selectedUser.createdAt).format('YYYY-MM-DD HH:mm:ss')}</Descriptions.Item>
                         <Descriptions.Item label="更新時間">{moment(selectedUser.updatedAt).format('YYYY-MM-DD HH:mm:ss')}</Descriptions.Item>
                     </Descriptions>

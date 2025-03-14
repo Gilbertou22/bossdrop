@@ -3,7 +3,18 @@ const router = express.Router();
 const BossKill = require('../models/BossKill');
 const Auction = require('../models/Auction');
 const Item = require('../models/Item');
+const ItemLevel = require('../models/ItemLevel');
 const { auth, adminOnly } = require('../middleware/auth');
+
+// 獲取所有等級選項
+router.get('/item-levels', async (req, res) => {
+    try {
+        const itemLevels = await ItemLevel.find().lean();
+        res.json(itemLevels);
+    } catch (err) {
+        res.status(500).json({ msg: '獲取物品等級失敗', error: err.message });
+    }
+});
 
 // 獲取可競標物品（從 BossKill 表中，狀態為 expired 且 final_recipient 為 NULL，且未發起競標）
 router.get('/auctionable', auth, async (req, res) => {
@@ -15,11 +26,9 @@ router.get('/auctionable', auth, async (req, res) => {
         };
         console.log('Initial Query:', JSON.stringify(query, null, 2));
 
-        // 獲取所有已發起競標的 BossKill _id
         const existingAuctions = await Auction.find().distinct('itemId');
         console.log('Existing Auction itemIds:', existingAuctions);
 
-        // 篩選出未發起競標的 BossKill
         const auctionableBossKills = await BossKill.find({
             ...query,
             _id: { $nin: existingAuctions },
@@ -27,7 +36,6 @@ router.get('/auctionable', auth, async (req, res) => {
 
         console.log('Auctionable BossKills count:', auctionableBossKills.length, 'Data:', auctionableBossKills);
 
-        // 映射 dropped_items 為可競標物品選項
         const auctionableItems = auctionableBossKills.reduce((acc, bossKill) => {
             const items = (bossKill.dropped_items || []).map(item => ({
                 _id: `${bossKill._id}_${item.name}`,
@@ -61,7 +69,9 @@ router.get('/', async (req, res) => {
                 { description: { $regex: search, $options: 'i' } },
             ];
         }
-        const items = await Item.find(query).lean();
+        const items = await Item.find(query)
+            .populate('level', 'level color') // 關聯查詢等級和顏色
+            .lean();
         res.json(items);
     } catch (err) {
         res.status(500).json({ msg: err.message });
@@ -70,14 +80,13 @@ router.get('/', async (req, res) => {
 
 // 創建物品（管理員）
 router.post('/', auth, adminOnly, async (req, res) => {
-    const { name, type, description, imageUrl } = req.body;
+    const { name, type, description, imageUrl, level } = req.body;
     try {
-        // 檢查名稱是否唯一
         const existingItem = await Item.findOne({ name });
         if (existingItem) {
             return res.status(400).json({ msg: '物品名稱已存在，請使用其他名稱' });
         }
-        const item = new Item({ name, type, description, imageUrl });
+        const item = new Item({ name, type, description, imageUrl, level });
         await item.save();
         res.status(201).json(item);
     } catch (err) {
@@ -87,16 +96,15 @@ router.post('/', auth, adminOnly, async (req, res) => {
 
 // 更新物品（管理員）
 router.put('/:id', auth, adminOnly, async (req, res) => {
-    const { name, type, description, imageUrl } = req.body;
+    const { name, type, description, imageUrl, level } = req.body;
     try {
-        // 檢查名稱是否與其他物品衝突
         const existingItem = await Item.findOne({ name, _id: { $ne: req.params.id } });
         if (existingItem) {
             return res.status(400).json({ msg: '物品名稱已存在，請使用其他名稱' });
         }
         const item = await Item.findByIdAndUpdate(
             req.params.id,
-            { name, type, description, imageUrl },
+            { name, type, description, imageUrl, level },
             { new: true, runValidators: true }
         );
         if (!item) return res.status(404).json({ msg: '物品不存在' });

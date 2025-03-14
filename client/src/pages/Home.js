@@ -5,6 +5,7 @@ import axios from 'axios';
 import moment from 'moment';
 import { FileDoneOutlined, ShoppingOutlined, TeamOutlined, UserOutlined, WarningOutlined, BarChartOutlined } from '@ant-design/icons';
 import formatNumber from '../utils/formatNumber';
+import statusTag from '../utils/statusTag'; // 導入模組化函數
 import { useNotification } from '../components/NotificationContext';
 import ReactECharts from 'echarts-for-react';
 

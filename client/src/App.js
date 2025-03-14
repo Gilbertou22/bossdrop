@@ -18,6 +18,7 @@ import KillDetail from './pages/KillDetail';
 import UserProfile from './pages/UserProfile';
 import Notifications from './pages/Notifications'; // 導入 Notifications 組件
 import Guilds from './pages/GuildSettings'; // 導入 Guilds 組件
+import ApproveAttendRequest from './pages/ManageSupplementRequests';
 import React, { useState } from 'react';
 import { NotificationProvider } from './components/NotificationContext';
 
@@ -131,7 +132,15 @@ function App() {
                 <Guilds />
               </RoleRoute>
             }
-          /> 
+            /> 
+            <Route
+              path="/approve-attend-request"
+              element={
+                <RoleRoute allowedRoles={['moderator', 'admin']}>
+                  <ApproveAttendRequest />
+                </RoleRoute>
+              }
+            /> 
           <Route
             path="/notifications"
             element={

@@ -1,14 +1,25 @@
 import React, { useState, useEffect } from 'react';
 import { Row, Col, Button, DatePicker, Input, message, Image, Card, Spin, Alert, Tag, Tooltip, Popconfirm } from 'antd';
-import { SearchOutlined, EditOutlined, PlusOutlined, CheckCircleOutlined, CheckOutlined } from '@ant-design/icons';
+import { SearchOutlined, EditOutlined, PlusOutlined, CheckOutlined } from '@ant-design/icons';
 import axios from 'axios';
 import moment from 'moment';
 import KillDetailModal from './KillDetailModal';
-import AddAttendeeModal from './AddAttendeeModal'; // 導入補單模態框
+import AddAttendeeModal from './AddAttendeeModal';
+import statusTag from '../utils/statusTag';
 
 const { RangePicker } = DatePicker;
 
 const BASE_URL = 'http://localhost:5000';
+
+// 定義顏色映射，與 ManageItems.js 保持一致
+const colorMapping = {
+    '白色': '#f0f0f0',
+    '綠色': '#00cc00',
+    '藍色': '#1e90ff',
+    '紅色': '#EC3636',
+    '紫色': '#B931F3',
+    '金色': '#ffd700',
+};
 
 const KillHistory = () => {
     const [history, setHistory] = useState([]);
@@ -25,8 +36,9 @@ const KillHistory = () => {
     const [selectedKill, setSelectedKill] = useState(null);
     const [modalLoading, setModalLoading] = useState(false);
     const [isEditing, setIsEditing] = useState(false);
-    const [addVisible, setAddVisible] = useState(false); // 補單模態框可見性
-    const [addKillId, setAddKillId] = useState(null); // 補單的 killId
+    const [addVisible, setAddVisible] = useState(false);
+    const [addKillId, setAddKillId] = useState(null);
+    const [applyDeadlineHours, setApplyDeadlineHours] = useState(48); // 預設 48 小時
 
     useEffect(() => {
         if (!token) {
@@ -34,6 +46,7 @@ const KillHistory = () => {
             return;
         }
         fetchUserInfo();
+        fetchGuildSettings();
     }, [token]);
 
     useEffect(() => {
@@ -58,6 +71,18 @@ const KillHistory = () => {
             message.error('載入用戶信息失敗: ' + (err.response?.data?.msg || err.message));
         } finally {
             setLoading(false);
+        }
+    };
+
+    const fetchGuildSettings = async () => {
+        try {
+            const res = await axios.get(`${BASE_URL}/api/guilds/me`, {
+                headers: { 'x-auth-token': token },
+            });
+            setApplyDeadlineHours(res.data.settings.applyDeadlineHours || 48);
+        } catch (err) {
+            console.error('Fetch guild settings error:', err);
+            message.warning('載入旅團設定失敗，使用預設 48 小時補登期限');
         }
     };
 
@@ -182,12 +207,19 @@ const KillHistory = () => {
                 setItemApplications(applicationsMap);
             }
 
-            const finalHistory = updatedHistory.map(record => ({
-                ...record,
-                screenshots: record.screenshots
-                    ? record.screenshots.map(src => (src ? `${BASE_URL}/${src.replace('./', '')}` : ''))
-                    : [],
-            }));
+            const finalHistory = updatedHistory.map(record => {
+                const deadline = moment(record.kill_time).add(applyDeadlineHours, 'hours');
+                const isWithinDeadline = moment().isBefore(deadline);
+                const remainingHours = moment(deadline).diff(moment(), 'hours');
+                return {
+                    ...record,
+                    screenshots: record.screenshots
+                        ? record.screenshots.map(src => (src ? `${BASE_URL}/${src.replace('./', '')}` : ''))
+                        : [],
+                    isWithinDeadline,
+                    remainingHours,
+                };
+            });
             setHistory(finalHistory);
         } catch (err) {
             console.error('Fetch kill history error:', err);
@@ -203,40 +235,6 @@ const KillHistory = () => {
 
     const handleSearch = () => {
         fetchHistory();
-    };
-
-    const getStatusTag = (status) => {
-        let color, text;
-        switch (status) {
-            case 'pending':
-                color = 'gold';
-                text = '待分配';
-                break;
-            case 'assigned':
-                color = 'green';
-                text = '已分配';
-                break;
-            case 'expired':
-                color = 'red';
-                text = '已過期';
-                break;
-            default:
-                color = 'default';
-                text = status || '未知';
-        }
-        return (
-            <Tag
-                color={color}
-                style={{
-                    borderRadius: '12px',
-                    padding: '2px 12px',
-                    fontWeight: 'bold',
-                    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
-                }}
-            >
-                {text}
-            </Tag>
-        );
     };
 
     const getApplicationDetails = (killId, itemId) => {
@@ -261,6 +259,13 @@ const KillHistory = () => {
                 message.error('請先登錄！');
                 return;
             }
+
+            const kill = history.find(record => record._id === killId);
+            if (!kill || !kill.attendees.includes(currentUser)) {
+                message.warning('您未參與該擊殺，無法申請物品。請先補登參與者身份！');
+                return;
+            }
+
             const applicationKey = `${killId}_${itemId}`;
             if (userApplications.some(app => {
                 const appKillId = app.kill_id && app.kill_id._id ? app.kill_id._id.toString() : null;
@@ -269,6 +274,7 @@ const KillHistory = () => {
                 message.warning('您已為此物品提交申請！');
                 return;
             }
+
             console.log(`Quick applying for killId: ${killId}, itemId: ${itemId}, itemName: ${itemName}`);
             const res = await axios.post(
                 `${BASE_URL}/api/applications`,
@@ -304,7 +310,7 @@ const KillHistory = () => {
     };
 
     const handleUpdate = () => {
-        fetchHistory(); // 刷新主頁數據
+        fetchHistory();
         handleCloseModal();
     };
 
@@ -319,19 +325,23 @@ const KillHistory = () => {
     };
 
     const handleAddSubmit = () => {
-        fetchHistory(); // 刷新主頁數據
+        fetchHistory();
         handleCloseAddModal();
     };
 
-    // 渲染網格項
     const renderGridItem = (record) => {
-        const firstScreenshot = record.screenshots[0] ; // 默認圖片
+        const firstScreenshot = record.screenshots[0] || 'https://via.placeholder.com/300x200';
         const killTime = moment(record.kill_time).format('MM-DD HH:mm');
-        const relativeTime = moment(record.kill_time).fromNow(); // 相對時間，如 "18小時前"
-        const itemName = record.dropped_items && record.dropped_items.length > 0 ? record.dropped_items[0].name : '無';
+        const relativeTime = moment(record.kill_time).fromNow();
+        const item = record.dropped_items && record.dropped_items.length > 0 ? record.dropped_items[0] : null;
+        const itemName = item ? item.name : '無';
         const bossName = record.boss_name || '未知首領';
-        const isAttendee = record.attendees?.includes(currentUser); // 檢查是否已參與
-        const canAddAttendee = record.status === 'pending' && !isAttendee; // 補單條件
+        const isAttendee = record.attendees?.includes(currentUser);
+        const canAddAttendee = record.status === 'pending' && !isAttendee && record.isWithinDeadline;
+        const remainingTime = record.remainingHours > 0 ? `${Math.max(0, Math.ceil(record.remainingHours))}小時內可補登` : '補登結束';
+
+        // 根據物品等級設置顏色
+        const itemColor = item?.level ? colorMapping[item.level.color] || '#ffffff' : '#ffffff';
 
         return (
             <Col xs={24} sm={12} md={8} lg={4} key={record._id} style={{ marginBottom: '8px', position: 'relative' }}>
@@ -344,14 +354,14 @@ const KillHistory = () => {
                             width: '30px',
                             height: '30px',
                             background: 'red',
-                            clipPath: 'polygon(0 0, 100% 0, 0 100%)', // 左上角三角形
+                            clipPath: 'polygon(0 0, 100% 0, 0 100%)',
                             display: 'flex',
                             justifyContent: 'center',
                             alignItems: 'center',
                             zIndex: 1,
                         }}
                     >
-                        <CheckOutlined style={{ position: 'absolute', color: 'white', fontSize: '16px', left: '3px', top: '2px', }} />
+                        <CheckOutlined style={{ position: 'absolute', color: 'white', fontSize: '13px', left: '3px', top: '3px' }} />
                     </div>
                 )}
                 <Card
@@ -374,6 +384,23 @@ const KillHistory = () => {
                                     message.warning('截圖加載失敗，使用占位圖');
                                 }}
                             />
+                            {record.status === 'pending' && record.isWithinDeadline && (
+                                <div
+                                    style={{
+                                        position: 'absolute',
+                                        bottom: '0px',
+                                        right: '0px',
+                                        backgroundColor: 'rgba(48, 189, 106, 0.93)',
+                                        color: 'white',
+                                        padding: '3px 6px',
+                                        borderRadius: '0px',
+                                        fontSize: '12px',
+                                        zIndex: 2,
+                                    }}
+                                >
+                                    {remainingTime}
+                                </div>
+                            )}
                             <div
                                 style={{
                                     position: 'absolute',
@@ -389,11 +416,12 @@ const KillHistory = () => {
                                     wordBreak: 'break-all',
                                     lineHeight: '1.5',
                                     width: '80%',
-                                    textShadow: '0 0 10px rgba(228, 243, 17, 0.87)',
+                                    textShadow: '1px 1px 2px rgb(255, 255, 255)',
                                     textAlign: 'center',
                                 }}
                             >
-                                [{killTime}]<br /> {itemName}
+                                [{killTime}]<br />
+                                <span style={{ color: itemColor }}>{itemName}</span>
                             </div>
                         </div>
                     }
@@ -401,7 +429,7 @@ const KillHistory = () => {
                         <Tooltip title="查看詳情">
                             <Button type="link" onClick={() => handleShowDetail(record._id, false)}>詳情</Button>
                         </Tooltip>,
-                        role !== 'admin' && record.dropped_items.some(item => {
+                        role !== 'admin' && isAttendee && record.dropped_items.some(item => {
                             const itemId = item._id || item.id;
                             const appDetails = getApplicationDetails(record._id, itemId);
                             let effectiveStatus = item.status ? item.status.toLowerCase() : 'pending';
@@ -417,17 +445,22 @@ const KillHistory = () => {
                                 okText="是"
                                 cancelText="否"
                             >
-                                <Button type="primary" loading={applying} disabled={applying}>申請</Button>
+                                <Button type="link" loading={applying} disabled={applying}>申請</Button>
                             </Popconfirm>
                         ),
-                        role !== 'admin' && canAddAttendee && (
+                        role !== 'admin' && canAddAttendee && remainingTime === '補登結束' && (
                             <Tooltip title="補登">
-                                <Button type="primary" onClick={() => handleShowAddModal(record._id)}>補登</Button>
+                                <Button type="link" onClick={() => handleShowAddModal(record._id)} disabled>補登</Button>
+                            </Tooltip>
+                        ),
+                        role !== 'admin' && canAddAttendee && remainingTime !== '補登結束' && (
+                            <Tooltip title="補登">
+                                <Button type="link" onClick={() => handleShowAddModal(record._id)}>補登</Button>
                             </Tooltip>
                         ),
                         role === 'admin' && record.status === 'pending' && (
                             <Tooltip title="編輯">
-                                <Button type="link" icon={<EditOutlined />} onClick={() => handleShowDetail(record._id, true)}>編輯</Button>
+                                <Button type="link" onClick={() => handleShowDetail(record._id, true)}>編輯</Button>
                             </Tooltip>
                         ),
                         role === 'admin' && record.status === 'pending' && (
@@ -452,7 +485,7 @@ const KillHistory = () => {
                         }
                         description={
                             <>
-                                <p>狀態: {getStatusTag(record.status)}</p>
+                                <p>狀態: {statusTag(record.status)}</p>
                                 <p>掉落物品: {record.dropped_items.map(item => item.name).join(', ') || '無'}</p>
                             </>
                         }
@@ -511,7 +544,6 @@ const KillHistory = () => {
                 </Spin>
             </Card>
 
-            {/* 詳情模態框 */}
             <KillDetailModal
                 visible={visible}
                 onCancel={handleCloseModal}
@@ -521,7 +553,6 @@ const KillHistory = () => {
                 initialEditing={isEditing}
             />
 
-            {/* 補單模態框 */}
             <AddAttendeeModal
                 visible={addVisible}
                 onCancel={handleCloseAddModal}
@@ -532,10 +563,10 @@ const KillHistory = () => {
 
             <style jsx global>{`
                 .ant-image {
-                    position: static !important; /* 覆蓋 Ant Design 的 position: relative */
+                    position: static !important;
                 }
                 .ant-image .ant-image-mask {
-                    position: static !important; /* 修復 MASK 遮蓋問題 */
+                    position: static !important;
                 }
                 .ant-descriptions-item-label {
                     background-color: #f5f5f5;

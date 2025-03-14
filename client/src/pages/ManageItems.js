@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Table, Button, Modal, Form, Input, Select, message, Spin, Alert, Pagination, Row, Col, Popconfirm, Image, Checkbox, Card } from 'antd';
+import { Table, Button, Modal, Form, Input, Select, message, Spin, Alert, Pagination, Row, Col, Popconfirm, Image, Tag, Card } from 'antd';
 import { SearchOutlined, DeleteOutlined, EditOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import axios from 'axios';
 
@@ -18,10 +18,22 @@ const ManageItems = () => {
     const [pageSize, setPageSize] = useState(10);
     const [filters, setFilters] = useState({ search: '', type: 'all' });
     const [selectedRowKeys, setSelectedRowKeys] = useState([]);
+    const [itemLevels, setItemLevels] = useState([]);
 
     useEffect(() => {
         fetchItems();
+        fetchItemLevels();
     }, []);
+
+    const fetchItemLevels = async () => {
+        try {
+            const res = await axios.get(`${BASE_URL}/api/items/item-levels`);
+            setItemLevels(res.data);
+        } catch (err) {
+            console.error('Fetch item levels error:', err);
+            message.error('載入物品等級失敗');
+        }
+    };
 
     const fetchItems = async () => {
         setLoading(true);
@@ -116,14 +128,21 @@ const ManageItems = () => {
 
     const rowSelection = {
         selectedRowKeys,
-        onChange: (selectedKeys) => {
-            setSelectedRowKeys(selectedKeys);
-        },
+        onChange: (selectedKeys) => setSelectedRowKeys(selectedKeys),
     };
 
     const typeMapping = {
         equipment: '裝備',
         skill: '技能',
+    };
+
+    const colorMapping = {
+        '白色': '#f0f0f0',
+        '綠色': '#00cc00',
+        '藍色': '#1e90ff',
+        '紅色': '#EC3636',
+        '紫色': '#B931F3',
+        '金色': '#ffd700',
     };
 
     const columns = [
@@ -148,7 +167,26 @@ const ManageItems = () => {
             dataIndex: 'type',
             key: 'type',
             width: 120,
-            render: (type) => typeMapping[type] || '未設置', // 映射為中文
+            render: (type) => typeMapping[type] || '未設置',
+        },
+        {
+            title: '等級',
+            dataIndex: 'level',
+            key: 'level',
+            width: 120,
+            render: (level) => level ? (
+                <Tag
+                    color={colorMapping[level.color] || '#000000'}
+                    style={{
+                        padding: '4px 8px',
+                        fontSize: '14px',
+                        fontWeight: 'bold',
+                        border: '1px solid #d9d9d9',
+                    }}
+                >
+                    {level.level}
+                </Tag>
+            ) : '未設置',
         },
         { title: '描述', dataIndex: 'description', key: 'description', width: 200 },
         {
@@ -161,7 +199,10 @@ const ManageItems = () => {
                             onClick={() => {
                                 setEditingItem(record);
                                 setVisible(true);
-                                form.setFieldsValue(record);
+                                form.setFieldsValue({
+                                    ...record,
+                                    level: record.level?._id || null,
+                                });
                             }}
                             disabled={loading}
                             type="primary"
@@ -320,6 +361,29 @@ const ManageItems = () => {
                         <Select>
                             <Option value="equipment">裝備</Option>
                             <Option value="skill">技能</Option>
+                        </Select>
+                    </Form.Item>
+                    <Form.Item
+                        name="level"
+                        label="等級"
+                        rules={[{ message: '請選擇物品等級！' }]}
+                    >
+                        <Select placeholder="選擇等級" allowClear>
+                            {itemLevels.map(level => (
+                                <Option key={level._id} value={level._id}>
+                                    <Tag
+                                        color={colorMapping[level.color] || '#000000'}
+                                        style={{
+                                            padding: '4px 8px',
+                                            fontSize: '14px',
+                                            fontWeight: 'bold',
+                                            border: '1px solid #d9d9d9',
+                                        }}
+                                    >
+                                        {level.level}
+                                    </Tag>
+                                </Option>
+                            ))}
                         </Select>
                     </Form.Item>
                     <Form.Item

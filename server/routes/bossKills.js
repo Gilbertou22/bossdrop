@@ -2,8 +2,10 @@ const express = require('express');
 const mongoose = require('mongoose');
 const router = express.Router();
 const BossKill = require('../models/BossKill');
-const Application = require('../models/Application'); // 假設存在 Application 模型
-const Auction = require('../models/Auction'); // 假設存在 Auction 模型
+const Application = require('../models/Application');
+const Auction = require('../models/Auction');
+const Guild = require('../models/Guild');
+const Item = require('../models/Item');
 const multer = require('multer');
 const { auth, adminOnly } = require('../middleware/auth');
 
@@ -28,24 +30,19 @@ router.get('/', auth, async (req, res) => {
         }
         if (status) query.status = status;
 
-        // 移除非管理員必須在 attendees 中的限制
-        // if (req.user.role !== 'admin') {
-        //     query.attendees = req.user.character_name;
-        // }
-
         console.log('Querying boss kills with:', query);
         const bossKills = await BossKill.find(query).lean();
 
-        // 檢查 apply_deadline 和申請記錄
+        const guild = await Guild.findOne({ createdBy: req.user.id }).lean();
+        const applyDeadlineHours = guild?.settings?.applyDeadlineHours || 48;
         const currentDate = new Date();
+
         const enrichedKills = await Promise.all(bossKills.map(async kill => {
             const updatedItems = await Promise.all(kill.dropped_items.map(async item => {
                 let itemStatus = item.status || 'pending';
-                // 檢查 apply_deadline
                 if (item.apply_deadline && new Date(item.apply_deadline) < currentDate && itemStatus !== 'assigned') {
                     itemStatus = 'expired';
                 }
-                // 檢查是否有已批准的申請
                 const approvedApplication = await Application.findOne({
                     kill_id: kill._id,
                     item_id: item._id,
@@ -54,15 +51,28 @@ router.get('/', auth, async (req, res) => {
                 if (approvedApplication && itemStatus !== 'expired') {
                     itemStatus = 'assigned';
                 }
+
+                const itemDoc = await Item.findOne({ name: item.name }).populate('level', 'level color');
+                const level = itemDoc?.level || null;
+
                 return {
                     ...item,
                     status: itemStatus,
                     final_recipient: approvedApplication ? approvedApplication.user_id.character_name : item.final_recipient,
+                    level,
                 };
             }));
+
+            const killTime = new Date(kill.kill_time);
+            const timeDiff = (currentDate - killTime) / (1000 * 60 * 60);
+            const canSupplement = timeDiff <= applyDeadlineHours;
+            const remainingHours = canSupplement ? Math.ceil(applyDeadlineHours - timeDiff) : 0;
+
             return {
                 ...kill,
                 dropped_items: updatedItems,
+                canSupplement,
+                remainingSupplementHours: remainingHours,
             };
         }));
 
@@ -91,7 +101,6 @@ router.get('/:id', auth, async (req, res) => {
     }
 });
 
-// 獲取所有擊殺記錄（分頁）
 router.get('/all', auth, adminOnly, async (req, res) => {
     try {
         const { page = 1, limit = 10 } = req.query;
@@ -106,13 +115,15 @@ router.get('/all', auth, adminOnly, async (req, res) => {
 
         const total = await BossKill.countDocuments();
 
-        // 為每個 dropped_item 添加分配狀態
         const enrichedKills = await Promise.all(bossKills.map(async (kill) => {
             const enrichedItems = await Promise.all(kill.dropped_items.map(async (item) => {
                 const auction = await Auction.findOne({ itemId: item._id }).lean();
                 const application = await Application.findOne({ item_id: item._id, status: 'approved' }).lean();
 
                 const isAssigned = auction || application || item.status === 'assigned' || item.final_recipient;
+                const itemDoc = await Item.findOne({ name: item.name }).populate('level', 'level color');
+                const level = itemDoc?.level || null;
+
                 return {
                     ...item,
                     status: isAssigned ? 'assigned' : (item.status || 'pending'),
@@ -121,6 +132,7 @@ router.get('/all', auth, adminOnly, async (req, res) => {
                         item.final_recipient ||
                         null,
                     isAssigned: !!isAssigned,
+                    level,
                 };
             }));
             return {
@@ -150,7 +162,6 @@ router.get('/all', auth, adminOnly, async (req, res) => {
     }
 });
 
-// 更新擊殺記錄 (管理員)
 router.put('/:id', auth, adminOnly, async (req, res) => {
     const { status, final_recipient, attendees } = req.body;
     try {
@@ -164,8 +175,8 @@ router.put('/:id', auth, adminOnly, async (req, res) => {
         }
 
         if (status) bossKill.status = status;
-        if (final_recipient) bossKill.final_recipient = final_recipient; // 保持只讀，但允許後端檢查
-        if (attendees) bossKill.attendees = attendees; // 更新參與者
+        if (final_recipient) bossKill.final_recipient = final_recipient;
+        if (attendees) bossKill.attendees = attendees;
 
         await bossKill.save();
         res.json({ msg: '擊殺記錄更新成功', bossKill });
@@ -180,20 +191,23 @@ router.put('/:id', auth, adminOnly, async (req, res) => {
     }
 });
 
-
 router.post('/', auth, adminOnly, upload.array('screenshots', 5), async (req, res) => {
     const { boss_name, kill_time, dropped_items, attendees, final_recipient, status, apply_deadline_days } = req.body;
 
     try {
         const screenshots = req.files.map(file => file.path);
-        const items = JSON.parse(dropped_items).map(item => ({
-            _id: new mongoose.Types.ObjectId(),
-            name: item.name,
-            type: item.type,
-            apply_deadline: new Date(new Date(kill_time).getTime() + (apply_deadline_days || 7) * 24 * 60 * 60 * 1000),
-            status: 'pending',
-            final_recipient: null,
-        }));
+        const items = JSON.parse(dropped_items).map(item => {
+            const level = item.level ? new mongoose.Types.ObjectId(item.level) : null;
+            return {
+                _id: new mongoose.Types.ObjectId(),
+                name: item.name,
+                type: item.type,
+                apply_deadline: new Date(new Date(kill_time).getTime() + (apply_deadline_days || 7) * 24 * 60 * 60 * 1000),
+                status: 'pending',
+                final_recipient: null,
+                level,
+            };
+        });
 
         let parsedAttendees = attendees;
         if (typeof attendees === 'string') {
@@ -217,7 +231,6 @@ router.post('/', auth, adminOnly, upload.array('screenshots', 5), async (req, re
             });
         }
 
-        // 為每個物品創建獨立記錄
         const results = [];
         for (const item of items) {
             const bossKill = new BossKill({

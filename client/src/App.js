@@ -16,147 +16,163 @@ import Navbar from './components/Navbar';
 import KillHistory from './pages/KillHistory';
 import KillDetail from './pages/KillDetail';
 import UserProfile from './pages/UserProfile';
-import Notifications from './pages/Notifications'; // 導入 Notifications 組件
-import Guilds from './pages/GuildSettings'; // 導入 Guilds 組件
+import Notifications from './pages/Notifications';
+import Guilds from './pages/GuildSettings';
 import ApproveAttendRequest from './pages/ManageSupplementRequests';
 import React, { useState } from 'react';
 import { NotificationProvider } from './components/NotificationContext';
+import { Layout, Spin } from 'antd';
+
+const { Content } = Layout;
 
 function App() {
-  const [profileVisible, setProfileVisible] = useState(false);
+    const [profileVisible, setProfileVisible] = useState(false);
 
-  // 調試信息
-  console.log('App rendered, checking routes');
+    // 調試信息
+    console.log('App rendered, checking routes');
 
-  return (
-    <NotificationProvider>
-    <Router>
-      <div className="App">
-        <Navbar />
-        <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/register" element={<Register />} />
-          <Route path="/login" element={<Login />} />
-          <Route
-            path="/apply-item"
-            element={
-              <RoleRoute allowedRoles={['user', 'moderator', 'admin']}>
-                <ApplyItem />
-              </RoleRoute>
-            }
-          />
-          <Route
-            path="/auction"
-            element={
-              <RoleRoute allowedRoles={['user', 'moderator', 'admin']}>
-                <Auction />
-              </RoleRoute>
-            }
-          />
-          <Route
-            path="/stats"
-            element={
-              <RoleRoute allowedRoles={['admin']}>
-                <Stats />
-              </RoleRoute>
-            }
-          />
-          <Route
-            path="/create-auction"
-            element={
-              <RoleRoute allowedRoles={['moderator', 'admin']}>
-                <CreateAuction />
-              </RoleRoute>
-            }
-          />
-          <Route
-            path="/boss-kill"
-            element={
-              <RoleRoute allowedRoles={['moderator', 'admin']}>
-                <BossKillForm />
-              </RoleRoute>
-            }
-          />
-          <Route
-            path="/manage-bosses"
-            element={
-              <RoleRoute allowedRoles={['admin']}>
-                <ManageBosses />
-              </RoleRoute>
-            }
-          />
-          <Route
-            path="/manage-items"
-            element={
-              <RoleRoute allowedRoles={['admin']}>
-                <ManageItems />
-              </RoleRoute>
-            }
-          />
-          <Route
-            path="/approve-applications"
-            element={
-              <RoleRoute allowedRoles={['moderator', 'admin']}>
-                <ApproveApplications />
-              </RoleRoute>
-            }
-          />
-          <Route
-            path="/manage-users"
-            element={
-              <RoleRoute allowedRoles={['admin']}>
-                <ManageUsers />
-              </RoleRoute>
-            }
-          />
-          <Route
-            path="/kill-history"
-            element={
-              <RoleRoute allowedRoles={['user', 'moderator', 'admin']}>
-                <KillHistory />
-              </RoleRoute>
-            }
-            />
-            <Route
-              path="/kill-detail/:id"
-              element={
-                <RoleRoute allowedRoles={['user', 'moderator', 'admin']}>
-                  <KillDetail />
-                </RoleRoute>
-              }
-            />
-            <Route
-            path="/guilds"
-            element={
-              <RoleRoute allowedRoles={['admin']}>
-                <Guilds />
-              </RoleRoute>
-            }
-            /> 
-            <Route
-              path="/approve-attend-request"
-              element={
-                <RoleRoute allowedRoles={['moderator', 'admin']}>
-                  <ApproveAttendRequest />
-                </RoleRoute>
-              }
-            /> 
-          <Route
-            path="/notifications"
-            element={
-              <RoleRoute allowedRoles={['user', 'moderator', 'admin']}>
-                <Notifications />
-              </RoleRoute>
-            }
-          />
-          {/* 處理未匹配的路由 */}
-          <Route path="*" element={<h1>404 - 頁面未找到</h1>} />
-        </Routes>
-        <UserProfile visible={profileVisible} onCancel={() => setProfileVisible(false)} />
-      </div>
-      </Router>
-    </NotificationProvider>
-  );
+    return (
+        <NotificationProvider>
+            <Router>
+                <Layout style={{ minHeight: '100vh' }}>
+                    <Navbar />
+                    <Layout style={{ marginTop: '64px' }}> {/* 確保與 Navbar 高度一致 */}
+                        <Content
+                            style={{
+                                padding: '20px',
+                                minHeight: 'calc(100vh - 64px)', // 減去 Navbar 高度
+                                overflowX: 'hidden',
+                                overflowY: 'auto',
+                                background: '#fff',
+                            }}
+                        >
+                            <Spin spinning={false} size="large">
+                                <Routes>
+                                    <Route path="/" element={<Home />} />
+                                    <Route path="/register" element={<Register />} />
+                                    <Route path="/login" element={<Login />} />
+                                    <Route
+                                        path="/apply-item"
+                                        element={
+                                            <RoleRoute allowedRoles={['user', 'moderator', 'admin']}>
+                                                <ApplyItem />
+                                            </RoleRoute>
+                                        }
+                                    />
+                                    <Route
+                                        path="/auction"
+                                        element={
+                                            <RoleRoute allowedRoles={['user', 'moderator', 'admin']}>
+                                                <Auction />
+                                            </RoleRoute>
+                                        }
+                                    />
+                                    <Route
+                                        path="/stats"
+                                        element={
+                                            <RoleRoute allowedRoles={['admin']}>
+                                                <Stats />
+                                            </RoleRoute>
+                                        }
+                                    />
+                                    <Route
+                                        path="/create-auction"
+                                        element={
+                                            <RoleRoute allowedRoles={['moderator', 'admin']}>
+                                                <CreateAuction />
+                                            </RoleRoute>
+                                        }
+                                    />
+                                    <Route
+                                        path="/boss-kill"
+                                        element={
+                                            <RoleRoute allowedRoles={['moderator', 'admin']}>
+                                                <BossKillForm />
+                                            </RoleRoute>
+                                        }
+                                    />
+                                    <Route
+                                        path="/manage-bosses"
+                                        element={
+                                            <RoleRoute allowedRoles={['admin']}>
+                                                <ManageBosses />
+                                            </RoleRoute>
+                                        }
+                                    />
+                                    <Route
+                                        path="/manage-items"
+                                        element={
+                                            <RoleRoute allowedRoles={['admin']}>
+                                                <ManageItems />
+                                            </RoleRoute>
+                                        }
+                                    />
+                                    <Route
+                                        path="/approve-applications"
+                                        element={
+                                            <RoleRoute allowedRoles={['moderator', 'admin']}>
+                                                <ApproveApplications />
+                                            </RoleRoute>
+                                        }
+                                    />
+                                    <Route
+                                        path="/manage-users"
+                                        element={
+                                            <RoleRoute allowedRoles={['admin']}>
+                                                <ManageUsers />
+                                            </RoleRoute>
+                                        }
+                                    />
+                                    <Route
+                                        path="/kill-history"
+                                        element={
+                                            <RoleRoute allowedRoles={['user', 'moderator', 'admin']}>
+                                                <KillHistory />
+                                            </RoleRoute>
+                                        }
+                                    />
+                                    <Route
+                                        path="/kill-detail/:id"
+                                        element={
+                                            <RoleRoute allowedRoles={['user', 'moderator', 'admin']}>
+                                                <KillDetail />
+                                            </RoleRoute>
+                                        }
+                                    />
+                                    <Route
+                                        path="/guilds"
+                                        element={
+                                            <RoleRoute allowedRoles={['admin']}>
+                                                <Guilds />
+                                            </RoleRoute>
+                                        }
+                                    />
+                                    <Route
+                                        path="/approve-attend-request"
+                                        element={
+                                            <RoleRoute allowedRoles={['moderator', 'admin']}>
+                                                <ApproveAttendRequest />
+                                            </RoleRoute>
+                                        }
+                                    />
+                                    <Route
+                                        path="/notifications"
+                                        element={
+                                            <RoleRoute allowedRoles={['user', 'moderator', 'admin']}>
+                                                <Notifications />
+                                            </RoleRoute>
+                                        }
+                                    />
+                                    <Route path="*" element={<h1 style={{ textAlign: 'center', padding: '20px' }}>404 - 頁面未找到</h1>} />
+                                </Routes>
+                            </Spin>
+                        </Content>
+                    </Layout>
+                    <UserProfile visible={profileVisible} onCancel={() => setProfileVisible(false)} />
+                </Layout>
+            </Router>
+        </NotificationProvider>
+    );
 }
 
 export default App;

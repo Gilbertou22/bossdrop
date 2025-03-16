@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Menu, Layout, Dropdown, Avatar, Badge, Button, Popover } from 'antd';
+import { Menu, Layout, Dropdown, Avatar, Badge, Button, Popover, Drawer } from 'antd';
 import {
     LoginOutlined,
     UserAddOutlined,
@@ -16,6 +16,7 @@ import {
     BellOutlined,
     AuditOutlined,
     CloudUploadOutlined,
+    MenuOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import axios from 'axios';
@@ -34,14 +35,45 @@ const Navbar = () => {
     const [user, setUser] = useState(null);
     const [profileVisible, setProfileVisible] = useState(false);
     const [pendingCount, setPendingCount] = useState(0);
+    const [drawerVisible, setDrawerVisible] = useState(false);
+    const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+    const [deferredPrompt, setDeferredPrompt] = useState(null);
 
     useEffect(() => {
+        const handleResize = () => {
+            setIsMobile(window.innerWidth <= 768);
+        };
+
+        window.addEventListener('resize', handleResize);
+        handleResize();
+
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            setDeferredPrompt(e);
+        });
+
         if (token) {
             fetchUserInfo();
             fetchNotifications();
             fetchPendingCount();
         }
+
+        return () => window.removeEventListener('resize', handleResize);
     }, [token]);
+
+    const handleInstallPWA = () => {
+        if (deferredPrompt) {
+            deferredPrompt.prompt();
+            deferredPrompt.userChoice.then((choiceResult) => {
+                if (choiceResult.outcome === 'accepted') {
+                    console.log('User accepted the install prompt');
+                } else {
+                    console.log('User dismissed the install prompt');
+                }
+                setDeferredPrompt(null);
+            });
+        }
+    };
 
     const fetchUserInfo = async () => {
         try {
@@ -171,6 +203,7 @@ const Navbar = () => {
                         { key: '/manage-bosses', label: '管理首領', icon: <TeamOutlined /> },
                         { key: '/manage-items', label: '管理物品', icon: <GiftOutlined /> },
                         { key: '/manage-users', label: '管理盟友', icon: <UserOutlined /> },
+                        { key: '/manage-item-levels', label: '管理物品等級', icon: <GiftOutlined /> },
                         { key: '/stats', label: '統計報表', icon: <BarChartOutlined /> },
                         { key: '/approve-attend-request', label: '管理補登申請', icon: <CloudUploadOutlined /> },
                     ],
@@ -220,62 +253,131 @@ const Navbar = () => {
     );
 
     return (
-        <Header style={{ background: '#001529', padding: '0 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', height: '64px' }}>
-            <Menu
-                theme="dark"
-                mode="horizontal"
-                selectedKeys={[location.pathname]}
-                items={items}
-                onClick={({ key }) => {
-                    if (key === 'profile') setProfileVisible(true);
-                    else navigate(key);
-                }}
-                style={{ flex: 1, lineHeight: '64px', borderBottom: 'none', background: 'transparent' }}
-            />
-            {token && user && (
-                <div style={{ display: 'flex', alignItems: 'center' }}>
-                    <Popover content={notificationContent} trigger="click" placement="bottomRight">
-                        <Badge
-                            count={unreadCount > 9 ? '9+' : unreadCount}
-                            offset={[-20, 5]}
-                            style={{ backgroundColor: '#ff4d4f', boxShadow: '0 0 5px rgba(0, 0, 0, 0.3)' }}
-                        >
-                            <BellOutlined style={{ fontSize: '24px', color: '#fff', cursor: 'pointer', marginRight: '20px' }} />
-                        </Badge>
-                    </Popover>
-                    <Dropdown overlay={userMenu} trigger={['click']} placement="bottomRight">
-                        <Avatar
-                            size={40}
-                            src={user?.screenshot || `https://via.placeholder.com/40?text=${encodeURIComponent(user?.character_name || 'User')}`}
-                            style={{ cursor: 'pointer', marginRight: '8px', backgroundColor: '#87d068' }}
+        <Header
+            style={{
+                background: '#001529',
+                padding: '0 20px',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                height: '64px',
+                position: 'fixed', // 確保固定
+                top: 0, // 固定在頂部
+                width: '100%',
+                zIndex: 1000, // 確保層級最高
+            }}
+        >
+            {isMobile ? (
+                <>
+                    <Button
+                        type="link"
+                        icon={<MenuOutlined />}
+                        onClick={() => setDrawerVisible(true)}
+                        style={{ color: '#fff', fontSize: '20px', marginRight: '10px' }}
+                    />
+                    <Drawer
+                        title="導航"
+                        placement="left"
+                        onClose={() => setDrawerVisible(false)}
+                        open={drawerVisible}
+                        bodyStyle={{ padding: 0 }}
+                        width={250}
+                    >
+                        <Menu
+                            theme="light"
+                            mode="inline"
+                            selectedKeys={[location.pathname]}
+                            items={items}
+                            onClick={({ key }) => {
+                                if (key === 'profile') setProfileVisible(true);
+                                else {
+                                    navigate(key);
+                                    setDrawerVisible(false);
+                                }
+                            }}
                         />
-                    </Dropdown>
-                    <span style={{ color: '#fff', marginRight: '20px', verticalAlign: 'middle' }}>
-                        {user?.character_name || '載入中...'}
-                    </span>
-                </div>
+                    </Drawer>
+                </>
+            ) : (
+                <Menu
+                    theme="dark"
+                    mode="horizontal"
+                    selectedKeys={[location.pathname]}
+                    items={items}
+                    onClick={({ key }) => {
+                        if (key === 'profile') setProfileVisible(true);
+                        else navigate(key);
+                    }}
+                    style={{ flex: 1, lineHeight: '64px', borderBottom: 'none', background: 'transparent' }}
+                />
             )}
-            {!token && (
-                <div style={{ display: 'flex', alignItems: 'center', height: '64px' }}>
-                    <Button
-                        type="link"
-                        icon={<LoginOutlined />}
-                        onClick={() => navigate('/login')}
-                        style={{ color: '#fff', marginRight: '15px', padding: '0 10px' }}
-                    >
-                        登錄
+            <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '8px' : '20px' }}>
+                {deferredPrompt && (
+                    <Button type="link" onClick={handleInstallPWA} style={{ color: '#fff', padding: '0 10px' }}>
+                        安裝應用
                     </Button>
-                    <Button
-                        type="link"
-                        icon={<UserAddOutlined />}
-                        onClick={() => navigate('/register')}
-                        style={{ color: '#fff', padding: '0 10px' }}
-                    >
-                        註冊
-                    </Button>
-                </div>
-            )}
+                )}
+                {token && user && (
+                    <>
+                        <Popover content={notificationContent} trigger="click" placement="bottomRight">
+                            <Badge
+                                count={unreadCount > 9 ? '9+' : unreadCount}
+                                offset={[-10, 0]}
+                                style={{ backgroundColor: '#ff4d4f', boxShadow: '0 0 5px rgba(0, 0, 0, 0.3)' }}
+                            >
+                                <BellOutlined style={{ fontSize: '20px', color: '#fff', cursor: 'pointer' }} />
+                            </Badge>
+                        </Popover>
+                        <Dropdown overlay={userMenu} trigger={['click']} placement="bottomRight">
+                            <Avatar
+                                size={32}
+                                src={user?.screenshot || `https://via.placeholder.com/32?text=${encodeURIComponent(user?.character_name || 'User')}`}
+                                style={{ cursor: 'pointer', backgroundColor: '#87d068' }}
+                            />
+                        </Dropdown>
+                        {!isMobile && (
+                            <span style={{ color: '#fff', verticalAlign: 'middle', fontSize: '16px' }}>
+                                {user?.character_name || '載入中...'}
+                            </span>
+                        )}
+                    </>
+                )}
+                {!token && (
+                    <>
+                        <Button
+                            type="link"
+                            icon={<LoginOutlined />}
+                            onClick={() => navigate('/login')}
+                            style={{ color: '#fff', padding: '0 10px', fontSize: '16px' }}
+                        >
+                            登錄
+                        </Button>
+                        <Button
+                            type="link"
+                            icon={<UserAddOutlined />}
+                            onClick={() => navigate('/register')}
+                            style={{ color: '#fff', padding: '0 10px', fontSize: '16px' }}
+                        >
+                            註冊
+                        </Button>
+                    </>
+                )}
+            </div>
             <UserProfile visible={profileVisible} onCancel={() => setProfileVisible(false)} />
+            <style jsx>{`
+                @media (max-width: 768px) {
+                    .ant-btn {
+                        padding: 4px 8px !important;
+                    }
+                    .ant-avatar {
+                        width: 32px !important;
+                        height: 32px !important;
+                    }
+                    .ant-badge {
+                        margin-right: 0 !important;
+                    }
+                }
+            `}</style>
         </Header>
     );
 };

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Row, Col, Button, DatePicker, Input, message, Image, Card, Spin, Alert, Tag, Tooltip, Popconfirm } from 'antd';
-import { SearchOutlined, EditOutlined, PlusOutlined, CheckOutlined } from '@ant-design/icons';
+import { Row, Col, Button, DatePicker, Input, message, Image, Card, Spin, Alert, Tag, Tooltip, Popconfirm, Dropdown, Menu } from 'antd';
+import { SearchOutlined, EditOutlined, PlusOutlined, CheckOutlined, MoreOutlined, InfoCircleOutlined, DeleteOutlined } from '@ant-design/icons';
 import axios from 'axios';
 import moment from 'moment';
 import KillDetailModal from './KillDetailModal';
@@ -329,6 +329,35 @@ const KillHistory = () => {
         handleCloseAddModal();
     };
 
+    const handleDelete = (killId) => {
+        console.log(`Delete ${killId}`);
+        // 這裡可以添加後端刪除邏輯
+    };
+
+    const handleSetItemExpired = async (killId, itemId) => {
+        try {
+            setLoading(true);
+            const token = localStorage.getItem('token');
+            if (!token || role !== 'admin') {
+                message.error('無權限執行此操作！');
+                return;
+            }
+
+            const res = await axios.put(
+                `${BASE_URL}/api/boss-kills/${killId}/items/${itemId}`,
+                { status: 'expired' },
+                { headers: { 'x-auth-token': token } }
+            );
+            message.success(res.data.msg || '物品狀態已設為已過期，可發起競標！');
+            fetchHistory(); // 刷新歷史記錄
+        } catch (err) {
+            console.error('Set item expired error:', err);
+            message.error(`設置物品狀態失敗: ${err.response?.data?.msg || err.message}`);
+        } finally {
+            setLoading(false);
+        }
+    };
+
     const renderGridItem = (record) => {
         const firstScreenshot = record.screenshots[0] || 'https://via.placeholder.com/300x200';
         const killTime = moment(record.kill_time).format('MM-DD HH:mm');
@@ -342,6 +371,78 @@ const KillHistory = () => {
 
         // 根據物品等級設置顏色
         const itemColor = item?.level ? colorMapping[item.level.color] || '#ffffff' : '#ffffff';
+
+        // 動態生成更多操作的下拉選單
+        const moreMenu = (
+            <Menu>
+                {role !== 'admin' && canAddAttendee && remainingTime !== '補登結束' && (
+                    <Menu.Item key="addAttendee">
+                        <Button
+                            type="link"
+                            onClick={() => handleShowAddModal(record._id)}
+                            style={{ padding: 0 }}
+                        >
+                            補登
+                        </Button>
+                    </Menu.Item>
+                )}
+                {role !== 'admin' && canAddAttendee && remainingTime === '補登結束' && (
+                    <Menu.Item key="addAttendeeDisabled">
+                        <Button
+                            type="link"
+                            onClick={() => handleShowAddModal(record._id)}
+                            disabled
+                            style={{ padding: 0 }}
+                        >
+                            補登
+                        </Button>
+                    </Menu.Item>
+                )}
+                {role === 'admin' && record.status === 'pending' && (
+                    <Menu.Item key="edit">
+                        <Button
+                            type="link"
+                            onClick={() => handleShowDetail(record._id, true)}
+                            style={{ padding: 0 }}
+                        >
+                            編輯
+                        </Button>
+                    </Menu.Item>
+                )}
+                {role === 'admin' && record.status === 'pending' && (
+                    <Menu.Item key="delete">
+                        <Popconfirm
+                            title="確認刪除此記錄？"
+                            onConfirm={() => handleDelete(record._id)}
+                            okText="是"
+                            cancelText="否"
+                        >
+                            <Button type="link" style={{ padding: 0, color: '#ff4d4f' }}>
+                                刪除
+                            </Button>
+                        </Popconfirm>
+                    </Menu.Item>
+                )}
+                {role === 'admin' && (
+                    <Menu.SubMenu title="設置物品狀態" key="setItemStatus">
+                        {record.dropped_items.map((item, index) => (
+                            <Menu.Item key={`setExpired-${record._id}-${item._id || item.id}`}>
+                                <Popconfirm
+                                    title={`確認將 "${item.name}" 設為已過期？`}
+                                    onConfirm={() => handleSetItemExpired(record._id, item._id || item.id)}
+                                    okText="是"
+                                    cancelText="否"
+                                >
+                                    <Button type="link" style={{ padding: 0 }}>
+                                        {item.name} 設為已過期
+                                    </Button>
+                                </Popconfirm>
+                            </Menu.Item>
+                        ))}
+                    </Menu.SubMenu>
+                )}
+            </Menu>
+        );
 
         return (
             <Col xs={24} sm={12} md={8} lg={4} key={record._id} style={{ marginBottom: '8px', position: 'relative' }}>
@@ -427,7 +528,12 @@ const KillHistory = () => {
                     }
                     actions={[
                         <Tooltip title="查看詳情">
-                            <Button type="link" onClick={() => handleShowDetail(record._id, false)}>詳情</Button>
+                            <Button
+                                type="link"
+                                icon={<InfoCircleOutlined />}
+                                onClick={() => handleShowDetail(record._id, false)}
+                                style={{ padding: '0 8px' }}
+                            />
                         </Tooltip>,
                         role !== 'admin' && isAttendee && record.dropped_items.some(item => {
                             const itemId = item._id || item.id;
@@ -445,34 +551,19 @@ const KillHistory = () => {
                                 okText="是"
                                 cancelText="否"
                             >
-                                <Button type="link" loading={applying} disabled={applying}>申請</Button>
+                                <Button
+                                    type="link"
+                                    icon={<PlusOutlined />}
+                                    loading={applying}
+                                    disabled={applying}
+                                    style={{ padding: '0 8px' }}
+                                />
                             </Popconfirm>
                         ),
-                        role !== 'admin' && canAddAttendee && remainingTime === '補登結束' && (
-                            <Tooltip title="補登">
-                                <Button type="link" onClick={() => handleShowAddModal(record._id)} disabled>補登</Button>
-                            </Tooltip>
-                        ),
-                        role !== 'admin' && canAddAttendee && remainingTime !== '補登結束' && (
-                            <Tooltip title="補登">
-                                <Button type="link" onClick={() => handleShowAddModal(record._id)}>補登</Button>
-                            </Tooltip>
-                        ),
-                        role === 'admin' && record.status === 'pending' && (
-                            <Tooltip title="編輯">
-                                <Button type="link" onClick={() => handleShowDetail(record._id, true)}>編輯</Button>
-                            </Tooltip>
-                        ),
-                        role === 'admin' && record.status === 'pending' && (
-                            <Popconfirm
-                                title="確認刪除此記錄？"
-                                onConfirm={() => console.log(`Delete ${record._id}`)}
-                                okText="是"
-                                cancelText="否"
-                            >
-                                <Button type="danger">刪除</Button>
-                            </Popconfirm>
-                        ),
+                        // 將其他操作放入下拉選單
+                        <Dropdown overlay={moreMenu} trigger={['click']}>
+                            <Button type="link" icon={<MoreOutlined />} style={{ padding: '0 8px' }} />
+                        </Dropdown>,
                     ]}
                 >
                     <Card.Meta
@@ -574,6 +665,24 @@ const KillHistory = () => {
                 }
                 .ant-descriptions-item-content {
                     padding: 8px 16px;
+                }
+                .ant-card-actions {
+                    display: flex;
+                    justify-content: center;
+                    gap: 8px;
+                }
+                .ant-card-actions > li {
+                    margin: 0 !important;
+                    width: auto !important;
+                    text-align: center;
+                }
+                @media (max-width: 768px) {
+                    .ant-card-actions > li {
+                        padding: 0 4px !important;
+                    }
+                    .ant-btn-link {
+                        padding: 0 6px !important;
+                    }
                 }
             `}</style>
         </div>

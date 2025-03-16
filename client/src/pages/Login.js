@@ -1,14 +1,17 @@
 import React from 'react';
 import { Form, Input, Button, message } from 'antd';
 import axios from 'axios';
+import { useNavigate } from 'react-router-dom';
 
 const Login = () => {
+    const navigate = useNavigate();
+
     const onFinish = async values => {
         try {
             const res = await axios.post('http://localhost:5000/api/auth/login', values);
             localStorage.setItem('token', res.data.token);
             message.success('登錄成功！');
-            window.location.href = '/'; // 登錄後跳轉
+            navigate('/'); // 使用 React Router 進行跳轉
         } catch (err) {
             const errorMsg = err.response?.data?.msg || err.message || '登錄失敗，請稍後再試';
             message.error(errorMsg);

@@ -16,6 +16,53 @@ router.get('/item-levels', async (req, res) => {
     }
 });
 
+// 創建物品等級（管理員）
+router.post('/item-levels', auth, adminOnly, async (req, res) => {
+    const { level, color } = req.body;
+    try {
+        const existingLevel = await ItemLevel.findOne({ level });
+        if (existingLevel) {
+            return res.status(400).json({ msg: '該等級已存在，請使用其他名稱' });
+        }
+        const itemLevel = new ItemLevel({ level, color });
+        await itemLevel.save();
+        res.status(201).json(itemLevel);
+    } catch (err) {
+        res.status(400).json({ msg: err.message });
+    }
+});
+
+// 更新物品等級（管理員）
+router.put('/item-levels/:id', auth, adminOnly, async (req, res) => {
+    const { level, color } = req.body;
+    try {
+        const existingLevel = await ItemLevel.findOne({ level, _id: { $ne: req.params.id } });
+        if (existingLevel) {
+            return res.status(400).json({ msg: '該等級已存在，請使用其他名稱' });
+        }
+        const itemLevel = await ItemLevel.findByIdAndUpdate(
+            req.params.id,
+            { level, color },
+            { new: true, runValidators: true }
+        );
+        if (!itemLevel) return res.status(404).json({ msg: '物品等級不存在' });
+        res.json(itemLevel);
+    } catch (err) {
+        res.status(400).json({ msg: err.message });
+    }
+});
+
+// 刪除物品等級（管理員）
+router.delete('/item-levels/:id', auth, adminOnly, async (req, res) => {
+    try {
+        const itemLevel = await ItemLevel.findByIdAndDelete(req.params.id);
+        if (!itemLevel) return res.status(404).json({ msg: '物品等級不存在' });
+        res.json({ msg: '物品等級已刪除' });
+    } catch (err) {
+        res.status(500).json({ msg: err.message });
+    }
+});
+
 // 獲取可競標物品（從 BossKill 表中，狀態為 expired 且 final_recipient 為 NULL，且未發起競標）
 router.get('/auctionable', auth, async (req, res) => {
     console.log('Fetching auctionable items from BossKill for user:', req.user?.character_name);

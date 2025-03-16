@@ -163,7 +163,7 @@ router.get('/all', auth, adminOnly, async (req, res) => {
 });
 
 router.put('/:id', auth, adminOnly, async (req, res) => {
-    const { status, final_recipient, attendees } = req.body;
+    const { status, final_recipient, attendees, dropped_items } = req.body;
     try {
         const bossKill = await BossKill.findById(req.params.id);
         if (!bossKill) {
@@ -174,9 +174,22 @@ router.put('/:id', auth, adminOnly, async (req, res) => {
             });
         }
 
+        
         if (status) bossKill.status = status;
         if (final_recipient) bossKill.final_recipient = final_recipient;
         if (attendees) bossKill.attendees = attendees;
+
+        // 更新 dropped_items 狀態
+        if (dropped_items && Array.isArray(dropped_items)) {
+            bossKill.dropped_items = bossKill.dropped_items.map(item => {
+                const updatedItem = dropped_items.find(di => (di._id || di.id) === (item._id || item.id));
+                if (updatedItem && updatedItem.status) {
+                    return { ...item, status: updatedItem.status };
+                }
+                return item;
+            });
+            bossKill.markModified('dropped_items');
+        }
 
         await bossKill.save();
         res.json({ msg: '擊殺記錄更新成功', bossKill });
@@ -187,6 +200,66 @@ router.put('/:id', auth, adminOnly, async (req, res) => {
             msg: '更新擊殺記錄失敗',
             detail: err.message || '伺服器處理錯誤',
             suggestion: '請稍後重試或聯繫管理員。',
+        });
+    }
+});
+
+// 新增路由：更新單個物品狀態（無競標）
+router.put('/:killId/items/:itemId', auth, adminOnly, async (req, res) => {
+    const { status } = req.body;
+    try {
+        const bossKill = await BossKill.findById(req.params.killId);
+        if (!bossKill) {
+            return res.status(404).json({
+                code: 404,
+                msg: '擊殺記錄不存在',
+                suggestion: '請檢查 killId',
+            });
+        }
+
+        const itemIndex = bossKill.dropped_items.findIndex(i => (i._id || i.id).toString() === req.params.itemId);
+        if (itemIndex === -1) {
+            return res.status(404).json({
+                code: 404,
+                msg: '物品不存在',
+                suggestion: '請檢查 itemId',
+            });
+        }
+
+        // 驗證狀態值
+        if (status && !['pending', 'assigned', 'expired'].includes(status)) {
+            return res.status(400).json({
+                code: 400,
+                msg: '無效的狀態值',
+                suggestion: '僅允許 "pending", "assigned", "expired"',
+            });
+        }
+
+        console.log('Before update - item status:', bossKill.dropped_items[itemIndex].status); // 調試日志
+
+        // 確保 item 包含 status 字段
+        if (!bossKill.dropped_items[itemIndex].hasOwnProperty('status')) {
+            bossKill.dropped_items[itemIndex].status = 'pending'; // 初始化 status
+        }
+
+        // 更新物品狀態
+        bossKill.dropped_items[itemIndex].status = status || bossKill.dropped_items[itemIndex].status;
+        bossKill.markModified('dropped_items'); // 通知 Mongoose 嵌套陣列已修改
+        await bossKill.save();
+
+        console.log('After update - item status:', bossKill.dropped_items[itemIndex].status); // 調試日志
+
+        // 重新查詢以確保返回最新數據
+        const updatedBossKill = await BossKill.findById(req.params.killId).lean();
+        console.log('Fetched updated bossKill:', updatedBossKill); // 調試日志
+        res.json({ msg: '物品狀態更新成功', bossKill: updatedBossKill });
+    } catch (err) {
+        console.error('Update item status error:', err);
+        res.status(500).json({
+            code: 500,
+            msg: '更新物品狀態失敗',
+            detail: err.message,
+            suggestion: '請稍後重試或聯繫管理員',
         });
     }
 });
@@ -203,7 +276,7 @@ router.post('/', auth, adminOnly, upload.array('screenshots', 5), async (req, re
                 name: item.name,
                 type: item.type,
                 apply_deadline: new Date(new Date(kill_time).getTime() + (apply_deadline_days || 7) * 24 * 60 * 60 * 1000),
-                status: 'pending',
+                status: 'pending', // 確保初始化 status
                 final_recipient: null,
                 level,
             };

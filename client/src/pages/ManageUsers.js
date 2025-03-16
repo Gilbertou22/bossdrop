@@ -191,17 +191,26 @@ const ManageUsers = () => {
                 message.error('兩次輸入的密碼不一致！');
                 return;
             }
+
+            // 過濾掉不必要的字段（如 confirm_password）
+            const { confirm_password, ...filteredValues } = values;
+
+            // 將數字字段轉為數字（防止字符串導致後端驗證失敗）
+            if (filteredValues.raid_level) {
+                filteredValues.raid_level = parseInt(filteredValues.raid_level, 10);
+            }
+            if (filteredValues.diamonds) {
+                filteredValues.diamonds = parseInt(filteredValues.diamonds, 10);
+            }
+
             const url = editingUser ? `/api/users/${editingUser._id}` : '/api/users/register';
             const method = editingUser ? 'put' : 'post';
             const formData = new FormData();
-            Object.keys(values).forEach(key => {
-                if (values[key] !== undefined) formData.append(key, values[key]);
+            Object.keys(filteredValues).forEach(key => {
+                if (filteredValues[key] !== undefined && filteredValues[key] !== null) {
+                    formData.append(key, filteredValues[key]);
+                }
             });
-            if (editingUser && values.screenshot instanceof File) {
-                formData.append('screenshot', values.screenshot);
-            } else if (!editingUser && values.screenshot) {
-                formData.append('screenshot', values.screenshot);
-            }
 
             setLoading(true);
             const res = await axios[method](`${BASE_URL}${url}`, formData, {
@@ -617,7 +626,7 @@ const ManageUsers = () => {
                                 label="鑽石數💎"
                                 rules={[{ type: 'number', min: 0, message: '鑽石數必須為非負數！' }]}
                             >
-                                <Input type="number" min={0} disabled='true' />
+                                <Input type="number" min={0} disabled={true} /> {/* 修正為布林值 */}
                             </Form.Item>
                             <Form.Item
                                 name="status"

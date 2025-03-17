@@ -39,25 +39,17 @@ router.get('/', auth, async (req, res) => {
 
         const enrichedKills = await Promise.all(bossKills.map(async kill => {
             const updatedItems = await Promise.all(kill.dropped_items.map(async item => {
-                let itemStatus = item.status || 'pending';
-                if (item.apply_deadline && new Date(item.apply_deadline) < currentDate && itemStatus !== 'assigned') {
-                    itemStatus = 'expired';
-                }
                 const approvedApplication = await Application.findOne({
                     kill_id: kill._id,
                     item_id: item._id,
                     status: 'approved',
                 }).lean();
-                if (approvedApplication && itemStatus !== 'expired') {
-                    itemStatus = 'assigned';
-                }
 
                 const itemDoc = await Item.findOne({ name: item.name }).populate('level', 'level color');
                 const level = itemDoc?.level || null;
 
                 return {
                     ...item,
-                    status: itemStatus,
                     final_recipient: approvedApplication ? approvedApplication.user_id.character_name : item.final_recipient,
                     level,
                 };
@@ -120,13 +112,12 @@ router.get('/all', auth, adminOnly, async (req, res) => {
                 const auction = await Auction.findOne({ itemId: item._id }).lean();
                 const application = await Application.findOne({ item_id: item._id, status: 'approved' }).lean();
 
-                const isAssigned = auction || application || item.status === 'assigned' || item.final_recipient;
+                const isAssigned = auction || application || item.final_recipient;
                 const itemDoc = await Item.findOne({ name: item.name }).populate('level', 'level color');
                 const level = itemDoc?.level || null;
 
                 return {
                     ...item,
-                    status: isAssigned ? 'assigned' : (item.status || 'pending'),
                     final_recipient: auction?.highestBidder?.character_name ||
                         application?.user_id?.character_name ||
                         item.final_recipient ||
@@ -174,17 +165,16 @@ router.put('/:id', auth, adminOnly, async (req, res) => {
             });
         }
 
-        
         if (status) bossKill.status = status;
         if (final_recipient) bossKill.final_recipient = final_recipient;
         if (attendees) bossKill.attendees = attendees;
 
-        // 更新 dropped_items 狀態
+        // 更新 dropped_items（不涉及 status）
         if (dropped_items && Array.isArray(dropped_items)) {
             bossKill.dropped_items = bossKill.dropped_items.map(item => {
                 const updatedItem = dropped_items.find(di => (di._id || di.id) === (item._id || item.id));
-                if (updatedItem && updatedItem.status) {
-                    return { ...item, status: updatedItem.status };
+                if (updatedItem) {
+                    return { ...item, ...updatedItem };
                 }
                 return item;
             });
@@ -204,9 +194,8 @@ router.put('/:id', auth, adminOnly, async (req, res) => {
     }
 });
 
-// 新增路由：更新單個物品狀態（無競標）
+// 修正路由：僅更新頂層 status 為 expired
 router.put('/:killId/items/:itemId', auth, adminOnly, async (req, res) => {
-    const { status } = req.body;
     try {
         const bossKill = await BossKill.findById(req.params.killId);
         if (!bossKill) {
@@ -226,28 +215,13 @@ router.put('/:killId/items/:itemId', auth, adminOnly, async (req, res) => {
             });
         }
 
-        // 驗證狀態值
-        if (status && !['pending', 'assigned', 'expired'].includes(status)) {
-            return res.status(400).json({
-                code: 400,
-                msg: '無效的狀態值',
-                suggestion: '僅允許 "pending", "assigned", "expired"',
-            });
-        }
+        console.log('Before update - BossKill status:', bossKill.status); // 調試日志
 
-        console.log('Before update - item status:', bossKill.dropped_items[itemIndex].status); // 調試日志
-
-        // 確保 item 包含 status 字段
-        if (!bossKill.dropped_items[itemIndex].hasOwnProperty('status')) {
-            bossKill.dropped_items[itemIndex].status = 'pending'; // 初始化 status
-        }
-
-        // 更新物品狀態
-        bossKill.dropped_items[itemIndex].status = status || bossKill.dropped_items[itemIndex].status;
-        bossKill.markModified('dropped_items'); // 通知 Mongoose 嵌套陣列已修改
+        // 直接更新頂層 status 為 expired
+        bossKill.status = 'expired';
         await bossKill.save();
 
-        console.log('After update - item status:', bossKill.dropped_items[itemIndex].status); // 調試日志
+        console.log('After update - BossKill status:', bossKill.status); // 調試日志
 
         // 重新查詢以確保返回最新數據
         const updatedBossKill = await BossKill.findById(req.params.killId).lean();
@@ -276,7 +250,6 @@ router.post('/', auth, adminOnly, upload.array('screenshots', 5), async (req, re
                 name: item.name,
                 type: item.type,
                 apply_deadline: new Date(new Date(kill_time).getTime() + (apply_deadline_days || 7) * 24 * 60 * 60 * 1000),
-                status: 'pending', // 確保初始化 status
                 final_recipient: null,
                 level,
             };

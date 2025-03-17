@@ -97,16 +97,19 @@ const CreateAuction = () => {
             }
 
             let endTime = values.endTime;
-            if (endTime && moment(endTime).isValid()) {
-                endTime = moment(endTime).utc().endOf('day').toISOString();
+            console.log('EndTime input:', endTime, 'Type:', typeof endTime, 'Moment:', moment(endTime));
+
+            // 確保 endTime 是 moment 對象，並轉為 UTC
+            if (endTime && moment.isMoment(endTime)) {
+                endTime = moment.utc(endTime).toISOString(); // 保留用戶選擇的具體時間，轉為 UTC
             } else {
                 throw new Error('請選擇截止時間！');
             }
 
             const now = moment.utc();
-            console.log('EndTime submitted:', endTime, 'Now (UTC):', now.format());
-            if (moment.utc(endTime).isBefore(now)) {
-                throw new Error('截止時間必須晚於現在！');
+            console.log('EndTime after format:', endTime, 'Now (UTC):', now.format());
+            if (moment.utc(endTime).isBefore(now.add(1, 'hour'))) {
+                throw new Error('截止時間必須至少在 1 小時後！');
             }
 
             const selectedItem = itemOptions.find(option => option.value === values.itemId);
@@ -139,7 +142,7 @@ const CreateAuction = () => {
         }
     };
 
-    const [date, setDate] = useState(null);
+    const [date, setDate] = useState(moment().add(1, 'hour')); // 默認值為當前時間加 1 小時
 
     return (
         <ErrorBoundary>
@@ -162,7 +165,7 @@ const CreateAuction = () => {
                             name="createAuction"
                             onFinish={onFinish}
                             layout="vertical"
-                            initialValues={{ startingPrice: 100 }}
+                            initialValues={{ startingPrice: 100, endTime: moment().add(1, 'hour') }} // 默認截止時間
                             requiredMark={true}
                         >
                             <Row gutter={[16, 16]}>
@@ -283,6 +286,7 @@ const CreateAuction = () => {
                                                     }
                                                     const now = moment.utc();
                                                     const selectedTime = moment.utc(value);
+                                                    console.log('Validation - Now:', now.format(), 'Selected:', selectedTime.format());
                                                     if (selectedTime.isBefore(now.add(1, 'hour'))) {
                                                         return Promise.reject(new Error('截止時間必須至少在 1 小時後！'));
                                                     }
@@ -298,17 +302,38 @@ const CreateAuction = () => {
                                             placeholder="選擇截止時間（至少 1 小時後）"
                                             value={date}
                                             onChange={(date) => {
-                                                console.log('DatePicker changed:', date);
+                                                console.log('DatePicker changed:', date ? date.format('YYYY-MM-DD HH:mm:ss') : 'null');
                                                 setDate(date);
                                                 form.setFieldsValue({ endTime: date });
                                             }}
-                                            disabledDate={(current) => current && current < moment().startOf('day')}
+                                            disabledDate={(current) => {
+                                                if (!current) return false;
+                                                const now = moment();
+                                                const minDateTime = moment().add(1, 'hour');
+                                                return current.isBefore(now) || (current.isSame(now, 'day') && current.isBefore(minDateTime));
+                                            }}
                                             disabledTime={(current) => {
-                                                if (current && current.isSame(moment(), 'day')) {
+                                                if (!current) return {};
+                                                const now = moment();
+                                                if (current.isSame(now, 'day')) {
                                                     return {
-                                                        disabledHours: () => [...Array(moment().hour() + 1).keys()],
-                                                        disabledMinutes: () => [],
-                                                        disabledSeconds: () => [],
+                                                        disabledHours: () => {
+                                                            const hours = [];
+                                                            for (let i = 0; i <= now.hour(); i++) {
+                                                                if (i < now.hour() || (i === now.hour() && now.minute() >= 0)) {
+                                                                    hours.push(i);
+                                                                }
+                                                            }
+                                                            return hours;
+                                                        },
+                                                        disabledMinutes: (hour) => {
+                                                            if (hour === now.hour()) {
+                                                                const minutes = [];
+                                                                for (let i = 0; i < now.minute(); i++) minutes.push(i);
+                                                                return minutes;
+                                                            }
+                                                            return [];
+                                                        },
                                                     };
                                                 }
                                                 return {};

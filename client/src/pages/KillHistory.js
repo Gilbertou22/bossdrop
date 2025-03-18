@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Row, Col, Button, DatePicker, Input, message, Image, Card, Spin, Alert, Tag, Tooltip, Popconfirm, Dropdown, Menu } from 'antd';
+import { Row, Col, Button, DatePicker, Input, message, Image, Card, Spin, Alert, Tag, Tooltip, Popconfirm, Dropdown, Menu, Select } from 'antd';
 import { SearchOutlined, EditOutlined, PlusOutlined, CheckOutlined, MoreOutlined, InfoCircleOutlined, DeleteOutlined } from '@ant-design/icons';
 import axios from 'axios';
 import moment from 'moment';
@@ -8,6 +8,7 @@ import AddAttendeeModal from './AddAttendeeModal';
 import statusTag from '../utils/statusTag';
 
 const { RangePicker } = DatePicker;
+const { Option } = Select;
 
 const BASE_URL = 'http://localhost:5000';
 
@@ -349,7 +350,7 @@ const KillHistory = () => {
                 { headers: { 'x-auth-token': token } }
             );
             message.success(res.data.msg || '物品狀態已設為已過期，可發起競標！');
-            fetchHistory(); // 刷新歷史記錄
+            fetchHistory();
         } catch (err) {
             console.error('Set item expired error:', err);
             message.error(`設置物品狀態失敗: ${err.response?.data?.msg || err.message}`);
@@ -369,10 +370,15 @@ const KillHistory = () => {
         const canAddAttendee = record.status === 'pending' && !isAttendee && record.isWithinDeadline;
         const remainingTime = record.remainingHours > 0 ? `${Math.max(0, Math.ceil(record.remainingHours))}小時內可補登` : '補登結束';
 
-        // 根據物品等級設置顏色
         const itemColor = item?.level ? colorMapping[item.level.color] || '#ffffff' : '#ffffff';
 
-        // 動態生成更多操作的下拉選單
+        // 檢查是否有任何物品狀態為 PENDING
+        const hasPendingItems = record.dropped_items.some(item => {
+            const effectiveStatus = item.status ? item.status.toLowerCase() : 'pending';
+            return effectiveStatus === 'pending';
+        });
+
+        // 動態生成下拉選單
         const moreMenu = (
             <Menu>
                 {role !== 'admin' && canAddAttendee && remainingTime !== '補登結束' && (
@@ -423,22 +429,26 @@ const KillHistory = () => {
                         </Popconfirm>
                     </Menu.Item>
                 )}
-                {role === 'admin' && (
+                {role === 'admin' && hasPendingItems && (
                     <Menu.SubMenu title="設置物品狀態" key="setItemStatus">
-                        {record.dropped_items.map((item, index) => (
-                            <Menu.Item key={`setExpired-${record._id}-${item._id || item.id}`}>
-                                <Popconfirm
-                                    title={`確認將 "${item.name}" 設為已過期？`}
-                                    onConfirm={() => handleSetItemExpired(record._id, item._id || item.id)}
-                                    okText="是"
-                                    cancelText="否"
-                                >
-                                    <Button type="link" style={{ padding: 0 }}>
-                                        {item.name} 設為已過期
-                                    </Button>
-                                </Popconfirm>
-                            </Menu.Item>
-                        ))}
+                        {record.dropped_items.map((item, index) => {
+                            const effectiveStatus = item.status ? item.status.toLowerCase() : 'pending';
+                            if (effectiveStatus !== 'pending') return null;
+                            return (
+                                <Menu.Item key={`setExpired-${record._id}-${item._id || item.id}`}>
+                                    <Popconfirm
+                                        title={`確認將 "${item.name}" 設為已過期？`}
+                                        onConfirm={() => handleSetItemExpired(record._id, item._id || item.id)}
+                                        okText="是"
+                                        cancelText="否"
+                                    >
+                                        <Button type="link" style={{ padding: 0 }}>
+                                            {item.name} 設為已過期
+                                        </Button>
+                                    </Popconfirm>
+                                </Menu.Item>
+                            );
+                        })}
                     </Menu.SubMenu>
                 )}
             </Menu>
@@ -535,14 +545,10 @@ const KillHistory = () => {
                                 style={{ padding: '0 8px' }}
                             />
                         </Tooltip>,
-                        role !== 'admin' && isAttendee && record.dropped_items.some(item => {
+                        role !== 'admin' && isAttendee && record.status === 'pending' && record.dropped_items.some(item => {
                             const itemId = item._id || item.id;
                             const appDetails = getApplicationDetails(record._id, itemId);
-                            let effectiveStatus = item.status ? item.status.toLowerCase() : 'pending';
-                            const isExpired = item.apply_deadline && new Date(item.apply_deadline) < new Date();
-                            if (isExpired && effectiveStatus !== 'assigned') effectiveStatus = 'expired';
-                            const hasApprovedApplication = itemApplications[`${record._id}_${itemId}`]?.some(app => app.status === 'approved');
-                            if (hasApprovedApplication && effectiveStatus !== 'expired') effectiveStatus = 'assigned';
+                            const effectiveStatus = item.status ? item.status.toLowerCase() : 'pending';
                             return !appDetails && effectiveStatus === 'pending';
                         }) && (
                             <Popconfirm
@@ -560,10 +566,10 @@ const KillHistory = () => {
                                 />
                             </Popconfirm>
                         ),
-                        // 將其他操作放入下拉選單
+                        record.status === 'pending' && (
                         <Dropdown overlay={moreMenu} trigger={['click']}>
                             <Button type="link" icon={<MoreOutlined />} style={{ padding: '0 8px' }} />
-                        </Dropdown>,
+                        </Dropdown>)
                     ]}
                 >
                     <Card.Meta
@@ -608,12 +614,17 @@ const KillHistory = () => {
                         }}
                         style={{ marginRight: 0 }}
                     />
-                    <Input
-                        placeholder="輸入狀態（待分配/已分配/已過期）"
+                    <Select
+                        placeholder="選擇狀態"
                         value={filters.status}
-                        onChange={(e) => handleFilterChange('status', e.target.value)}
+                        onChange={(value) => handleFilterChange('status', value)}
                         style={{ width: 200 }}
-                    />
+                        allowClear
+                    >
+                        <Option value="pending">待分配</Option>
+                        <Option value="assigned">已分配</Option>
+                        <Option value="expired">已過期</Option>
+                    </Select>
                     <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch}>
                         搜索
                     </Button>

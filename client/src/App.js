@@ -11,6 +11,7 @@ import ManageBosses from './pages/ManageBosses';
 import ManageItems from './pages/ManageItems';
 import ApproveApplications from './pages/ApproveApplications';
 import ManageUsers from './pages/ManageUsers';
+import ManageItemLevels from './pages/ManageItemLevels';
 import RoleRoute from './components/RoleRoute';
 import Navbar from './components/Navbar';
 import KillHistory from './pages/KillHistory';
@@ -104,6 +105,14 @@ function App() {
                                         element={
                                             <RoleRoute allowedRoles={['admin']}>
                                                 <ManageItems />
+                                            </RoleRoute>
+                                        }
+                                    />
+                                    <Route
+                                        path="/manage-items-level"
+                                        element={
+                                            <RoleRoute allowedRoles={['admin']}>
+                                                <ManageItemLevels />
                                             </RoleRoute>
                                         }
                                     />

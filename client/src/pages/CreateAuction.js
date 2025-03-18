@@ -97,18 +97,12 @@ const CreateAuction = () => {
             }
 
             let endTime = values.endTime;
-            console.log('EndTime input:', endTime, 'Type:', typeof endTime, 'Moment:', moment(endTime));
+            console.log('EndTime input from form:', endTime, 'Type:', typeof endTime);
 
-            // 確保 endTime 是 moment 對象，並轉為 UTC
-            if (endTime && moment.isMoment(endTime)) {
-                endTime = moment.utc(endTime).toISOString(); // 保留用戶選擇的具體時間，轉為 UTC
-            } else {
-                throw new Error('請選擇截止時間！');
-            }
-
+            
             const now = moment.utc();
             console.log('EndTime after format:', endTime, 'Now (UTC):', now.format());
-            if (moment.utc(endTime).isBefore(now.add(1, 'hour'))) {
+            if (endTime.isBefore(now.add(1, 'hour'))) {
                 throw new Error('截止時間必須至少在 1 小時後！');
             }
 
@@ -284,9 +278,9 @@ const CreateAuction = () => {
                                                     if (!value || !moment(value).isValid()) {
                                                         return Promise.reject(new Error('請選擇有效的截止時間！'));
                                                     }
-                                                    const now = moment.utc();
-                                                    const selectedTime = moment.utc(value);
-                                                    console.log('Validation - Now:', now.format(), 'Selected:', selectedTime.format());
+                                                    const now = moment();
+                                                    const selectedTime = value;
+                                                    console.log('Validation - Now:', now.format(), 'Selected:',selectedTime, value);
                                                     if (selectedTime.isBefore(now.add(1, 'hour'))) {
                                                         return Promise.reject(new Error('截止時間必須至少在 1 小時後！'));
                                                     }
@@ -297,47 +291,14 @@ const CreateAuction = () => {
                                         hasFeedback
                                     >
                                         <DatePicker
-                                            showTime
-                                            format="YYYY-MM-DD HH:mm:ss"
                                             placeholder="選擇截止時間（至少 1 小時後）"
                                             value={date}
                                             onChange={(date) => {
-                                                console.log('DatePicker changed:', date ? date.format('YYYY-MM-DD HH:mm:ss') : 'null');
+                                                console.log('DatePicker changed:', date ? date.format('YYYY-MM-DD') : 'null');
                                                 setDate(date);
                                                 form.setFieldsValue({ endTime: date });
                                             }}
-                                            disabledDate={(current) => {
-                                                if (!current) return false;
-                                                const now = moment();
-                                                const minDateTime = moment().add(1, 'hour');
-                                                return current.isBefore(now) || (current.isSame(now, 'day') && current.isBefore(minDateTime));
-                                            }}
-                                            disabledTime={(current) => {
-                                                if (!current) return {};
-                                                const now = moment();
-                                                if (current.isSame(now, 'day')) {
-                                                    return {
-                                                        disabledHours: () => {
-                                                            const hours = [];
-                                                            for (let i = 0; i <= now.hour(); i++) {
-                                                                if (i < now.hour() || (i === now.hour() && now.minute() >= 0)) {
-                                                                    hours.push(i);
-                                                                }
-                                                            }
-                                                            return hours;
-                                                        },
-                                                        disabledMinutes: (hour) => {
-                                                            if (hour === now.hour()) {
-                                                                const minutes = [];
-                                                                for (let i = 0; i < now.minute(); i++) minutes.push(i);
-                                                                return minutes;
-                                                            }
-                                                            return [];
-                                                        },
-                                                    };
-                                                }
-                                                return {};
-                                            }}
+                                
                                             style={{ width: '100%' }}
                                             getPopupContainer={trigger => trigger.parentElement}
                                         />

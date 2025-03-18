@@ -22,12 +22,17 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, handleSettleAuction })
   const [bidAmount, setBidAmount] = useState('');
   const [bids, setBids] = useState({});
   const [userDiamonds, setUserDiamonds] = useState(0);
+  const [sortedAuctions, setSortedAuctions] = useState([]);
+  const [userId, setUserId] = useState(null);
   const navigate = useNavigate();
   const token = localStorage.getItem('token');
 
   useEffect(() => {
     fetchUserInfo();
-  }, [token]);
+    const sorted = [...auctions].sort((a, b) => (b.currentPrice || 0) - (a.currentPrice || 0));
+    setSortedAuctions(sorted);
+    console.log('Sorted auctions by currentPrice:', sorted);
+  }, [auctions, token]);
 
   const fetchUserInfo = async () => {
     try {
@@ -35,6 +40,7 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, handleSettleAuction })
         headers: { 'x-auth-token': token },
       });
       setUserDiamonds(res.data.diamonds || 0);
+      setUserId(res.data.id);
     } catch (err) {
       console.error('Fetch user info error:', err);
       message.error('無法獲取用戶信息，請重新登錄');
@@ -53,6 +59,25 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, handleSettleAuction })
       console.error(`Error fetching bids for auction ${auctionId}:`, err.response?.data || err);
       message.error('無法獲取出價歷史，請刷新頁面後重試！');
       setBids(prev => ({ ...prev, [auctionId]: [] }));
+    }
+  };
+
+  const sendSystemNotification = async (userIdToNotify, auctionId, itemName, amount) => {
+    try {
+      const messageContent = `您已成功投得競標 [${auctionId}] 的物品 [${itemName}]，得標金額為 ${amount} 鑽石。`;
+      const res = await axios.post(
+        `${BASE_URL}/api/notifications`,
+        {
+          userId: userIdToNotify,
+          message: messageContent,
+          type: 'system',
+        },
+        { headers: { 'x-auth-token': token } }
+      );
+      console.log('System notification sent:', res.data);
+    } catch (err) {
+      console.error('Send system notification error:', err.response?.data || err);
+      message.warning('系統消息發送失敗，但競標操作已完成');
     }
   };
 
@@ -120,6 +145,120 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, handleSettleAuction })
     }
   };
 
+  const handleBidClick = (auction) => {
+    console.log('Selected auction for bidding:', auction);
+    if (!auction || !auction._id) {
+      message.error('無法找到拍賣信息，請刷新頁面！');
+      return;
+    }
+    setSelectedAuction(auction);
+    setIsModalVisible(true);
+  };
+
+  const handleBidSubmit = async () => {
+    if (!bidAmount) {
+      message.error('請輸入出價金額！');
+      return;
+    }
+    if (isNaN(bidAmount) || parseInt(bidAmount) <= 0) {
+      message.error('出價金額必須為正整數！');
+      return;
+    }
+
+    const bidValue = parseInt(bidAmount);
+    const currentPrice = selectedAuction?.currentPrice || 0;
+
+    if (bidValue === currentPrice) {
+      message.error(`出價金額不能等於當前價格 ${currentPrice} 鑽石，請輸入更高的金額！`);
+      return;
+    }
+    if (bidValue < currentPrice) {
+      message.error(`出價金額必須大於當前價格 ${currentPrice} 鑽石！`);
+      return;
+    }
+
+    try {
+      console.log('Checking auction status before bidding:', selectedAuction._id);
+      const resCheck = await axios.get(`${BASE_URL}/api/auctions/${selectedAuction._id}`, {
+        headers: { 'x-auth-token': token },
+      });
+      const latestAuction = resCheck.data;
+      if (!latestAuction) {
+        throw new Error('拍賣不存在');
+      }
+      if (latestAuction.status !== 'active') {
+        message.error(`拍賣已結束或被取消，當前狀態為 ${statusMap[latestAuction.status] || latestAuction.status}，無法出價。請刷新頁面後重試。`);
+        return;
+      }
+
+      console.log('Sending bid request:', {
+        auctionId: selectedAuction._id,
+        amount: bidAmount,
+        token: token,
+      });
+
+      const res = await axios.post(
+        `${BASE_URL}/api/auctions/${selectedAuction._id}/bid`,
+        { amount: bidValue },
+        { headers: { 'x-auth-token': token } }
+      );
+
+      console.log('Bid response:', res.data);
+      const buyoutTriggered = selectedAuction.buyoutPrice && bidValue >= selectedAuction.buyoutPrice;
+      if (buyoutTriggered) {
+        message.success('出價成功，已直接得標！競標已結束。');
+        await sendSystemNotification(userId, selectedAuction._id, selectedAuction.itemName, bidValue);
+      } else {
+        message.success(`出價成功！您已出價 ${bidValue} 鑽石，請確保結算前餘額足夠（當前餘額：${userDiamonds} 鑽石）。`);
+      }
+      setIsModalVisible(false);
+      setBidAmount('');
+      fetchAuctions();
+      fetchBids(selectedAuction._id);
+    } catch (err) {
+      console.error('Bid error:', {
+        status: err.response?.status,
+        data: err.response?.data,
+        message: err.message,
+      });
+
+      if (err.response) {
+        const status = err.response.status;
+        const errorMsg = err.response.data?.msg || '未知錯誤';
+        const detail = err.response.data?.detail || '';
+
+        switch (status) {
+          case 400:
+            message.error(`${errorMsg}${detail ? `：${detail}` : ''}`);
+            break;
+          case 401:
+            message.error('認證失敗，請重新登錄！');
+            setTimeout(() => {
+              navigate('/login');
+            }, 2000);
+            break;
+          case 403:
+            message.error('您無權進行此操作！');
+            break;
+          case 404:
+            message.error(`拍賣不存在，請刷新頁面後重試！${detail ? `（${detail}）` : ''}`);
+            fetchAuctions();
+            break;
+          case 500:
+            message.error('伺服器錯誤，請稍後重試！');
+            break;
+          default:
+            message.error(`出價失敗：${errorMsg}${detail ? `（${detail}）` : ''}`);
+            break;
+        }
+      } else if (err.request) {
+        message.error('網絡錯誤，請檢查您的網絡連線！');
+      } else {
+        message.error(`出價失敗：${err.message}`);
+      }
+    }
+  };
+
   const columns = [
     {
       title: '競標 ID',
@@ -143,6 +282,7 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, handleSettleAuction })
       dataIndex: 'currentPrice',
       key: 'currentPrice',
       render: (price) => `${price || 0} 鑽石`,
+      sorter: (a, b) => (b.currentPrice || 0) - (a.currentPrice || 0),
     },
     {
       title: '直接得標價',
@@ -267,7 +407,7 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, handleSettleAuction })
       title: '出價金額',
       dataIndex: 'amount',
       key: 'amount',
-      sorter: (a, b) => a.amount - b.amount,
+      sorter: (a, b) => b.amount - a.amount,
       render: (amount, record, index) => {
         const isHighestBid = index === 0;
         return (
@@ -290,120 +430,11 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, handleSettleAuction })
     },
   ];
 
-  const handleBidClick = (auction) => {
-    console.log('Selected auction for bidding:', auction);
-    if (!auction || !auction._id) {
-      message.error('無法找到拍賣信息，請刷新頁面！');
-      return;
-    }
-    setSelectedAuction(auction);
-    setIsModalVisible(true);
-  };
-
-  const handleBidSubmit = async () => {
-    if (!bidAmount) {
-      message.error('請輸入出價金額！');
-      return;
-    }
-    if (isNaN(bidAmount) || parseInt(bidAmount) <= 0) {
-      message.error('出價金額必須為正整數！');
-      return;
-    }
-
-    const bidValue = parseInt(bidAmount);
-    const currentPrice = selectedAuction?.currentPrice || 0;
-
-    if (bidValue === currentPrice) {
-      message.error(`出價金額不能等於當前價格 ${currentPrice} 鑽石，請輸入更高的金額！`);
-      return;
-    }
-    if (bidValue < currentPrice) {
-      message.error(`出價金額必須大於當前價格 ${currentPrice} 鑽石！`);
-      return;
-    }
-
-    try {
-      console.log('Checking auction status before bidding:', selectedAuction._id);
-      const resCheck = await axios.get(`${BASE_URL}/api/auctions/${selectedAuction._id}`, {
-        headers: { 'x-auth-token': token },
-      });
-      const latestAuction = resCheck.data;
-      if (!latestAuction) {
-        throw new Error('拍賣不存在');
-      }
-      if (latestAuction.status !== 'active') {
-        message.error(`拍賣已結束或被取消，當前狀態為 ${statusMap[latestAuction.status] || latestAuction.status}，無法出價。請刷新頁面後重試。`);
-        return;
-      }
-
-      console.log('Sending bid request:', {
-        auctionId: selectedAuction._id,
-        amount: bidAmount,
-        token: token,
-      });
-
-      const res = await axios.post(
-        `${BASE_URL}/api/auctions/${selectedAuction._id}/bid`,
-        { amount: bidValue },
-        { headers: { 'x-auth-token': token } }
-      );
-
-      console.log('Bid response:', res.data);
-      const buyoutTriggered = selectedAuction.buyoutPrice && bidValue >= selectedAuction.buyoutPrice;
-      message.success(buyoutTriggered ? '出價成功，已直接得標！競標已結束。' : `出價成功！您已出價 ${bidValue} 鑽石，請確保結算前餘額足夠（當前餘額：${userDiamonds} 鑽石）。`);
-      setIsModalVisible(false);
-      setBidAmount('');
-      fetchAuctions();
-      fetchBids(selectedAuction._id);
-    } catch (err) {
-      console.error('Bid error:', {
-        status: err.response?.status,
-        data: err.response?.data,
-        message: err.message,
-      });
-
-      if (err.response) {
-        const status = err.response.status;
-        const errorMsg = err.response.data?.msg || '未知錯誤';
-        const detail = err.response.data?.detail || '';
-
-        switch (status) {
-          case 400:
-            message.error(`${errorMsg}${detail ? `：${detail}` : ''}`);
-            break;
-          case 401:
-            message.error('認證失敗，請重新登錄！');
-            setTimeout(() => {
-              navigate('/login');
-            }, 2000);
-            break;
-          case 403:
-            message.error('您無權進行此操作！');
-            break;
-          case 404:
-            message.error(`拍賣不存在，請刷新頁面後重試！${detail ? `（${detail}）` : ''}`);
-            fetchAuctions();
-            break;
-          case 500:
-            message.error('伺服器錯誤，請稍後重試！');
-            break;
-          default:
-            message.error(`出價失敗：${errorMsg}${detail ? `（${detail}）` : ''}`);
-            break;
-        }
-      } else if (err.request) {
-        message.error('網絡錯誤，請檢查您的網絡連線！');
-      } else {
-        message.error(`出價失敗：${err.message}`);
-      }
-    }
-  };
-
   return (
     <div>
       <p>您的鑽石餘額：{userDiamonds} 鑽石</p>
       <Table
-        dataSource={auctions}
+        dataSource={sortedAuctions}
         columns={columns}
         rowKey="_id"
         pagination={{ pageSize: 5 }}
@@ -412,10 +443,12 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, handleSettleAuction })
         expandable={{
           expandedRowRender: (record) => {
             const auctionBids = bids[record._id] || [];
+            const sortedBids = [...auctionBids].sort((a, b) => b.amount - a.amount);
+            console.log(`Sorted bids for auction ${record._id}:`, sortedBids);
             return (
               <Table
                 columns={bidColumns}
-                dataSource={auctionBids}
+                dataSource={sortedBids}
                 rowKey="_id"
                 pagination={false}
                 locale={{ emptyText: '暫無出價記錄' }}
@@ -425,9 +458,7 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, handleSettleAuction })
                   padding: '8px',
                   boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
                 }}
-                rowClassName={(record, index) =>
-                  index === 0 ? 'highest-bid-row' : ''
-                }
+                rowClassName={(record, index) => (index === 0 ? 'highest-bid-row' : '')}
               />
             );
           },
@@ -470,23 +501,23 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, handleSettleAuction })
       </Modal>
 
       <style jsx global>{`
-                .highest-bid-row {
-                    background-color: #e6f7e5 !important;
-                }
-                .highest-bid-row td {
-                    border-bottom: 1px solid #d9d9d9 !important;
-                }
-                .ant-table-expanded-row .ant-table {
-                    margin: 0 !important;
-                }
-                .ant-table-expanded-row .ant-table-thead > tr > th {
-                    background: #e8e8e8 !important;
-                    font-weight: bold;
-                }
-                .ant-table-expanded-row .ant-table-tbody > tr:hover > td {
-                    background: #fafafa !important;
-                }
-            `}</style>
+        .highest-bid-row {
+          background-color: #e6f7e5 !important;
+        }
+        .highest-bid-row td {
+          border-bottom: 1px solid #d9d9d9 !important;
+        }
+        .ant-table-expanded-row .ant-table {
+          margin: 0 !important;
+        }
+        .ant-table-expanded-row .ant-table-thead > tr > th {
+          background: #e8e8e8 !important;
+          font-weight: bold;
+        }
+        .ant-table-expanded-row .ant-table-tbody > tr:hover > td {
+          background: #fafafa !important;
+        }
+      `}</style>
     </div>
   );
 };

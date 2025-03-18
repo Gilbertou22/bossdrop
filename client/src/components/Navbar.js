@@ -203,7 +203,7 @@ const Navbar = () => {
                         { key: '/manage-bosses', label: '管理首領', icon: <TeamOutlined /> },
                         { key: '/manage-items', label: '管理物品', icon: <GiftOutlined /> },
                         { key: '/manage-users', label: '管理盟友', icon: <UserOutlined /> },
-                        { key: '/manage-item-levels', label: '管理物品等級', icon: <GiftOutlined /> },
+                        { key: '/manage-items-level', label: '管理物品等級', icon: <GiftOutlined /> },
                         { key: '/stats', label: '統計報表', icon: <BarChartOutlined /> },
                         { key: '/approve-attend-request', label: '管理補登申請', icon: <CloudUploadOutlined /> },
                     ],

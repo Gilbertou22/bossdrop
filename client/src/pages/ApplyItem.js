@@ -34,7 +34,14 @@ const ApplyItem = () => {
                 headers: { 'x-auth-token': token },
             });
             console.log('Fetched kills:', res.data);
-            setKills(res.data);
+            // 過濾只包含 status === 'pending' 的擊殺記錄
+            const pendingKills = res.data.filter(kill => {
+                const killStatus = kill.status ? kill.status.toLowerCase() : 'pending';
+                console.log(`Kill ${kill._id} status:`, killStatus); // 調試日志
+                return killStatus === 'pending';
+            });
+            console.log('Filtered pending kills:', pendingKills); // 調試日志
+            setKills(pendingKills);
         } catch (err) {
             console.error('Fetch kills error:', err.response?.data || err.message);
             message.error('載入擊殺記錄失敗: ' + (err.response?.data?.msg || err.message));
@@ -58,12 +65,14 @@ const ApplyItem = () => {
     const handleKillChange = (value) => {
         const selectedKill = kills.find(kill => kill._id === value);
         if (selectedKill) {
+            // 直接使用 dropped_items，因為 kills 已過濾為 status === 'pending'
             setFilteredItems(selectedKill.dropped_items || []);
         } else {
             setFilteredItems([]);
         }
         form.setFieldsValue({ item_name: undefined });
         console.log('Selected kill:', selectedKill);
+        console.log('Filtered items:', selectedKill?.dropped_items || []); // 調試日志
     };
 
     const handleSubmit = async (values) => {
@@ -83,11 +92,6 @@ const ApplyItem = () => {
             if (!selectedItem || !selectedItem._id) {
                 console.error('Selected item does not have an item_id:', selectedItem);
                 throw new Error('物品缺少唯一標識，請聯繫管理員');
-            }
-
-            // 檢查物品是否已被分配
-            if (selectedKill.status === 'assigned' && selectedKill.final_recipient) {
-                throw new Error(`此物品 (${selectedItem.name}) 已分配給 ${selectedKill.final_recipient}，無法再次申請！`);
             }
 
             const applicationKey = `${values.kill_id}_${selectedItem._id}`;
@@ -149,13 +153,14 @@ const ApplyItem = () => {
                         {filteredItems.map(item => {
                             const applicationKey = `${form.getFieldValue('kill_id')}_${item._id}`;
                             const isApplied = userApplications.includes(applicationKey);
-                            const selectedKill = kills.find(kill => kill._id === form.getFieldValue('kill_id'));
-                            const isAssigned = selectedKill?.status === 'assigned' && selectedKill?.final_recipient;
                             return (
-                                <Option key={item._id} value={item.name} disabled={isApplied || isAssigned}>
+                                <Option
+                                    key={item._id}
+                                    value={item.name}
+                                    disabled={isApplied}
+                                >
                                     {item.name} ({item.type}, 截止 {moment(item.apply_deadline).format('YYYY-MM-DD')})
                                     {isApplied && ' [已申請]'}
-                                    {isAssigned && ` [已分配給 ${selectedKill.final_recipient}]`}
                                 </Option>
                             );
                         })}

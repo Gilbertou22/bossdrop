@@ -64,6 +64,25 @@ router.post('/', auth, async (req, res) => {
             });
         }
 
+        // 檢查物品狀態
+        const itemStatus = droppedItem.status ? droppedItem.status.toLowerCase() : 'pending';
+        if (itemStatus === 'expired') {
+            return res.status(400).json({
+                code: 400,
+                msg: '物品已過期',
+                detail: `此物品 (${item_name}) 已過期，無法申請。`,
+                suggestion: '請選擇其他未過期的物品。',
+            });
+        }
+        if (itemStatus === 'assigned') {
+            return res.status(400).json({
+                code: 400,
+                msg: '物品已被分配',
+                detail: `此物品 (${item_name}) 已分配，無法申請。`,
+                suggestion: '請選擇其他未分配的物品。',
+            });
+        }
+
         // 添加出席檢查
         if (!kill.attendees.includes(user.character_name)) {
             return res.status(403).json({

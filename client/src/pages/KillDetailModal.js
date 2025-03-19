@@ -167,7 +167,7 @@ const KillDetailModal = ({ visible, onCancel, killData, onUpdate, token, initial
                                         {killData.dropped_items.length > 0 ? (
                                             killData.dropped_items.map((item, index) => (
                                                 <Text key={index} style={{ display: 'block', fontSize: '14px', marginBottom: '4px' }}>
-                                                    - {item.name} ({item.type})
+                                                     {item.name} ({item.type})
                                                 </Text>
                                             ))
                                         ) : (

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Table, Button, Modal, Form, Input, message, Select, Row, Col, Spin, Alert, Popconfirm, Pagination, Space, Card, Descriptions, Tag } from 'antd';
+import { Table, Button, Modal, Form, Input, message, Select, Row, Col, Spin, Alert, Popconfirm, Pagination, Space, Card, Descriptions, Tag, Checkbox } from 'antd';
 import { SearchOutlined, DeleteOutlined, SyncOutlined, UserOutlined, EditOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import axios from 'axios';
 import formatNumber from '../utils/formatNumber';
@@ -28,6 +28,7 @@ const ManageUsers = () => {
     const [stats, setStats] = useState({ totalUsers: 0, activeUsers: 0 });
     const [growthData, setGrowthData] = useState([]);
     const [guilds, setGuilds] = useState([]); // 旅團列表
+    const [useGuildPassword, setUseGuildPassword] = useState(false); // 是否使用旅團密碼
     const token = localStorage.getItem('token');
     const [online, setOnline] = useState(navigator.onLine);
     const [deferredPrompt, setDeferredPrompt] = useState(null);
@@ -158,6 +159,7 @@ const ManageUsers = () => {
             return;
         }
         setEditingUser(user);
+        setUseGuildPassword(false); // 重置選項
         form.resetFields();
         form.setFieldsValue({
             world_name: user?.world_name || '',
@@ -168,9 +170,11 @@ const ManageUsers = () => {
             status: user?.status || 'pending',
             screenshot: user?.screenshot || '',
             role: user?.role || 'user',
-            guildId: user?.guildId || null, // 設置旅團 ID
+            guildId: user?.guildId || null,
+            mustChangePassword: user?.mustChangePassword || false,
             password: '',
             confirm_password: '',
+            useGuildPassword: false,
         });
         setIsModalVisible(true);
     };
@@ -192,10 +196,8 @@ const ManageUsers = () => {
                 return;
             }
 
-            // 過濾掉不必要的字段（如 confirm_password）
             const { confirm_password, ...filteredValues } = values;
 
-            // 將數字字段轉為數字（防止字符串導致後端驗證失敗）
             if (filteredValues.raid_level) {
                 filteredValues.raid_level = parseInt(filteredValues.raid_level, 10);
             }
@@ -203,14 +205,27 @@ const ManageUsers = () => {
                 filteredValues.diamonds = parseInt(filteredValues.diamonds, 10);
             }
 
-            const url = editingUser ? `/api/users/${editingUser._id}` : '/api/users/register';
-            const method = editingUser ? 'put' : 'post';
+            // 檢查必填字段
+            if (!editingUser && (!filteredValues.character_name || !filteredValues.guildId)) {
+                message.error('請確保角色名稱和旅團已填寫！');
+                return;
+            }
+
             const formData = new FormData();
             Object.keys(filteredValues).forEach(key => {
-                if (filteredValues[key] !== undefined && filteredValues[key] !== null) {
-                    formData.append(key, filteredValues[key]);
-                }
+                // 即使值為 null，也傳遞字段，後端會檢查
+                formData.append(key, filteredValues[key] !== undefined && filteredValues[key] !== null ? filteredValues[key] : '');
             });
+
+            // 調試：記錄 formData 內容
+            const formDataEntries = {};
+            for (let [key, value] of formData.entries()) {
+                formDataEntries[key] = value;
+            }
+            console.log('Submitting formData:', formDataEntries);
+
+            const url = editingUser ? `/api/users/${editingUser._id}` : '/api/users/create-member';
+            const method = editingUser ? 'put' : 'post';
 
             setLoading(true);
             const res = await axios[method](`${BASE_URL}${url}`, formData, {
@@ -343,6 +358,39 @@ const ManageUsers = () => {
         }
     };
 
+    const handleGuildChange = (guildId) => {
+        if (useGuildPassword) {
+            const selectedGuild = guilds.find(g => g._id === guildId);
+            if (selectedGuild && selectedGuild.password) {
+                form.setFieldsValue({
+                    password: selectedGuild.password,
+                    confirm_password: selectedGuild.password,
+                    mustChangePassword: true, // 使用旅團密碼時強制更改
+                });
+            } else {
+                form.setFieldsValue({
+                    password: '',
+                    confirm_password: '',
+                    mustChangePassword: false,
+                });
+            }
+        }
+    };
+
+    const handleUseGuildPasswordChange = (checked) => {
+        setUseGuildPassword(checked);
+        if (checked) {
+            const guildId = form.getFieldValue('guildId');
+            handleGuildChange(guildId);
+        } else {
+            form.setFieldsValue({
+                password: '',
+                confirm_password: '',
+                mustChangePassword: false,
+            });
+        }
+    };
+
     const rowSelection = {
         selectedRowKeys,
         onChange: (selectedKeys) => setSelectedRowKeys(selectedKeys),
@@ -383,6 +431,13 @@ const ManageUsers = () => {
             key: 'guildId',
             width: 150,
             render: (guildId) => guilds.find(g => g._id === guildId)?.name || '無',
+        },
+        {
+            title: '是否需更改密碼',
+            dataIndex: 'mustChangePassword',
+            key: 'mustChangePassword',
+            width: 120,
+            render: (mustChangePassword) => (mustChangePassword ? '是' : '否'),
         },
         {
             title: '操作',
@@ -626,7 +681,7 @@ const ManageUsers = () => {
                                 label="鑽石數💎"
                                 rules={[{ type: 'number', min: 0, message: '鑽石數必須為非負數！' }]}
                             >
-                                <Input type="number" min={0} disabled={true} /> {/* 修正為布林值 */}
+                                <Input type="number" min={0} disabled={true} />
                             </Form.Item>
                             <Form.Item
                                 name="status"
@@ -659,11 +714,11 @@ const ManageUsers = () => {
                             <Form.Item
                                 name="guildId"
                                 label="旅團"
-                                rules={[{ message: '請選擇旅團！' }]}
+                                rules={[{ required: true, message: '請選擇旅團！' }]}
                             >
                                 <Select
                                     placeholder="選擇旅團"
-                                    allowClear
+                                    onChange={handleGuildChange}
                                 >
                                     {guilds.map(guild => (
                                         <Option key={guild._id} value={guild._id}>
@@ -672,34 +727,46 @@ const ManageUsers = () => {
                                     ))}
                                 </Select>
                             </Form.Item>
-                            <Form.Item
-                                name="password"
-                                label="密碼"
-                                rules={[{ required: !editingUser, message: '請輸入密碼！' }]}
-                            >
-                                <Input
-                                    type="password"
-                                    placeholder={editingUser ? '留空以保留原密碼' : '請輸入密碼'}
-                                    onChange={(e) => {
-                                        form.setFieldsValue({ confirm_password: '' });
-                                    }}
-                                />
-                            </Form.Item>
-                            <Form.Item
-                                name="confirm_password"
-                                label="確認密碼"
-                                dependencies={['password']}
-                                rules={[
-                                    { required: !editingUser, message: '請確認密碼！' },
-                                    { validator: validateConfirmPassword },
-                                ]}
-                                validateTrigger={['onChange', 'onBlur']}
-                            >
-                                <Input
-                                    type="password"
-                                    placeholder={editingUser ? '留空' : '請再次輸入密碼'}
-                                />
-                            </Form.Item>
+                            {!editingUser && (
+                                <>
+                                    <Form.Item
+                                        name="useGuildPassword"
+                                        label="使用旅團密碼"
+                                        valuePropName="checked"
+                                    >
+                                        <Checkbox onChange={(e) => handleUseGuildPasswordChange(e.target.checked)}>
+                                            使用旅團密碼（盟友首次登入需更改）
+                                        </Checkbox>
+                                    </Form.Item>
+                                    <Form.Item
+                                        name="password"
+                                        label="初始密碼"
+                                        rules={[{ required: !useGuildPassword, message: '請輸入初始密碼！' }]}
+                                    >
+                                        <Input.Password placeholder="輸入初始密碼" disabled={useGuildPassword} />
+                                    </Form.Item>
+                                    <Form.Item
+                                        name="confirm_password"
+                                        label="確認密碼"
+                                        dependencies={['password']}
+                                        rules={[
+                                            { required: !useGuildPassword, message: '請確認密碼！' },
+                                            { validator: validateConfirmPassword },
+                                        ]}
+                                        validateTrigger={['onChange', 'onBlur']}
+                                    >
+                                        <Input.Password placeholder="請再次輸入初始密碼" disabled={useGuildPassword} />
+                                    </Form.Item>
+                                    <Form.Item
+                                        name="mustChangePassword"
+                                        label="是否需更改密碼"
+                                        valuePropName="checked"
+                                        hidden
+                                    >
+                                        <Checkbox />
+                                    </Form.Item>
+                                </>
+                            )}
                         </Col>
                     </Row>
                 </Form>
@@ -726,6 +793,7 @@ const ManageUsers = () => {
                         </Descriptions.Item>
                         <Descriptions.Item label="角色">{selectedUser.role}</Descriptions.Item>
                         <Descriptions.Item label="旅團">{guilds.find(g => g._id === selectedUser.guildId)?.name || '無'}</Descriptions.Item>
+                        <Descriptions.Item label="是否需更改密碼">{selectedUser.mustChangePassword ? '是' : '否'}</Descriptions.Item>
                         <Descriptions.Item label="創建時間">{moment(selectedUser.createdAt).format('YYYY-MM-DD HH:mm:ss')}</Descriptions.Item>
                         <Descriptions.Item label="更新時間">{moment(selectedUser.updatedAt).format('YYYY-MM-DD HH:mm:ss')}</Descriptions.Item>
                     </Descriptions>

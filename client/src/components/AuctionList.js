@@ -53,7 +53,7 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, handleSettleAuction })
       const res = await axios.get(`${BASE_URL}/api/auctions/${auctionId}/bids`, {
         headers: { 'x-auth-token': token },
       });
-      console.log(`Fetched bids for auction ${auctionId}:`, res.data);
+      console.log(`Fetched bids for auction ${auctionId}:`, res.data); // 調試日志
       setBids(prev => ({ ...prev, [auctionId]: res.data }));
     } catch (err) {
       console.error(`Error fetching bids for auction ${auctionId}:`, err.response?.data || err);
@@ -419,14 +419,28 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, handleSettleAuction })
     },
     {
       title: '出價時間',
-      dataIndex: 'created_at',
-      key: 'created_at',
-      sorter: (a, b) => moment(a.created_at).unix() - moment(b.created_at).unix(),
-      render: (time) => (
-        <Tooltip title={moment(time).format('YYYY-MM-DD HH:mm:ss')}>
-          {moment(time).fromNow()}
-        </Tooltip>
-      ),
+      dataIndex: 'timestamp', // 修正字段名
+      key: 'timestamp',
+      sorter: (a, b) => moment(a.timestamp).unix() - moment(b.timestamp).unix(),
+      render: (time) => {
+        if (!time) return '無時間記錄';
+        const now = moment();
+        const createdMoment = moment(time);
+        const duration = now.diff(createdMoment);
+        console.log(`Bid time debug - timestamp: ${time}, now: ${now.format()}, duration: ${duration}ms`); // 調試日志
+        if (duration < 60000) { // 小於1分鐘，顯示絕對時間
+          return (
+            <Tooltip title={createdMoment.format('YYYY-MM-DD HH:mm:ss')}>
+              {createdMoment.format('YYYY-MM-DD HH:mm:ss')}
+            </Tooltip>
+          );
+        }
+        return (
+          <Tooltip title={createdMoment.format('YYYY-MM-DD HH:mm:ss')}>
+            {createdMoment.fromNow()}
+          </Tooltip>
+        );
+      },
     },
   ];
 

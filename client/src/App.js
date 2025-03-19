@@ -23,6 +23,7 @@ import ApproveAttendRequest from './pages/ManageSupplementRequests';
 import React, { useState } from 'react';
 import { NotificationProvider } from './components/NotificationContext';
 import { Layout, Spin } from 'antd';
+import ChangePassword from './components/ChangePassword';
 
 const { Content } = Layout;
 
@@ -52,6 +53,14 @@ function App() {
                                     <Route path="/" element={<Home />} />
                                     <Route path="/register" element={<Register />} />
                                     <Route path="/login" element={<Login />} />
+                                    <Route
+                                        path="/change-password"
+                                        element={
+                                            <RoleRoute mustChangePasswordRedirect allowedRoles={['user', 'moderator', 'admin']}>
+                                                <ChangePassword />
+                                            </RoleRoute>
+                                        }
+                                    />
                                     <Route
                                         path="/apply-item"
                                         element={

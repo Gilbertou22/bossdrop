@@ -7,6 +7,20 @@ const { Option } = Select;
 
 const BASE_URL = 'http://localhost:5000';
 
+// 計算顏色的亮度（基於 RGB 的相對亮度公式）
+const getLuminance = (hexColor) => {
+    const r = parseInt(hexColor.slice(1, 3), 16) / 255;
+    const g = parseInt(hexColor.slice(3, 5), 16) / 255;
+    const b = parseInt(hexColor.slice(5, 7), 16) / 255;
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
+
+// 根據背景色選擇文字顏色
+const getTextColor = (bgColor) => {
+    const luminance = getLuminance(bgColor);
+    return luminance > 0.7 ? '#000000' : '#ffffff';
+};
+
 const ManageItems = () => {
     const [items, setItems] = useState([]);
     const [filteredItems, setFilteredItems] = useState([]);
@@ -142,17 +156,7 @@ const ManageItems = () => {
         '藍色': '#1e90ff',
         '紅色': '#EC3636',
         '紫色': '#B931F3',
-        '金色': '#ffd700',
-    };
-
-    // 根據背景色選擇文字顏色
-    const textColorMapping = {
-        '白色': '#000000', // 淺色背景用黑色文字
-        '綠色': '#ffffff', // 深色背景用白色文字
-        '藍色': '#ffffff',
-        '紅色': '#ffffff',
-        '紫色': '#ffffff',
-        '金色': '#000000',
+        '金色': '#ffeb3b',
     };
 
     const columns = [
@@ -171,7 +175,29 @@ const ManageItems = () => {
             ),
             width: 80,
         },
-        { title: '名稱', dataIndex: 'name', key: 'name', width: 150 },
+        {
+            title: '名稱',
+            dataIndex: 'name',
+            key: 'name',
+            width: 150,
+            render: (name, record) => {
+                const level = record.level;
+                if (!level) return name;
+                const levelColor = colorMapping[level.color] || '#000000';
+                return (
+                    <span
+                        style={{
+                            color: `${levelColor} `, // 主文字顏色保持黑色，確保可讀性
+                            fontWeight: 'bold', // 加粗
+                            fontSize: '16px', // 增大字體
+                            textShadow: `0px 0px 1px rgb(97, 97, 97)`, // 使用等級顏色作為文字陰影
+                        }}
+                    >
+                        {name}
+                    </span>
+                );
+            },
+        },
         {
             title: '類型',
             dataIndex: 'type',
@@ -184,21 +210,27 @@ const ManageItems = () => {
             dataIndex: 'level',
             key: 'level',
             width: 120,
-            render: (level) => level ? (
-                <Tag
-                    color={colorMapping[level.color] || '#000000'}
-                    style={{
-                        padding: '6px 12px', // 增加內邊距
-                        fontSize: '14px', // 增大字體
-                        fontWeight: 'bold', // 加粗
-                        border: '1px solid #d9d9d9', // 添加邊框
-                        boxShadow: '0 1px 2px rgba(0, 0, 0, 0.1)', // 添加陰影
-                        color: textColorMapping[level.color] || '#000000', // 動態設置文字顏色
-                    }}
-                >
-                    {level.level}
-                </Tag>
-            ) : '未設置',
+            render: (level) => {
+                if (!level) return '未設置';
+                const bgColor = colorMapping[level.color] || '#000000';
+                const textColor = getTextColor(bgColor);
+                return (
+                    <Tag
+                        color={bgColor}
+                        style={{
+                            padding: '6px 12px',
+                            fontSize: '16px',
+                            fontWeight: 'bold',
+                            border: '1px solid #d9d9d9',
+                            boxShadow: '0 1px 2px rgba(0, 0, 0, 0.1)',
+                            color: textColor,
+                            textShadow: '1px 1px 2px rgba(0, 0, 0, 0.5)',
+                        }}
+                    >
+                        {level.level}
+                    </Tag>
+                );
+            },
         },
         { title: '描述', dataIndex: 'description', key: 'description', width: 200 },
         {
@@ -381,23 +413,28 @@ const ManageItems = () => {
                         rules={[{ message: '請選擇物品等級！' }]}
                     >
                         <Select placeholder="選擇等級" allowClear>
-                            {itemLevels.map(level => (
-                                <Option key={level._id} value={level._id}>
-                                    <Tag
-                                        color={colorMapping[level.color] || '#000000'}
-                                        style={{
-                                            padding: '6px 12px', // 增加內邊距
-                                            fontSize: '14px', // 增大字體
-                                            fontWeight: 'bold', // 加粗
-                                            border: '1px solid #d9d9d9', // 添加邊框
-                                            boxShadow: '0 1px 2px rgba(0, 0, 0, 0.1)', // 添加陰影
-                                            color: textColorMapping[level.color] || '#000000', // 動態設置文字顏色
-                                        }}
-                                    >
-                                        {level.level}
-                                    </Tag>
-                                </Option>
-                            ))}
+                            {itemLevels.map(level => {
+                                const bgColor = colorMapping[level.color] || '#000000';
+                                const textColor = getTextColor(bgColor);
+                                return (
+                                    <Option key={level._id} value={level._id}>
+                                        <Tag
+                                            color={bgColor}
+                                            style={{
+                                                padding: '6px 12px',
+                                                fontSize: '16px',
+                                                fontWeight: 'bold',
+                                                border: '1px solid #d9d9d9',
+                                                boxShadow: '0 1px 2px rgba(0, 0, 0, 0.1)',
+                                                color: textColor,
+                                                textShadow: '1px 1px 2px rgba(0, 0, 0, 0.5)',
+                                            }}
+                                        >
+                                            {level.level}
+                                        </Tag>
+                                    </Option>
+                                );
+                            })}
                         </Select>
                     </Form.Item>
                     <Form.Item

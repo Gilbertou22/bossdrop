@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Table, Button, Modal, Form, Input, message, Select, Row, Col, Spin, Alert, Popconfirm, Pagination, Space, Card, Descriptions, Tag, Checkbox } from 'antd';
-import { SearchOutlined, DeleteOutlined, SyncOutlined, UserOutlined, EditOutlined, InfoCircleOutlined } from '@ant-design/icons';
+import { SearchOutlined, DeleteOutlined, SyncOutlined, EditOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import axios from 'axios';
 import formatNumber from '../utils/formatNumber';
 import moment from 'moment';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import logger from '../utils/logger'; // 引入前端日誌工具
 
 const { Option } = Select;
 
@@ -198,9 +199,13 @@ const ManageUsers = () => {
 
             const { confirm_password, ...filteredValues } = values;
 
-            if (filteredValues.raid_level) {
+            // 處理 raid_level
+            if (filteredValues.raid_level !== undefined && filteredValues.raid_level !== null && filteredValues.raid_level !== '') {
                 filteredValues.raid_level = parseInt(filteredValues.raid_level, 10);
+            } else {
+                filteredValues.raid_level = 0; // 如果為空，設置為 0
             }
+
             if (filteredValues.diamonds) {
                 filteredValues.diamonds = parseInt(filteredValues.diamonds, 10);
             }
@@ -670,7 +675,22 @@ const ManageUsers = () => {
                             <Form.Item
                                 name="raid_level"
                                 label="戰鬥等級"
-                                rules={[{ type: 'number', min: 0, message: '戰鬥等級必須為非負數！' }]}
+                                rules={[
+                                    {
+                                        validator: (_, value) => {
+                                            // 檢查必填
+                                            if (value === undefined || value === null || value === '') {
+                                                return Promise.reject(new Error('請輸入戰鬥等級！'));
+                                            }
+                                            // 轉換為數字並驗證
+                                            const numValue = parseInt(value, 10);
+                                            if (isNaN(numValue) || numValue < 0) {
+                                                return Promise.reject(new Error('戰鬥等級必須為非負數！'));
+                                            }
+                                            return Promise.resolve();
+                                        },
+                                    },
+                                ]}
                             >
                                 <Input type="number" min={0} />
                             </Form.Item>

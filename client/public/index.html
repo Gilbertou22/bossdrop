@@ -1,18 +1,21 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
+  <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
     <meta name="theme-color" content="#001529" />
     <link rel="manifest" href="/manifest.json" />
     <title>緣香菇分鑽系統 （測試版）</title>
-</head>
-<body>
+  </head>
+  <body>
     <noscript>You need to enable JavaScript to run this app.</noscript>
     <div id="root"></div>
     <script>
-        // 暫時禁用 Service Worker
-        /*
+      // 暫時禁用 Service Worker
+      /*
         if ('serviceWorker' in navigator && window.location.hostname === 'localhost') {
             window.addEventListener('load', () => {
                 navigator.serviceWorker.register('/serviceWorker.js').then(registration => {
@@ -29,5 +32,5 @@
         }
         */
     </script>
-</body>
+  </body>
 </html>

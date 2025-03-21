@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Modal, Form, Input, InputNumber, Button, message, Spin } from 'antd';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
+import logger from '../utils/logger'; // 引入前端日誌工具
 
 const { TextArea } = Input;
 
@@ -11,11 +12,7 @@ const UserProfile = ({ visible, onCancel }) => {
     const token = localStorage.getItem('token');
     const navigate = useNavigate();
 
-    // 調試信息
-    useEffect(() => {
-        console.log('UserProfile page mounted');
-        return () => console.log('UserProfile page unmounted');
-    }, []);
+
 
     // 僅在模態窗口可見時執行
     useEffect(() => {
@@ -23,7 +20,7 @@ const UserProfile = ({ visible, onCancel }) => {
 
         const fetchUserProfile = async () => {
             if (!token) {
-                console.log('UserProfile: No token found');
+
                 return; // 不執行重定向
             }
 
@@ -32,7 +29,7 @@ const UserProfile = ({ visible, onCancel }) => {
                 const res = await axios.get('http://localhost:5000/api/users/profile', {
                     headers: { 'x-auth-token': token },
                 });
-                console.log('Fetched user profile response:', res.data);
+
                 form.setFieldsValue({
                     world_name: res.data.world_name,
                     character_name: res.data.character_name,
@@ -40,6 +37,7 @@ const UserProfile = ({ visible, onCancel }) => {
                     raid_level: res.data.raid_level || 0,
                 });
             } catch (err) {
+
                 console.error('Fetch user profile error:', {
                     status: err.response?.status,
                     data: err.response?.data,
@@ -66,14 +64,13 @@ const UserProfile = ({ visible, onCancel }) => {
         try {
             setLoading(true);
             const { character_name, ...submitValues } = values;
-            console.log('Token:', token); // 調試
-            console.log('Sending update request with:', submitValues); // 調試
+
             const config = {
                 headers: { 'x-auth-token': token },
                 timeout: 5000,
             };
             const res = await axios.put('http://localhost:5000/api/users/profile', submitValues, config);
-            console.log('Update response:', res.data); // 調試
+
             alert('用戶資料更新成功');
             onCancel();
         } catch (err) {

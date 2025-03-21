@@ -4,6 +4,7 @@ import axios from 'axios';
 import moment from 'moment';
 import { useNavigate } from 'react-router-dom';
 import formatNumber from '../utils/formatNumber';
+import logger from '../utils/logger'; // 引入前端日誌工具
 import 'moment/locale/zh-tw';
 moment.locale('zh-tw');
 

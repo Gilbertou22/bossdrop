@@ -1,4 +1,5 @@
 const express = require('express');
+const mongoose = require('mongoose');
 const router = express.Router();
 const Auction = require('../models/Auction');
 const Bid = require('../models/Bid');
@@ -7,7 +8,7 @@ const BossKill = require('../models/BossKill');
 const Item = require('../models/Item');
 const Notification = require('../models/Notification');
 const { auth } = require('../middleware/auth');
-const mongoose = require('mongoose');
+const logger = require('../logger');
 const moment = require('moment');
 
 // 監控拍賣（管理員專用）
@@ -28,9 +29,10 @@ router.get('/monitor', auth, async (req, res) => {
                 { endTime: { $lt: now } },
             ],
         }).lean();
+        logger.info('Fetched auction monitor data', { userId: req.user.id, soonEndingCount, alertAuctionsCount: alertAuctions.length });
         res.json({ soonEndingCount, alertAuctions });
     } catch (err) {
-        console.error('Error fetching auction monitor:', err);
+        logger.error('Error fetching auction monitor', { userId: req.user.id, error: err.message, stack: err.stack });
         res.status(500).json({ code: 500, msg: '獲取拍賣監測失敗' });
     }
 });
@@ -61,9 +63,10 @@ router.get('/trend', auth, async (req, res) => {
             },
             { $sort: { _id: 1 } },
         ]);
+        logger.info('Fetched auction trend data', { userId: req.user.id, trendDataCount: trendData.length });
         res.json(trendData);
     } catch (err) {
-        console.error('Error fetching auction trend:', err);
+        logger.error('Error fetching auction trend', { userId: req.user.id, error: err.message, stack: err.stack });
         res.status(500).json({ code: 500, msg: '獲取拍賣成交趨勢失敗' });
     }
 });
@@ -72,37 +75,55 @@ router.get('/trend', auth, async (req, res) => {
 router.get('/pending-count', auth, async (req, res) => {
     try {
         const pendingCount = await Auction.countDocuments({ status: 'pending' });
+        logger.info('Fetched pending auctions count', { userId: req.user.id, pendingCount });
         res.json({ count: pendingCount });
     } catch (err) {
-        console.error('Error fetching pending auctions count:', err);
+        logger.error('Error fetching pending auctions count', { userId: req.user.id, error: err.message, stack: err.stack });
         res.status(500).json({ msg: '獲取待處理競標數量失敗', error: err.message });
     }
 });
 
-// 獲取當前用戶得標的拍賣列表
+// 獲取當前用戶得標或持有的拍賣列表
 router.get('/won', auth, async (req, res) => {
     try {
         const userId = req.user.id;
-        console.log('Won auctions:', res.data);
+        const characterName = req.user.character_name; // 獲取當前用戶的 character_name
+
+        // 查詢條件：用戶是得標者（highestBidder）或物品持有人（itemHolder）
         const wonAuctions = await Auction.find({
-            highestBidder: userId,
-            status: { $in: ['completed', 'pending'] },
+            $or: [
+                { highestBidder: userId }, // 用戶是得標者
+                { itemHolder: characterName }, // 用戶是物品持有人
+            ],
+            status: { $in: ['completed', 'pending', 'settled'] },
         })
             .lean()
             .populate('highestBidder', 'character_name')
-            .populate('createdBy', 'character_name lineId discordId');
+            .populate('createdBy', 'character_name lineId discordId')
+            .populate('itemId');
+
         if (!wonAuctions.length) {
+            logger.info('No won or held auctions found for user', { userId, characterName });
             return res.json([]);
         }
 
-        console.log('Fetched won auctions:', wonAuctions);
+        logger.info('Fetched won or held auctions', { userId, characterName, count: wonAuctions.length });
 
         const enrichedAuctions = await Promise.all(wonAuctions.map(async (auction) => {
             let itemName = '未知物品';
             let imageUrl = null;
             let level = null;
-            if (mongoose.Types.ObjectId.isValid(auction.itemId)) {
-                const bossKill = await BossKill.findById(auction.itemId);
+            let itemHolder = auction.itemHolder;
+
+            if (auction.itemId && auction.itemId.itemHolder) {
+                itemHolder = auction.itemId.itemHolder;
+            } else {
+                itemHolder = auction.createdBy.character_name;
+                logger.warn(`itemHolder not set in BossKill for itemId ${auction.itemId?._id}, using createdBy.character_name`, { auctionId: auction._id, createdBy: auction.createdBy.character_name });
+            }
+
+            if (mongoose.Types.ObjectId.isValid(auction.itemId?._id)) {
+                const bossKill = auction.itemId;
                 if (bossKill && bossKill.dropped_items?.length) {
                     itemName = bossKill.dropped_items[0].name || '未知物品';
                     if (bossKill.screenshots?.length > 0) {
@@ -115,8 +136,9 @@ router.get('/won', auth, async (req, res) => {
                     }
                 }
             } else {
-                console.warn(`Invalid itemId for auction ${auction._id}:`, auction.itemId);
+                logger.warn(`Invalid itemId for auction ${auction._id}`, { itemId: auction.itemId });
             }
+
             return {
                 ...auction,
                 itemName,
@@ -128,21 +150,21 @@ router.get('/won', auth, async (req, res) => {
                 startingPrice: auction.startingPrice,
                 buyoutPrice: auction.buyoutPrice,
                 status: auction.status || 'active',
+                itemHolder,
             };
         }));
         res.json(enrichedAuctions);
     } catch (err) {
-        console.error('Error fetching won auctions:', err);
-        res.status(500).json({ msg: '獲取得標拍賣列表失敗', error: err.message });
+        logger.error('Error fetching won or held auctions', { userId: req.user.id, error: err.message, stack: err.stack });
+        res.status(500).json({ msg: '獲取得標或持有拍賣列表失敗', error: err.message });
     }
 });
 
-
 // 創建競標
 router.post('/', auth, async (req, res) => {
-    console.log('Received POST /api/auctions request:', req.body, 'User:', req.user?.character_name);
     const { itemId, startingPrice, buyoutPrice, endTime, status = 'active' } = req.body;
     try {
+        logger.info('Creating new auction', { userId: req.user.id, itemId, startingPrice, buyoutPrice, endTime });
         if (!itemId || !startingPrice || !endTime) {
             return res.status(400).json({ msg: 'itemId, startingPrice 和 endTime 為必填字段' });
         }
@@ -192,7 +214,6 @@ router.post('/', auth, async (req, res) => {
 
         const endTimeDate = new Date(endTime);
         const now = new Date();
-        console.log('EndTime received:', endTime, 'Parsed:', endTimeDate, 'Now:', now);
         if (isNaN(endTimeDate.getTime()) || moment(endTimeDate).isBefore(moment(now))) {
             return res.status(400).json({
                 code: 400,
@@ -210,55 +231,61 @@ router.post('/', auth, async (req, res) => {
             endTime: endTimeDate,
             createdBy: req.user.id,
             status,
+            itemHolder: bossKill.itemHolder || req.user.character_name, // 從 BossKill 中獲取 itemHolder
         });
         await auction.save();
-        console.log('Auction created with buyoutPrice:', { auction, buyoutPrice: auction.buyoutPrice });
+        logger.info('Auction created successfully', { userId: req.user.id, auctionId: auction._id, itemHolder: auction.itemHolder });
         res.status(201).json({ msg: '競標創建成功', auction });
     } catch (err) {
-        console.error('Error creating auction:', err);
+        logger.error('Error creating auction', { userId: req.user.id, error: err.message, stack: err.stack });
         res.status(500).json({ msg: '創建競標失敗', error: err.message });
     }
 });
 
 // 獲取競標列表
 router.get('/', auth, async (req, res) => {
-    console.log('Fetching auctions for user:', req.user?.character_name || 'Unknown', 'Token:', req.header('x-auth-token')?.substring(0, 20) + '...');
     const { status } = req.query;
     try {
         const query = status ? { status } : {};
         const auctions = await Auction.find(query)
             .lean()
             .populate('highestBidder', 'character_name')
-            .populate('createdBy', 'character_name');
-        console.log('Fetched auctions count:', auctions.length, 'Raw Data:', JSON.stringify(auctions, null, 2));
+            .populate('createdBy', 'character_name')
+            .populate('itemId'); // 關聯 BossKill 數據
         if (!auctions.length) {
-            console.log('No auctions found matching query:', query);
+            logger.info('No auctions found', { userId: req.user.id, query });
             return res.json([]);
         }
+
+        logger.info('Fetched auctions', { userId: req.user.id, count: auctions.length });
 
         const enrichedAuctions = await Promise.all(auctions.map(async (auction) => {
             let itemName = '未知物品';
             let imageUrl = null;
             let level = null;
-            if (mongoose.Types.ObjectId.isValid(auction.itemId)) {
-                const bossKill = await BossKill.findById(auction.itemId);
+            let itemHolder = auction.itemHolder;
+
+            if (auction.itemId && auction.itemId.itemHolder) {
+                itemHolder = auction.itemId.itemHolder;
+            }
+
+            if (mongoose.Types.ObjectId.isValid(auction.itemId._id)) {
+                const bossKill = auction.itemId;
                 if (bossKill && bossKill.dropped_items?.length) {
                     itemName = bossKill.dropped_items[0].name || '未知物品';
-                    // 從 screenshots 中取第一張圖片，並修正路徑
                     if (bossKill.screenshots?.length > 0) {
                         const rawImageUrl = bossKill.screenshots[0];
-                        // 將反斜杠替換為正斜杠，並添加完整 URL 前綴
                         imageUrl = `${req.protocol}://${req.get('host')}/${rawImageUrl.replace(/\\/g, '/')}`;
                     }
-                    // 通過 dropped_items 的 name 查找 Item 模型，獲取 level
                     const item = await Item.findOne({ name: itemName }).populate('level');
                     if (item) {
                         level = item.level || null;
                     }
                 }
             } else {
-                console.warn(`Invalid itemId for auction ${auction._id}:`, auction.itemId);
+                logger.warn(`Invalid itemId for auction ${auction._id}`, { itemId: auction.itemId });
             }
+
             return {
                 ...auction,
                 itemName,
@@ -270,12 +297,12 @@ router.get('/', auth, async (req, res) => {
                 startingPrice: auction.startingPrice,
                 buyoutPrice: auction.buyoutPrice,
                 status: auction.status || 'active',
+                itemHolder,
             };
         }));
-        console.log('Enriched Auctions:', JSON.stringify(enrichedAuctions, null, 2));
         res.json(enrichedAuctions);
     } catch (err) {
-        console.error('Error fetching auctions:', err);
+        logger.error('Error fetching auctions', { userId: req.user.id, error: err.message, stack: err.stack });
         res.status(500).json({ msg: '獲取競標列表失敗', error: err.message });
     }
 });
@@ -295,7 +322,8 @@ router.get('/:id', auth, async (req, res) => {
         const auction = await Auction.findById(id)
             .lean()
             .populate('highestBidder', 'character_name')
-            .populate('createdBy', 'character_name');
+            .populate('createdBy', 'character_name')
+            .populate('itemId');
         if (!auction) {
             return res.status(404).json({
                 code: 404,
@@ -307,24 +335,29 @@ router.get('/:id', auth, async (req, res) => {
         let itemName = '未知物品';
         let imageUrl = null;
         let level = null;
-        if (mongoose.Types.ObjectId.isValid(auction.itemId)) {
-            const bossKill = await BossKill.findById(auction.itemId);
+        let itemHolder = auction.itemHolder;
+
+        if (auction.itemId && auction.itemId.itemHolder) {
+            itemHolder = auction.itemId.itemHolder;
+        }
+
+        if (mongoose.Types.ObjectId.isValid(auction.itemId._id)) {
+            const bossKill = auction.itemId;
             if (bossKill && bossKill.dropped_items?.length) {
                 itemName = bossKill.dropped_items[0].name || '未知物品';
-                // 從 screenshots 中取第一張圖片，並修正路徑
                 if (bossKill.screenshots?.length > 0) {
                     const rawImageUrl = bossKill.screenshots[0];
                     imageUrl = `${req.protocol}://${req.get('host')}/${rawImageUrl.replace(/\\/g, '/')}`;
                 }
-                // 通過 dropped_items 的 name 查找 Item 模型，獲取 level
                 const item = await Item.findOne({ name: itemName }).populate('level');
                 if (item) {
                     level = item.level || null;
                 }
             }
         } else {
-            console.warn(`Invalid itemId for auction ${auction._id}:`, auction.itemId);
+            logger.warn(`Invalid itemId for auction ${auction._id}`, { itemId: auction.itemId });
         }
+
         const enrichedAuction = {
             ...auction,
             itemName,
@@ -336,10 +369,12 @@ router.get('/:id', auth, async (req, res) => {
             startingPrice: auction.startingPrice,
             buyoutPrice: auction.buyoutPrice,
             status: auction.status || 'active',
+            itemHolder,
         };
+        logger.info('Fetched auction details', { userId: req.user.id, auctionId: id });
         res.json(enrichedAuction);
     } catch (err) {
-        console.error('Error fetching auction by ID:', err);
+        logger.error('Error fetching auction by ID', { userId: req.user.id, auctionId: id, error: err.message, stack: err.stack });
         res.status(500).json({
             code: 500,
             msg: '獲取拍賣詳情失敗',
@@ -355,7 +390,7 @@ router.post('/:id/bid', auth, async (req, res) => {
     const auctionId = req.params.id;
     const userId = req.user.id;
     try {
-        console.log('Received bid request:', { auctionId, amount, userId, token: req.header('x-auth-token') });
+        logger.info('Received bid request', { auctionId, amount, userId });
         if (!amount || isNaN(amount)) {
             return res.status(400).json({
                 code: 400,
@@ -374,7 +409,7 @@ router.post('/:id/bid', auth, async (req, res) => {
         }
         const auction = await Auction.findById(auctionId);
         if (!auction) {
-            console.warn(`Auction not found for ID: ${auctionId}`);
+            logger.warn(`Auction not found for ID: ${auctionId}`);
             return res.status(404).json({
                 code: 404,
                 msg: '拍賣不存在',
@@ -382,7 +417,6 @@ router.post('/:id/bid', auth, async (req, res) => {
                 suggestion: '請刷新頁面後重試或聯繫管理員檢查數據庫。',
             });
         }
-        console.log('Auction found:', auction);
         if (auction.status !== 'active') {
             return res.status(400).json({
                 code: 400,
@@ -430,31 +464,28 @@ router.post('/:id/bid', auth, async (req, res) => {
         let finalPrice = bidValue;
         let buyoutTriggered = false;
         if (auction.buyoutPrice && bidValue >= auction.buyoutPrice) {
-            finalPrice = auction.buyoutPrice; // 設置最終價格為直接得標價
-            auction.status = 'completed'; // 直接得標，拍賣結束
+            finalPrice = auction.buyoutPrice;
+            auction.status = 'completed';
             buyoutTriggered = true;
         }
         const bid = new Bid({
             auctionId: auction._id,
             userId,
-            amount: finalPrice, // 記錄最終價格
+            amount: finalPrice,
         });
         await bid.save();
-        auction.currentPrice = finalPrice; // 更新拍賣的當前價格
+        auction.currentPrice = finalPrice;
         auction.highestBidder = userId;
         await auction.save();
+        logger.info('Bid placed successfully', { auctionId, userId, finalPrice, buyoutTriggered });
         res.status(200).json({
             code: 200,
             msg: buyoutTriggered ? '下標成功，已直接得標！' : '下標成功！',
             detail: `您已為拍賣 ${auctionId} 下標 ${finalPrice} 鑽石，結算時將扣除。${buyoutTriggered ? '競標已結束。' : ''}`,
-            finalPrice, // 返回最終價格給前端
+            finalPrice,
         });
     } catch (err) {
-        console.error('Error placing bid:', {
-            error: err.message,
-            stack: err.stack,
-            response: err.response?.data,
-        });
+        logger.error('Error placing bid', { auctionId, userId, error: err.message, stack: err.stack });
         res.status(500).json({
             code: 500,
             msg: '下標失敗',
@@ -468,6 +499,7 @@ router.post('/:id/bid', auth, async (req, res) => {
 router.put('/:id/settle', auth, async (req, res) => {
     const { id } = req.params;
     try {
+        logger.info('Attempting to settle auction', { auctionId: id, userId: req.user.id });
         if (!mongoose.Types.ObjectId.isValid(id)) {
             return res.status(400).json({
                 code: 400,
@@ -477,7 +509,8 @@ router.put('/:id/settle', auth, async (req, res) => {
             });
         }
         const auction = await Auction.findById(id)
-            .populate('highestBidder', 'character_name');
+            .populate('highestBidder', 'character_name')
+            .populate('createdBy', 'character_name');
         if (!auction) {
             return res.status(404).json({
                 code: 404,
@@ -505,16 +538,16 @@ router.put('/:id/settle', auth, async (req, res) => {
         const highestBidder = auction.highestBidder;
         if (!highestBidder) {
             await Auction.findByIdAndUpdate(id, { status: 'completed', highestBidder: null });
+            logger.info('Auction settled with no bidder', { auctionId: id, userId: req.user.id });
             return res.status(200).json({
                 code: 200,
                 msg: '拍賣結算完成，無中標者',
                 detail: `拍賣 ${id} 無有效出價，已標記為完成。`,
             });
         }
-        // 計算最終扣除金額
         let finalPrice = auction.currentPrice;
         if (auction.buyoutPrice && auction.currentPrice > auction.buyoutPrice) {
-            finalPrice = auction.buyoutPrice; // 確保不超過直接得標價
+            finalPrice = auction.buyoutPrice;
         }
         if (highestBidder.diamonds < finalPrice) {
             let itemName = '未知物品';
@@ -532,6 +565,7 @@ router.put('/:id/settle', auth, async (req, res) => {
             });
             await notification.save();
             await Auction.findByIdAndUpdate(id, { status: 'pending' });
+            logger.warn('Highest bidder has insufficient diamonds', { auctionId: id, userId: highestBidder._id, diamonds: highestBidder.diamonds, finalPrice });
             return res.status(400).json({
                 code: 400,
                 msg: '中標者餘額不足',
@@ -541,13 +575,14 @@ router.put('/:id/settle', auth, async (req, res) => {
         }
         await User.findByIdAndUpdate(highestBidder._id, { $inc: { diamonds: -finalPrice } });
         await Auction.findByIdAndUpdate(id, { status: 'completed' });
+        logger.info('Auction settled successfully', { auctionId: id, userId: req.user.id, finalPrice, highestBidder: highestBidder._id });
         res.status(200).json({
             code: 200,
             msg: '拍賣結算成功',
             detail: `用戶 ${highestBidder.character_name} 支付 ${finalPrice} 鑽石，剩餘 ${highestBidder.diamonds - finalPrice} 鑽石。`,
         });
     } catch (err) {
-        console.error('Error settling auction:', err);
+        logger.error('Error settling auction', { auctionId: id, userId: req.user.id, error: err.message, stack: err.stack });
         res.status(500).json({
             code: 500,
             msg: '拍賣結算失敗',
@@ -613,13 +648,14 @@ router.put('/:id/cancel', auth, async (req, res) => {
             await Notification.insertMany(notifications);
         }
         await Auction.findByIdAndUpdate(id, { status: 'cancelled', highestBidder: null });
+        logger.info('Auction cancelled successfully', { auctionId: id, userId: req.user.id });
         res.status(200).json({
             code: 200,
             msg: '拍賣已取消',
             detail: `拍賣 ${id} 已成功取消，所有出價者已收到通知。`,
         });
     } catch (err) {
-        console.error('Error cancelling auction:', err);
+        logger.error('Error cancelling auction', { auctionId: id, userId: req.user.id, error: err.message, stack: err.stack });
         res.status(500).json({
             code: 500,
             msg: '取消拍賣失敗',
@@ -678,6 +714,7 @@ router.put('/:id/reassign', auth, async (req, res) => {
             .sort({ amount: -1 });
         if (!bids.length) {
             await Auction.findByIdAndUpdate(id, { status: 'completed', highestBidder: null });
+            logger.info('Auction ended with no bidders after reassignment', { auctionId: id, userId: req.user.id });
             return res.status(200).json({
                 code: 200,
                 msg: '拍賣已結束，無中標者',
@@ -693,6 +730,7 @@ router.put('/:id/reassign', auth, async (req, res) => {
             });
             await notification.save();
             await Auction.findByIdAndUpdate(id, { status: 'completed', highestBidder: null });
+            logger.info('Auction ended with no other bidders after reassignment', { auctionId: id, userId: req.user.id });
             return res.status(200).json({
                 code: 200,
                 msg: '拍賣已結束，無其他出價者',
@@ -711,6 +749,7 @@ router.put('/:id/reassign', auth, async (req, res) => {
                 currentPrice: nextHighestBid.amount,
                 status: 'pending',
             });
+            logger.warn('Next highest bidder has insufficient diamonds after reassignment', { auctionId: id, userId: nextHighestBidder._id, diamonds: nextHighestBidder.diamonds, amount: nextHighestBid.amount });
             return res.status(400).json({
                 code: 400,
                 msg: '次高出價者餘額不足',
@@ -738,13 +777,14 @@ router.put('/:id/reassign', auth, async (req, res) => {
             status: 'completed',
         });
         await User.findByIdAndUpdate(nextHighestBidder._id, { $inc: { diamonds: -nextHighestBid.amount } });
+        logger.info('Auction reassigned successfully', { auctionId: id, userId: req.user.id, newHighestBidder: nextHighestBidder._id, amount: nextHighestBid.amount });
         res.status(200).json({
             code: 200,
             msg: '拍賣重新分配成功',
             detail: `拍賣 ${id} 已重新分配給用戶 ${nextHighestBidder.character_name}，出價為 ${nextHighestBid.amount} 鑽石。`,
         });
     } catch (err) {
-        console.error('Error reassigning auction:', err);
+        logger.error('Error reassigning auction', { auctionId: id, userId: req.user.id, error: err.message, stack: err.stack });
         res.status(500).json({
             code: 500,
             msg: '重新分配拍賣失敗',
@@ -758,7 +798,7 @@ router.put('/:id/reassign', auth, async (req, res) => {
 router.get('/:id/bids', auth, async (req, res) => {
     const auctionId = req.params.id;
     try {
-        console.log('Fetching bids for auction:', auctionId);
+        logger.info('Fetching bids for auction', { auctionId, userId: req.user.id });
         if (!mongoose.Types.ObjectId.isValid(auctionId)) {
             return res.status(400).json({
                 code: 400,
@@ -769,13 +809,10 @@ router.get('/:id/bids', auth, async (req, res) => {
         const bids = await Bid.find({ auctionId })
             .populate('userId', 'character_name avatar')
             .sort({ created_at: -1 });
-        console.log('Fetched bids:', bids);
+        logger.info('Fetched bids', { auctionId, userId: req.user.id, count: bids.length });
         res.json(bids);
     } catch (err) {
-        console.error('Error fetching bids:', {
-            error: err.message,
-            stack: err.stack,
-        });
+        logger.error('Error fetching bids', { auctionId, userId: req.user.id, error: err.message, stack: err.stack });
         res.status(500).json({
             code: 500,
             msg: '獲取出價歷史失敗',
@@ -785,12 +822,12 @@ router.get('/:id/bids', auth, async (req, res) => {
     }
 });
 
-
 // 回報交易完成並觸發結算
 router.put('/:id/complete-transaction', auth, async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
     try {
+        logger.info('User attempting to complete transaction', { auctionId: id, userId });
         if (!mongoose.Types.ObjectId.isValid(id)) {
             return res.status(400).json({
                 code: 400,
@@ -801,7 +838,8 @@ router.put('/:id/complete-transaction', auth, async (req, res) => {
         }
         const auction = await Auction.findById(id)
             .populate('highestBidder', 'character_name')
-            .populate('createdBy', 'character_name');
+            .populate('createdBy', 'character_name')
+            .populate('itemId'); // 關聯 BossKill 數據
         if (!auction) {
             return res.status(404).json({
                 code: 404,
@@ -810,13 +848,20 @@ router.put('/:id/complete-transaction', auth, async (req, res) => {
                 suggestion: '請刷新頁面後重試或聯繫管理員檢查數據庫。',
             });
         }
-        if (auction.createdBy._id.toString() !== userId) {
+        // 從 BossKill 中獲取 itemHolder
+        let itemHolder = auction.itemHolder;
+        if (auction.itemId && auction.itemId.itemHolder) {
+            itemHolder = auction.itemId.itemHolder;
+        }
+        // 驗證是否為物品持有人
+        if (itemHolder !== req.user.character_name) {
             return res.status(403).json({
                 code: 403,
                 msg: '無權操作',
                 detail: '只有物品持有人可以回報交易完成。',
             });
         }
+        // 驗證拍賣狀態
         if (auction.status !== 'completed') {
             return res.status(400).json({
                 code: 400,
@@ -825,6 +870,7 @@ router.put('/:id/complete-transaction', auth, async (req, res) => {
                 suggestion: '請確保拍賣已完成（status: completed）。',
             });
         }
+        // 驗證中標者
         const highestBidder = auction.highestBidder;
         if (!highestBidder) {
             return res.status(400).json({
@@ -833,7 +879,7 @@ router.put('/:id/complete-transaction', auth, async (req, res) => {
                 detail: `拍賣 ${id} 無中標者，無法結算。`,
             });
         }
-        // 計算最終扣除金額
+        // 計算最終金額
         let finalPrice = auction.currentPrice;
         if (auction.buyoutPrice && auction.currentPrice > auction.buyoutPrice) {
             finalPrice = auction.buyoutPrice;
@@ -842,8 +888,8 @@ router.put('/:id/complete-transaction', auth, async (req, res) => {
         const bidder = await User.findById(highestBidder._id);
         if (bidder.diamonds < finalPrice) {
             let itemName = '未知物品';
-            if (mongoose.Types.ObjectId.isValid(auction.itemId)) {
-                const bossKill = await BossKill.findById(auction.itemId).populate('dropped_items');
+            if (mongoose.Types.ObjectId.isValid(auction.itemId._id)) {
+                const bossKill = auction.itemId;
                 if (bossKill && bossKill.dropped_items?.length) {
                     itemName = bossKill.dropped_items[0].name || '未知物品';
                 }
@@ -856,6 +902,7 @@ router.put('/:id/complete-transaction', auth, async (req, res) => {
             });
             await notification.save();
             await Auction.findByIdAndUpdate(id, { status: 'pending' });
+            logger.warn('Highest bidder has insufficient diamonds during transaction completion', { auctionId: id, userId: highestBidder._id, diamonds: bidder.diamonds, finalPrice });
             return res.status(400).json({
                 code: 400,
                 msg: '中標者餘額不足',
@@ -866,11 +913,20 @@ router.put('/:id/complete-transaction', auth, async (req, res) => {
         // 扣除中標者鑽石
         await User.findByIdAndUpdate(highestBidder._id, { $inc: { diamonds: -finalPrice } });
         // 將鑽石分配給物品持有人
-        await User.findByIdAndUpdate(auction.createdBy._id, { $inc: { diamonds: finalPrice } });
-        // 發送通知給中標者和物品持有人
+        const itemHolderUser = await User.findOne({ character_name: itemHolder });
+        if (!itemHolderUser) {
+            return res.status(404).json({
+                code: 404,
+                msg: '物品持有人不存在',
+                detail: `無法找到物品持有人 ${itemHolder} 的用戶記錄。`,
+                suggestion: '請聯繫管理員檢查用戶數據。',
+            });
+        }
+        await User.findByIdAndUpdate(itemHolderUser._id, { $inc: { diamonds: finalPrice } });
+        // 發送通知
         let itemName = '未知物品';
-        if (mongoose.Types.ObjectId.isValid(auction.itemId)) {
-            const bossKill = await BossKill.findById(auction.itemId).populate('dropped_items');
+        if (mongoose.Types.ObjectId.isValid(auction.itemId._id)) {
+            const bossKill = auction.itemId;
             if (bossKill && bossKill.dropped_items?.length) {
                 itemName = bossKill.dropped_items[0].name || '未知物品';
             }
@@ -880,21 +936,28 @@ router.put('/:id/complete-transaction', auth, async (req, res) => {
             message: `拍賣 ${itemName} (ID: ${id}) 交易已完成，您已支付 ${finalPrice} 鑽石。`,
             auctionId: id,
         });
-        const creatorNotification = new Notification({
-            userId: auction.createdBy._id,
+        const itemHolderNotification = new Notification({
+            userId: itemHolderUser._id,
             message: `拍賣 ${itemName} (ID: ${id}) 交易已完成，您已收到 ${finalPrice} 鑽石。`,
             auctionId: id,
         });
-        await Notification.insertMany([bidderNotification, creatorNotification]);
+        await Notification.insertMany([bidderNotification, itemHolderNotification]);
         // 更新拍賣狀態為已結算
-        await Auction.findByIdAndUpdate(id, { status: 'settled' }); // 添加一個新狀態 'settled' 表示已結算
+        await Auction.findByIdAndUpdate(id, { status: 'settled' });
+        logger.info('Transaction completed and settled successfully', {
+            auctionId: id,
+            userId: req.user.id,
+            highestBidder: highestBidder._id,
+            itemHolder,
+            finalPrice,
+        });
         res.status(200).json({
             code: 200,
             msg: '交易完成，結算成功',
-            detail: `用戶 ${highestBidder.character_name} 支付 ${finalPrice} 鑽石，物品持有人 ${auction.createdBy.character_name} 收到 ${finalPrice} 鑽石。`,
+            detail: `用戶 ${highestBidder.character_name} 支付 ${finalPrice} 鑽石，物品持有人 ${itemHolder} 收到 ${finalPrice} 鑽石。`,
         });
     } catch (err) {
-        console.error('Error completing transaction:', err);
+        logger.error('Error completing transaction', { auctionId: id, userId: req.user.id, error: err.message, stack: err.stack });
         res.status(500).json({
             code: 500,
             msg: '交易完成回報失敗',

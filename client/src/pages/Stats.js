@@ -12,6 +12,7 @@ import {
     ArcElement,
 } from 'chart.js';
 import axios from 'axios';
+import logger from '../utils/logger'; // 引入前端日誌工具
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend, ArcElement);
 

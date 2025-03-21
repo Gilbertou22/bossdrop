@@ -1,6 +1,7 @@
 import React from 'react';
 import { Navigate } from 'react-router-dom';
 import axios from 'axios';
+import logger from '../utils/logger'; // 引入前端日誌工具
 
 const AdminRoute = ({ children }) => {
     const token = localStorage.getItem('token');

@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Button, Modal, Input, Tag, Image, Tooltip, Popconfirm, message, Table } from 'antd';
-import { DollarOutlined, DollarCircleOutlined, TagOutlined, UserOutlined, InfoCircleOutlined, SketchOutlined, RiseOutlined, ShoppingCartOutlined, RubyOutlined, DiscordOutlined } from '@ant-design/icons'; // 引入圖標
+import { InfoCircleOutlined, SketchOutlined, RiseOutlined, ShoppingCartOutlined, DiscordOutlined, TrophyOutlined, GiftOutlined, UserAddOutlined } from '@ant-design/icons';
 import axios from 'axios';
 import moment from 'moment';
 import { useNavigate } from 'react-router-dom';
 import { HistoryOutlined } from '@ant-design/icons';
 import formatNumber from '../utils/formatNumber';
 import 'moment/locale/zh-tw';
+import logger from '../utils/logger';
 moment.locale('zh-tw');
 
 const BASE_URL = 'http://localhost:5000';
@@ -14,7 +15,7 @@ const BASE_URL = 'http://localhost:5000';
 const statusMap = {
   active: '活躍',
   pending: '待處理',
-  completed: '已結算',
+  completed: '已完成',
   cancelled: '已取消',
   settled: '已結算',
   unknown: '未知',
@@ -35,6 +36,7 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
   const [bidAmount, setBidAmount] = useState('');
   const [bids, setBids] = useState({});
   const [userDiamonds, setUserDiamonds] = useState(0);
+  const [characterName, setCharacterName] = useState(null);
   const [historyModalVisible, setHistoryModalVisible] = useState(false);
   const [selectedAuctionId, setSelectedAuctionId] = useState(null);
   const navigate = useNavigate();
@@ -50,8 +52,10 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
         headers: { 'x-auth-token': token },
       });
       setUserDiamonds(res.data.diamonds || 0);
+      setCharacterName(res.data.character_name);
+      logger.info('Fetched user info in AuctionList', { userId: res.data.id, character_name: res.data.character_name });
     } catch (err) {
-      console.error('Fetch user info error:', err);
+      logger.error('Fetch user info error in AuctionList', { error: err.message, stack: err.stack });
       message.error('無法獲取用戶信息，請重新登錄');
       navigate('/login');
     }
@@ -62,10 +66,10 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
       const res = await axios.get(`${BASE_URL}/api/auctions/${auctionId}/bids`, {
         headers: { 'x-auth-token': token },
       });
-      console.log(`Fetched bids for auction ${auctionId}:`, res.data);
+      logger.info(`Fetched bids for auction ${auctionId}`, { count: res.data.length });
       setBids(prev => ({ ...prev, [auctionId]: res.data }));
     } catch (err) {
-      console.error(`Error fetching bids for auction ${auctionId}:`, err.response?.data || err);
+      logger.error(`Error fetching bids for auction ${auctionId}`, { error: err.response?.data || err.message, stack: err.stack });
       message.error('無法獲取下標歷史，請刷新頁面後重試！');
       setBids(prev => ({ ...prev, [auctionId]: [] }));
     }
@@ -84,9 +88,9 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
         },
         { headers: { 'x-auth-token': token } }
       );
-      console.log('System notification sent:', res.data);
+      logger.info('System notification sent', { userId: userIdToNotify, auctionId });
     } catch (err) {
-      console.error('Send system notification error:', err.response?.data || err);
+      logger.error('Send system notification error', { error: err.response?.data || err.message, stack: err.stack });
       message.warning('系統消息發送失敗，但競標操作已完成');
     }
   };
@@ -104,7 +108,7 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
         break;
       case 'completed':
         color = 'blue';
-        text = '已結算';
+        text = '已完成';
         break;
       case 'cancelled':
         color = 'red';
@@ -135,45 +139,51 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
 
   const handleCancelAuction = async (auctionId) => {
     try {
+      logger.info('User clicked cancel auction button', { auctionId, userId });
       const res = await axios.put(`${BASE_URL}/api/auctions/${auctionId}/cancel`, {}, {
         headers: { 'x-auth-token': token },
       });
       message.success(res.data.msg);
+      logger.info('Auction cancelled successfully', { auctionId, userId, response: res.data });
       fetchAuctions();
     } catch (err) {
-      console.error('Cancel auction error:', err.response?.data || err);
+      logger.error('Cancel auction error', { auctionId, userId, error: err.response?.data || err.message, stack: err.stack });
       message.error(`取消拍賣失敗: ${err.response?.data?.msg || err.message}`);
     }
   };
 
   const handleReassignAuction = async (auctionId) => {
     try {
+      logger.info('User clicked reassign auction button', { auctionId, userId });
       const res = await axios.put(`${BASE_URL}/api/auctions/${auctionId}/reassign`, {}, {
         headers: { 'x-auth-token': token },
       });
       message.success(res.data.msg);
+      logger.info('Auction reassigned successfully', { auctionId, userId, response: res.data });
       fetchAuctions();
     } catch (err) {
-      console.error('Reassign auction error:', err.response?.data || err);
+      logger.error('Reassign auction error', { auctionId, userId, error: err.response?.data || err.message, stack: err.stack });
       message.error(`重新分配拍賣失敗: ${err.response?.data?.msg || err.message}`);
     }
   };
 
   const handleCompleteTransaction = async (auctionId) => {
     try {
+      logger.info('User clicked complete transaction button', { auctionId, userId, characterName });
       const res = await axios.put(`${BASE_URL}/api/auctions/${auctionId}/complete-transaction`, {}, {
         headers: { 'x-auth-token': token },
       });
       message.success(res.data.msg);
+      logger.info('Transaction completed successfully', { auctionId, userId, characterName, response: res.data });
       fetchAuctions();
     } catch (err) {
-      console.error('Complete transaction error:', err.response?.data || err);
+      logger.error('Complete transaction error', { auctionId, userId, characterName, error: err.response?.data || err.message, stack: err.stack });
       message.error(`回報交易完成失敗: ${err.response?.data?.msg || err.message}`);
     }
   };
 
   const handleBidClick = (auction) => {
-    console.log('Selected auction for bidding:', auction);
+    logger.info('User clicked bid button', { auctionId: auction._id, userId });
     if (!auction || !auction._id) {
       message.error('無法找到拍賣信息，請刷新頁面！');
       return;
@@ -183,6 +193,7 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
   };
 
   const handleHistoryClick = (auctionId) => {
+    logger.info('User clicked history button', { auctionId, userId });
     setSelectedAuctionId(auctionId);
     fetchBids(auctionId);
     setHistoryModalVisible(true);
@@ -216,7 +227,7 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
     }
 
     try {
-      console.log('Checking auction status before bidding:', selectedAuction._id);
+      logger.info('Checking auction status before bidding', { auctionId: selectedAuction._id, userId });
       const resCheck = await axios.get(`${BASE_URL}/api/auctions/${selectedAuction._id}`, {
         headers: { 'x-auth-token': token },
       });
@@ -229,11 +240,7 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
         return;
       }
 
-      console.log('Sending bid request:', {
-        auctionId: selectedAuction._id,
-        amount: bidValue,
-        token: token,
-      });
+      logger.info('Sending bid request', { auctionId: selectedAuction._id, amount: bidValue, userId });
 
       const res = await axios.post(
         `${BASE_URL}/api/auctions/${selectedAuction._id}/bid`,
@@ -241,7 +248,6 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
         { headers: { 'x-auth-token': token } }
       );
 
-      console.log('Bid response:', res.data);
       const finalPrice = res.data.finalPrice || bidValue;
       const isBuyout = res.data.msg.includes('已直接得標');
 
@@ -265,11 +271,7 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
       setIsModalVisible(false);
       setBidAmount('');
     } catch (err) {
-      console.error('Bid error:', {
-        status: err.response?.status,
-        data: err.response?.data,
-        message: err.message,
-      });
+      logger.error('Bid error', { auctionId: selectedAuction?._id, userId, error: err.response?.data || err.message, stack: err.stack });
 
       if (err.response) {
         const status = err.response.status;
@@ -341,7 +343,6 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
         const now = moment();
         const createdMoment = moment(time);
         const duration = now.diff(createdMoment);
-        console.log(`Bid time debug - timestamp: ${time}, now: ${now.format()}, duration: ${duration}ms`);
         if (duration < 60000) {
           return (
             <Tooltip title={createdMoment.format('YYYY-MM-DD HH:mm:ss')}>
@@ -360,239 +361,248 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
 
   return (
     <div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '20px' }}>
-        {auctions.map(auction => {
-          const levelColor = auction.level ? colorMapping[auction.level.color] || '#000000' : '#000000';
-          const bidsForAuction = bids[auction._id] || [];
-          const sortedBids = [...bidsForAuction].sort((a, b) => b.amount - a.amount);
-          const endTime = auction.endTime ? moment(auction.endTime).format('MM-DD HH:mm') : '無截止時間';
-          const remainingTime = auction.endTime
-            ? moment(auction.endTime).diff(moment()) <= 0
-              ? '已結束'
-              : `${Math.floor(moment.duration(moment(auction.endTime).diff(moment())).asHours())}小時${moment.duration(moment(auction.endTime).diff(moment())).minutes()}分`
-            : '無截止時間';
-          const isCreator = auction.createdBy._id === userId;
+      {auctions.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '20px' }}>
+          <p>您目前沒有得標或持有的拍賣。</p>
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '20px' }}>
+          {auctions.map(auction => {
+            const levelColor = auction.level ? colorMapping[auction.level.color] || '#000000' : '#000000';
+            const bidsForAuction = bids[auction._id] || [];
+            const sortedBids = [...bidsForAuction].sort((a, b) => b.amount - a.amount);
+            const endTime = auction.endTime ? moment(auction.endTime).format('MM-DD HH:mm') : '無截止時間';
+            const remainingTime = auction.endTime
+              ? moment(auction.endTime).diff(moment()) <= 0
+                ? '已結束'
+                : `${Math.floor(moment.duration(moment(auction.endTime).diff(moment())).asHours())}小時${moment.duration(moment(auction.endTime).diff(moment())).minutes()}分`
+              : '無截止時間';
+            const isItemHolder = auction.itemHolder === characterName;
 
-          return (
-            <Card
-              key={auction._id}
-              hoverable
-              style={{
-                borderRadius: '8px',
-                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
-                backgroundColor: '#fff',
-              }}
-              cover={
-                <div style={{ position: 'relative', width: '100%', paddingTop: '66.67%' }}>
-                  <Image
-                    src={auction.imageUrl}
-                    alt={auction.itemName}
-                    style={{
-                      position: 'absolute',
-                      top: 0,
-                      left: 0,
-                      width: '100%',
-                      height: '100%',
-                      objectFit: 'cover',
-                    }}
-                    onError={(e) => {
-                      console.error(`Image load error for ${auction.imageUrl}:`, e);
-                      message.warning('圖片加載失敗，使用占位圖');
-                    }}
-                  />
-                  {auction.status === 'active' && (
+            logger.debug('Auction itemHolder check', { auctionId: auction._id, itemHolder: auction.itemHolder, characterName });
+            logger.debug('Auction status check', { auctionId: auction._id, status: auction.status, isItemHolder, shouldShowButton: isItemHolder && auction.status === 'completed' });
+
+            return (
+              <Card
+                key={auction._id}
+                hoverable
+                style={{
+                  borderRadius: '8px',
+                  boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
+                  backgroundColor: '#fff',
+                }}
+                cover={
+                  <div style={{ position: 'relative', width: '100%', paddingTop: '66.67%' }}>
+                    <Image
+                      src={auction.imageUrl}
+                      alt={auction.itemName}
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        width: '100%',
+                        height: '100%',
+                        objectFit: 'cover',
+                      }}
+                      onError={(e) => {
+                        logger.error('Image load error', { imageUrl: auction.imageUrl, error: e.message });
+                        message.warning('圖片加載失敗，使用占位圖');
+                      }}
+                    />
+                    {auction.status === 'active' && (
+                      <div
+                        style={{
+                          position: 'absolute',
+                          bottom: '0px',
+                          right: '0px',
+                          backgroundColor: 'rgba(48, 189, 106, 0.93)',
+                          color: 'white',
+                          padding: '3px 6px',
+                          borderRadius: '0px',
+                          fontSize: '12px',
+                          zIndex: 2,
+                        }}
+                      >
+                        {remainingTime}
+                      </div>
+                    )}
                     <div
                       style={{
                         position: 'absolute',
-                        bottom: '0px',
-                        right: '0px',
-                        backgroundColor: 'rgba(48, 189, 106, 0.93)',
-                        color: 'white',
-                        padding: '3px 6px',
-                        borderRadius: '0px',
-                        fontSize: '12px',
-                        zIndex: 2,
+                        top: '50%',
+                        left: '50%',
+                        transform: 'translate(-50%, -50%)',
+                        color: 'rgba(255, 255, 255, 0.97)',
+                        fontSize: '18px',
+                        fontWeight: 'bold',
+                        background: 'rgba(0, 0, 0, 0.5)',
+                        padding: '8px 16px',
+                        borderRadius: '8px',
+                        wordBreak: 'break-all',
+                        lineHeight: '1.5',
+                        width: '80%',
+                        textShadow: '1px 1px 2px rgb(255, 255, 255)',
+                        textAlign: 'center',
                       }}
                     >
-                      {remainingTime}
+                      [{endTime}]<br />
+                      <span style={{ color: levelColor }}>{auction.itemName || '未知物品'}</span>
                     </div>
-                  )}
-                  <div
-                    style={{
-                      position: 'absolute',
-                      top: '50%',
-                      left: '50%',
-                      transform: 'translate(-50%, -50%)',
-                      color: 'rgba(255, 255, 255, 0.97)',
-                      fontSize: '18px',
-                      fontWeight: 'bold',
-                      background: 'rgba(0, 0, 0, 0.5)',
-                      padding: '8px 16px',
-                      borderRadius: '8px',
-                      wordBreak: 'break-all',
-                      lineHeight: '1.5',
-                      width: '80%',
-                      textShadow: '1px 1px 2px rgb(255, 255, 255)',
-                      textAlign: 'center',
-                    }}
-                  >
-                    [{endTime}]<br />
-                    <span style={{ color: levelColor }}>{auction.itemName || '未知物品'}</span>
-                  </div>
-                </div>
-              }
-              actions={
-                isWonTab
-                  ? [
-                    isCreator && auction.status === 'completed' && (
-                      <Popconfirm
-                        title="確認交易已完成？"
-                        onConfirm={() => handleCompleteTransaction(auction._id)}
-                        okText="是"
-                        cancelText="否"
-                      >
-                        <Button type="primary">交易完成請按我</Button>
-                      </Popconfirm>
-                    ),
-                  ].filter(Boolean)
-                  : [
-                    <Button
-                      type="primary"
-                      onClick={() => handleBidClick(auction)}
-                      disabled={auction.status !== 'active'}
-                    >
-                      下標
-                    </Button>,
-                    <Button
-                      type="default"
-                      icon={<HistoryOutlined />}
-                      onClick={() => handleHistoryClick(auction._id)}
-                    >
-                      詳細
-                    </Button>,
-                    userRole === 'admin' && auction.status !== 'completed' && auction.status !== 'cancelled' && (
-                      <Popconfirm
-                        title="確認結算此拍賣？"
-                        onConfirm={() => handleSettleAuction(auction._id)}
-                        okText="是"
-                        cancelText="否"
-                        disabled={auction.status !== 'active' && auction.status !== 'completed'}
-                      >
-                        <Button
-                          type="default"
-                          disabled={auction.status !== 'active' && auction.status !== 'completed'}
-                        >
-                          結算
-                        </Button>
-                      </Popconfirm>
-                    ),
-                    userRole === 'admin' && auction.status !== 'completed' && auction.status !== 'cancelled' && (
-                      <Popconfirm
-                        title="確認取消此拍賣？"
-                        onConfirm={() => handleCancelAuction(auction._id)}
-                        okText="是"
-                        cancelText="否"
-                        disabled={auction.status !== 'active' && auction.status !== 'pending'}
-                      >
-                        <Button
-                          type="danger"
-                          disabled={auction.status !== 'active' && auction.status !== 'pending'}
-                        >
-                          取消
-                        </Button>
-                      </Popconfirm>
-                    ),
-                    userRole === 'admin' && auction.status === 'pending' && (
-                      <Popconfirm
-                        title="確認重新分配此拍賣？"
-                        onConfirm={() => handleReassignAuction(auction._id)}
-                        okText="是"
-                        cancelText="否"
-                        disabled={auction.status !== 'pending'}
-                      >
-                        <Button
-                          type="default"
-                          disabled={auction.status !== 'pending'}
-                        >
-                          重新分配
-                        </Button>
-                      </Popconfirm>
-                    ),
-                  ].filter(Boolean)
-              }
-            >
-              <Card.Meta
-                description={
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                    {isWonTab ? (
-                      <>
-                        {/* 得標金額 */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <SketchOutlined style={{ color: '#1890ff', fontSize: '16px' }} />
-                          <span style={{ color: '#1890ff' }}>{formatNumber(auction.currentPrice)}</span>
-                        </div>
-                        {/* 物品持有人 */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <UserOutlined style={{ color: '#000', fontSize: '16px' }} />
-                          <span>{auction.createdBy.character_name}</span>
-                        </div>
-                        {/* 聯絡方式 */}
-                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
-                          <DiscordOutlined style={{ color: '#000', fontSize: '16px', marginTop: '2px' }} />
-                          <div>
-                            {auction.createdBy.lineId && (
-                              <div>LINE: {auction.createdBy.lineId}</div>
-                            )}
-                            {auction.createdBy.discordId && (
-                              <div>Discord: {auction.createdBy.discordId}</div>
-                            )}
-                            {!auction.createdBy.lineId && !auction.createdBy.discordId && (
-                              <div>無聯絡方式</div>
-                            )}
-                          </div>
-                        </div>
-                        {/* 狀態 */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <InfoCircleOutlined style={{ color: '#000', fontSize: '16px' }} />
-                          {getStatusTag(auction.status)}
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        {/* 起標 */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <SketchOutlined style={{ color: '#1890ff', fontSize: '16px' }} />
-                          <span style={{ color: '#1890ff' }}>{formatNumber(auction.startingPrice) || 0}</span>
-                        </div>
-                        {/* 當前價格 */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <RiseOutlined style={{ color: '#1890ff', fontSize: '16px' }} />
-                          <span style={{ color: '#1890ff' }}>{formatNumber(auction.currentPrice) || 0}</span>
-                        </div>
-                        {/* 直接得標價 */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <ShoppingCartOutlined style={{ color: '#000', fontSize: '16px' }} />
-                          <span>{auction.buyoutPrice ? formatNumber(auction.buyoutPrice) : '無'}</span>
-                        </div>
-                        {/* 最高下標者 */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <UserOutlined style={{ color: '#000', fontSize: '16px' }} />
-                          <span>{auction.highestBidder?.character_name || '無'}</span>
-                        </div>
-                        {/* 狀態 */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <InfoCircleOutlined style={{ color: '#000', fontSize: '16px' }} />
-                          {getStatusTag(auction.status)}
-                        </div>
-                      </>
-                    )}
                   </div>
                 }
-              />
-            </Card>
-          );
-        })}
-      </div>
+                actions={
+                  isWonTab
+                    ? [
+                      isItemHolder && auction.status === 'completed' && (
+                        <Popconfirm
+                          title="確認交易已完成？"
+                          onConfirm={() => handleCompleteTransaction(auction._id)}
+                          okText="是"
+                          cancelText="否"
+                        >
+                          <Button type="primary">交易完成請按我</Button>
+                        </Popconfirm>
+                      ),
+                    ].filter(Boolean)
+                    : [
+                      <Button
+                        type="primary"
+                        onClick={() => handleBidClick(auction)}
+                        disabled={auction.status !== 'active'}
+                      >
+                        下標
+                      </Button>,
+                      <Button
+                        type="default"
+                        icon={<HistoryOutlined />}
+                        onClick={() => handleHistoryClick(auction._id)}
+                      >
+                        詳細
+                      </Button>,
+                      userRole === 'admin' && auction.status !== 'completed' && auction.status !== 'cancelled' && (
+                        <Popconfirm
+                          title="確認結算此拍賣？"
+                          onConfirm={() => handleSettleAuction(auction._id)}
+                          okText="是"
+                          cancelText="否"
+                          disabled={auction.status !== 'active' && auction.status !== 'completed'}
+                        >
+                          <Button
+                            type="default"
+                            disabled={auction.status !== 'active' && auction.status !== 'completed'}
+                          >
+                            結算
+                          </Button>
+                        </Popconfirm>
+                      ),
+                      userRole === 'admin' && auction.status !== 'completed' && auction.status !== 'cancelled' && (
+                        <Popconfirm
+                          title="確認取消此拍賣？"
+                          onConfirm={() => handleCancelAuction(auction._id)}
+                          okText="是"
+                          cancelText="否"
+                          disabled={auction.status !== 'active' && auction.status !== 'pending'}
+                        >
+                          <Button
+                            type="danger"
+                            disabled={auction.status !== 'active' && auction.status !== 'pending'}
+                          >
+                            取消
+                          </Button>
+                        </Popconfirm>
+                      ),
+                      userRole === 'admin' && auction.status === 'pending' && (
+                        <Popconfirm
+                          title="確認重新分配此拍賣？"
+                          onConfirm={() => handleReassignAuction(auction._id)}
+                          okText="是"
+                          cancelText="否"
+                          disabled={auction.status !== 'pending'}
+                        >
+                          <Button
+                            type="default"
+                            disabled={auction.status !== 'pending'}
+                          >
+                            重新分配
+                          </Button>
+                        </Popconfirm>
+                      ),
+                    ].filter(Boolean)
+                }
+              >
+                <Card.Meta
+                  description={
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      {isWonTab ? (
+                        <>
+                          {/* 得標金額 */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <TrophyOutlined style={{ color: '#1890ff', fontSize: '16px' }} />
+                            <span style={{ color: '#1890ff', fontSize: '16px' }}>{formatNumber(auction.currentPrice)}</span>
+                          </div>
+                          {/* 物品持有人 */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <GiftOutlined style={{ color: '#000', fontSize: '16px' }} />
+                            <span>{auction.itemHolder || auction.createdBy.character_name}</span>
+                          </div>
+                          {/* 聯絡方式 */}
+                          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                            <DiscordOutlined style={{ color: '#000', fontSize: '16px', marginTop: '2px' }} />
+                            <div>
+                              {auction.createdBy.lineId && (
+                                <div>LINE: {auction.createdBy.lineId}</div>
+                              )}
+                              {auction.createdBy.discordId && (
+                                <div>Discord: {auction.createdBy.discordId}</div>
+                              )}
+                              {!auction.createdBy.lineId && !auction.createdBy.discordId && (
+                                <div>無聯絡方式</div>
+                              )}
+                            </div>
+                          </div>
+                          {/* 狀態 */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <InfoCircleOutlined style={{ color: '#000', fontSize: '16px' }} />
+                            {getStatusTag(auction.status)}
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          {/* 起標 */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <SketchOutlined style={{ color: '#1890ff', fontSize: '16px' }} />
+                            <span style={{ color: '#1890ff', fontSize: '16px' }}>{formatNumber(auction.startingPrice) || 0}</span>
+                          </div>
+                          {/* 當前價格 */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <RiseOutlined style={{ color: '#1890ff', fontSize: '16px' }} />
+                            <span style={{ color: '#1890ff', fontSize: '16px' }}>{formatNumber(auction.currentPrice) || 0}</span>
+                          </div>
+                          {/* 直接得標價 */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <ShoppingCartOutlined style={{ color: '#000', fontSize: '16px' }} />
+                            <span>{auction.buyoutPrice ? formatNumber(auction.buyoutPrice) : '無'}</span>
+                          </div>
+                          {/* 最高下標者 */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <UserAddOutlined style={{ color: '#000', fontSize: '16px' }} />
+                            <span>{auction.highestBidder?.character_name || '無'}</span>
+                          </div>
+                          {/* 狀態 */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <InfoCircleOutlined style={{ color: '#000', fontSize: '16px' }} />
+                            {getStatusTag(auction.status)}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  }
+                />
+              </Card>
+            );
+          })}
+        </div>
+      )}
 
       {/* 出價 Modal */}
       <Modal
@@ -655,47 +665,47 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
       </Modal>
 
       <style jsx global>{`
-                .highest-bid-row {
-                    background-color: #e6f7e5 !important;
-                }
-                .highest-bid-row td {
-                    border-bottom: 1px solid #d9d9d9 !important;
-                }
-                .ant-table-expanded-row .ant-table {
-                    margin: 0 !important;
-                }
-                .ant-table-expanded-row .ant-table-thead > tr > th {
-                    background: #e8e8e8 !important;
-                    fontWeight: bold;
-                }
-                .ant-table-expanded-row .ant-table-tbody > tr:hover > td {
-                    background: #fafafa !important;
-                }
-                .ant-image {
-                    position: static !important;
-                }
-                .ant-image .ant-image-mask {
-                    position: static !important;
-                }
-                .ant-card-actions {
-                    display: flex;
-                    justify-content: center;
-                    gap: 8px;
-                }
-                .ant-card-actions > li {
-                    margin: 0 !important;
-                    width: auto !important;
-                    text-align: center;
-                }
-                @media (max-width: 768px) {
-                    .ant-card-actions > li {
-                        padding: 0 4px !important;
-                    }
-                    .ant-btn-link {
-                        padding: 0 6px !important;
-                    }
-                }
-            `}</style>
+        .highest-bid-row {
+          background-color: #e6f7e5 !important;
+        }
+        .highest-bid-row td {
+          border-bottom: 1px solid #d9d9d9 !important;
+        }
+        .ant-table-expanded-row .ant-table {
+          margin: 0 !important;
+        }
+        .ant-table-expanded-row .ant-table-thead > tr > th {
+          background: #e8e8e8 !important;
+          fontWeight: bold;
+        }
+        .ant-table-expanded-row .ant-table-tbody > tr:hover > td {
+          background: #fafafa !important;
+        }
+        .ant-image {
+          position: static !important;
+        }
+        .ant-image .ant-image-mask {
+          position: static !important;
+        }
+        .ant-card-actions {
+          display: flex;
+          justify-content: center;
+          gap: 8px;
+        }
+        .ant-card-actions > li {
+          margin: 0 !important;
+          width: auto !important;
+          text-align: center;
+        }
+        @media (max-width: 768px) {
+          .ant-card-actions > li {
+            padding: 0 4px !important;
+          }
+          .ant-btn-link {
+            padding: 0 6px !important;
+          }
+        }
+      `}</style>
     </div>
   );
 };

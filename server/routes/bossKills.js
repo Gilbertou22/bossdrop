@@ -8,6 +8,7 @@ const Guild = require('../models/Guild');
 const Item = require('../models/Item');
 const multer = require('multer');
 const { auth, adminOnly } = require('../middleware/auth');
+const logger = require('../logger'); // 引入日誌器
 
 const upload = multer({
     storage: multer.diskStorage({
@@ -65,6 +66,7 @@ router.get('/', auth, async (req, res) => {
                 dropped_items: updatedItems,
                 canSupplement,
                 remainingSupplementHours: remainingHours,
+                itemHolder: kill.itemHolder, // 確保返回 itemHolder
             };
         }));
 
@@ -154,7 +156,7 @@ router.get('/all', auth, adminOnly, async (req, res) => {
 });
 
 router.put('/:id', auth, adminOnly, async (req, res) => {
-    const { status, final_recipient, attendees, dropped_items } = req.body;
+    const { status, final_recipient, attendees, dropped_items, itemHolder } = req.body;
     try {
         const bossKill = await BossKill.findById(req.params.id);
         if (!bossKill) {
@@ -168,6 +170,7 @@ router.put('/:id', auth, adminOnly, async (req, res) => {
         if (status) bossKill.status = status;
         if (final_recipient) bossKill.final_recipient = final_recipient;
         if (attendees) bossKill.attendees = attendees;
+        if (itemHolder) bossKill.itemHolder = itemHolder; // 更新物品持有人
 
         // 更新 dropped_items（不涉及 status）
         if (dropped_items && Array.isArray(dropped_items)) {
@@ -239,7 +242,7 @@ router.put('/:killId/items/:itemId', auth, adminOnly, async (req, res) => {
 });
 
 router.post('/', auth, adminOnly, upload.array('screenshots', 5), async (req, res) => {
-    const { boss_name, kill_time, dropped_items, attendees, final_recipient, status, apply_deadline_days } = req.body;
+    const { boss_name, kill_time, dropped_items, attendees, final_recipient, status, apply_deadline_days, itemHolder } = req.body;
 
     try {
         const screenshots = req.files.map(file => file.path);
@@ -288,6 +291,7 @@ router.post('/', auth, adminOnly, upload.array('screenshots', 5), async (req, re
                 final_recipient: final_recipient || null,
                 status: status || 'pending',
                 userId: req.user.id,
+                itemHolder: itemHolder || null, // 保存物品持有人
             });
             await bossKill.save();
             results.push({ kill_id: bossKill._id });

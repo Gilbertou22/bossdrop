@@ -24,6 +24,7 @@ import message from 'antd/es/message';
 import moment from 'moment';
 import UserProfile from '../pages/UserProfile';
 import { useNotification } from './NotificationContext';
+import logger from '../utils/logger'; // 引入前端日誌工具
 
 const { Header } = Layout;
 

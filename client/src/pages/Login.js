@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Form, Input, Button, message } from 'antd';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom'; // 引入 useNavigate
+import logger from '../utils/logger'; // 引入前端日誌工具
 
 const BASE_URL = 'http://localhost:5000';
 
@@ -18,14 +19,14 @@ const Login = () => {
                 character_name: values.character_name.trim(),
                 password: values.password.trim(),
             };
-            console.log('Submitting login data:', trimmedValues);
+
             const res = await axios.post(`${BASE_URL}/api/auth/login`, trimmedValues);
             message.success(res.data.msg);
             localStorage.setItem('token', res.data.token);
-            console.log('Login successful, navigating to /dashboard'); // 調試日誌
+
             navigate('/'); // 使用 navigate 進行跳轉
         } catch (err) {
-            console.error('Login error:', err.response?.data);
+            logger.error('Login error:', err.response?.data);
             message.error(err.response?.data?.msg || '登入失敗');
         } finally {
             setLoading(false);

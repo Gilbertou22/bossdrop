@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Modal, Button, Upload, Input, message, Image } from 'antd';
 import { UploadOutlined } from '@ant-design/icons';
 import axios from 'axios';
+import logger from '../utils/logger'; // 引入前端日誌工具
 
 const BASE_URL = 'http://localhost:5000';
 

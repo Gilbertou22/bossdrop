@@ -1,4 +1,5 @@
 import React, { Component } from 'react';
+import logger from '../utils/logger'; // 引入前端日誌工具
 
 class ErrorBoundary extends Component {
     constructor(props) {

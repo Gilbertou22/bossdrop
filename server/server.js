@@ -41,6 +41,8 @@ app.use('/api/guilds', require('./routes/guilds')); // 新增路由
 console.log('Guilds route loaded');
 app.use('/api/attendee-requests', require('./routes/attendeerequests'));
 console.log('AttendeeRequests route loaded');
+app.use('/api/logs', require('./routes/logs'));
+console.log('Logs route loaded');
 
 try {
     startAuctionCron();

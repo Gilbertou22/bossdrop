@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Form, Button, Upload, AutoComplete, Select, message, DatePicker, Input, Row, Col, Alert, Spin, Card } from 'antd';
-import { UploadOutlined } from '@ant-design/icons';
+import { UploadOutlined, UserOutlined } from '@ant-design/icons'; // 添加 UserOutlined
 import axios from 'axios';
 import moment from 'moment';
 import imageCompression from 'browser-image-compression';
+import logger from '../utils/logger'; // 引入前端日誌工具
 
 const { Option } = Select;
 const { TextArea } = Input;
@@ -89,10 +90,9 @@ const BossKillForm = () => {
         }
     };
 
-    // 圖片壓縮選項
     const compressionOptions = {
-        maxSizeMB: 0.6, // 最大 600KB
-        maxWidthOrHeight: 1024, // 最大寬高
+        maxSizeMB: 0.6,
+        maxWidthOrHeight: 1024,
         useWebWorker: true,
     };
 
@@ -153,6 +153,7 @@ const BossKillForm = () => {
                 `- 擊殺時間: ${values.kill_time ? values.kill_time.format('YYYY-MM-DD HH:mm') : ''}\n` +
                 `- 掉落物品: ${itemsText}\n` +
                 `- 出席成員: ${Array.isArray(values.attendees) ? values.attendees.join(', ') : ''}\n` +
+                `- 物品持有人: ${values.itemHolder || '未分配'}\n` +
                 `- 補充圖片數量: ${fileList.length} 張`
             )) {
                 handleSubmit(values);
@@ -180,6 +181,7 @@ const BossKillForm = () => {
             formData.append('dropped_items', JSON.stringify([droppedItem]));
             const attendeesArray = Array.isArray(values.attendees) ? values.attendees : [];
             formData.append('attendees', JSON.stringify(attendeesArray));
+            formData.append('itemHolder', values.itemHolder || ''); // 添加 itemHolder
             fileList.forEach(file => formData.append('screenshots', file.originFileObj));
 
             try {
@@ -364,6 +366,18 @@ const BossKillForm = () => {
                                             </Option>
                                         ))}
                                     </Select>
+                                </Form.Item>
+                                <Form.Item
+                                    name="itemHolder"
+                                    label="物品持有人"
+                                    style={{ marginBottom: 16 }}
+                                >
+                                    <Select
+                                        allowClear
+                                        style={{ width: '100%' }}
+                                        placeholder="請選擇物品持有人"
+                                        options={userOptions}
+                                    />
                                 </Form.Item>
                             </Col>
                         </Row>

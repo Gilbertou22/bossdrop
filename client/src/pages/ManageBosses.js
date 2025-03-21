@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Table, Button, Modal, Form, Input, Select, message, Spin, Alert, Pagination, Row, Col, Popconfirm, Tag, Card } from 'antd';
 import { SearchOutlined, DeleteOutlined } from '@ant-design/icons';
 import axios from 'axios';
+import logger from '../utils/logger'; // 引入前端日誌工具
 
 const { Option } = Select;
 

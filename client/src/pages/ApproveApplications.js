@@ -3,6 +3,7 @@ import { Table, Button, message, Popconfirm, Card, Spin, Alert, Tag, Input, Sele
 import { SearchOutlined, CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons';
 import axios from 'axios';
 import moment from 'moment';
+import logger from '../utils/logger'; // 引入前端日誌工具
 
 const { Search } = Input;
 const { Option } = Select;

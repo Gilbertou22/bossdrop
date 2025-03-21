@@ -5,13 +5,14 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import moment from 'moment';
 import formatNumber from '../utils/formatNumber';
+import logger from '../utils/logger'; // 引入前端日誌工具
 
 const { Option } = Select;
 
 const statusMap = {
     active: '活躍',
     pending: '待處理',
-    completed: '已結算',
+    completed: '已完成',
     cancelled: '已取消',
     settled: '已結算',
 };
@@ -19,7 +20,8 @@ const statusMap = {
 const statusOptions = [
     { value: 'active', label: '活躍' },
     { value: 'pending', label: '待處理' },
-    { value: 'completed', label: '已結算' },
+    { value: 'completed', label: '已完成' },
+    { value: 'settled', label: '已結算' },
     { value: 'cancelled', label: '已取消' },
 ];
 

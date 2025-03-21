@@ -8,6 +8,7 @@ import formatNumber from '../utils/formatNumber';
 import statusTag from '../utils/statusTag'; // 導入模組化函數
 import { useNotification } from '../components/NotificationContext';
 import ReactECharts from 'echarts-for-react';
+import logger from '../utils/logger'; // 引入前端日誌工具
 
 const { Title, Text } = Typography;
 const { Option } = Select;
@@ -40,13 +41,13 @@ const Home = () => {
     const fetchData = async () => {
         setLoading(true);
         try {
-            console.log('Fetching user profile with token:', token.substring(0, 20) + '...');
+
             const userRes = await axios.get(`${BASE_URL}/api/users/profile`, {
                 headers: { 'x-auth-token': token },
             });
             const fetchedUser = userRes.data;
             setUser(fetchedUser);
-            console.log('User profile fetched:', fetchedUser);
+
 
             const auctionsRes = await axios.get(`${BASE_URL}/api/auctions?status=active`, {
                 headers: { 'x-auth-token': token },
@@ -79,7 +80,7 @@ const Home = () => {
             setBossKills(enrichedBossKills);
 
             if (token && fetchedUser && fetchedUser.role === 'admin') {
-                console.log('Fetching admin data for user:', fetchedUser.character_name);
+
                 const requests = [
                     axios.get(`${BASE_URL}/api/users/stats`, { headers: { 'x-auth-token': token } }).catch(err => ({ error: err })),
                     axios.get(`${BASE_URL}/api/auctions/pending-count`, { headers: { 'x-auth-token': token } }).catch(err => ({ error: err })),
@@ -95,18 +96,18 @@ const Home = () => {
                     adminStatsData.totalUsers = statsRes.data.totalUsers;
                     adminStatsData.activeUsers = statsRes.data.activeUsers;
                 } else {
-                    console.error('Failed to fetch stats:', statsRes.error.response?.data || statsRes.error.message);
+
                 }
                 if (!applicationsRes.error) {
                     adminStatsData.pendingApplications = applicationsRes.data.count;
                 } else {
-                    console.error('Failed to fetch pending applications:', applicationsRes.error.response?.data || applicationsRes.error.message);
+
                 }
                 if (!monitorRes.error) {
                     adminStatsData.soonEndingCount = monitorRes.data.soonEndingCount;
                     adminStatsData.alertAuctions = monitorRes.data.alertAuctions;
                 } else {
-                    console.error('Failed to fetch auction monitor:', monitorRes.error.response?.data || monitorRes.error.message);
+
                 }
 
                 setAdminStats(adminStatsData);
@@ -115,7 +116,7 @@ const Home = () => {
                 setApplicationTrend(applicationTrendRes.error ? [] : applicationTrendRes.data);
                 console.log('Admin stats set:', adminStatsData);
             } else {
-                console.log('User is not admin or user not fetched:', fetchedUser);
+
             }
         } catch (err) {
             console.error('Fetch data error:', err.response?.data || err.message);
@@ -176,63 +177,63 @@ const Home = () => {
                                 您的鑽石餘額：{formatNumber(user.diamonds)} 💎
                             </Text>
                         )}
-                            <Divider />
-                            {user && user.role === 'admin' && adminStats && (
-                                <Card title="快速操作">
-                                    <Space wrap>
-                                        <Button
-                                            type="primary"
-                                            icon={<FileDoneOutlined />}
-                                            onClick={() => navigate('/approve-applications')}
-                                        >
-                                            審核申請
-                                        </Button>
-                                        <Button
-                                            type="primary"
-                                            icon={<ShoppingOutlined />}
-                                            onClick={() => navigate('/create-auction')}
-                                        >
-                                            創建拍賣
-                                        </Button>
-                                        <Button
-                                            type="primary"
-                                            icon={<UserOutlined />}
-                                            onClick={() => navigate('/manage-users')}
-                                        >
-                                            管理用戶
-                                        </Button>
-                                        <Button
-                                            type="primary"
-                                            icon={<BarChartOutlined />}
-                                            onClick={() => navigate('/stats')}
-                                        >
-                                            查看統計報表
-                                        </Button>
-                                        <Button
-                                            type="primary"
-                                            icon={<FileDoneOutlined />}
-                                            onClick={() => navigate('/apply-item')}
-                                        >
-                                            申請物品
-                                        </Button>
-                                        <Button
-                                            type="primary"
-                                            icon={<ShoppingOutlined />}
-                                            onClick={() => navigate('/auction')}
-                                        >
-                                            參與競標
-                                        </Button>
-                                        <Button
-                                            type="primary"
-                                            icon={<TeamOutlined />}
-                                            onClick={() => navigate('/kill-history')}
-                                        >
-                                            查看擊殺歷史
-                                        </Button>
-                                    </Space>
-                                </Card>         
-                            )}    
-                    </Card>          
+                        <Divider />
+                        {user && user.role === 'admin' && adminStats && (
+                            <Card title="快速操作">
+                                <Space wrap>
+                                    <Button
+                                        type="primary"
+                                        icon={<FileDoneOutlined />}
+                                        onClick={() => navigate('/approve-applications')}
+                                    >
+                                        審核申請
+                                    </Button>
+                                    <Button
+                                        type="primary"
+                                        icon={<ShoppingOutlined />}
+                                        onClick={() => navigate('/create-auction')}
+                                    >
+                                        創建拍賣
+                                    </Button>
+                                    <Button
+                                        type="primary"
+                                        icon={<UserOutlined />}
+                                        onClick={() => navigate('/manage-users')}
+                                    >
+                                        管理用戶
+                                    </Button>
+                                    <Button
+                                        type="primary"
+                                        icon={<BarChartOutlined />}
+                                        onClick={() => navigate('/stats')}
+                                    >
+                                        查看統計報表
+                                    </Button>
+                                    <Button
+                                        type="primary"
+                                        icon={<FileDoneOutlined />}
+                                        onClick={() => navigate('/apply-item')}
+                                    >
+                                        申請物品
+                                    </Button>
+                                    <Button
+                                        type="primary"
+                                        icon={<ShoppingOutlined />}
+                                        onClick={() => navigate('/auction')}
+                                    >
+                                        參與競標
+                                    </Button>
+                                    <Button
+                                        type="primary"
+                                        icon={<TeamOutlined />}
+                                        onClick={() => navigate('/kill-history')}
+                                    >
+                                        查看擊殺歷史
+                                    </Button>
+                                </Space>
+                            </Card>
+                        )}
+                    </Card>
 
                     <Card title="熱門拍賣（即將結束）" style={{ marginBottom: '20px' }}>
                         {auctions.length > 0 ? (

@@ -30,6 +30,7 @@ const BossKillSchema = new mongoose.Schema({
         ref: 'User',
         required: true,
     },
+    itemHolder: { type: String }, // 新增字段：物品持有人
 }, {
     strictPopulate: false, // 臨時禁用嚴格填充檢查
 });

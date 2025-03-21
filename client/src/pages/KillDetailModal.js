@@ -3,6 +3,7 @@ import { Modal, Descriptions, Divider, Image, Spin, Tag, Typography, Button, Sel
 import { UserOutlined, ClockCircleOutlined, TeamOutlined, GiftOutlined, CheckCircleOutlined, EditOutlined, SaveOutlined, CloseOutlined } from '@ant-design/icons';
 import moment from 'moment';
 import axios from 'axios';
+import logger from '../utils/logger'; // 引入前端日誌工具
 
 const { Text } = Typography;
 const BASE_URL = 'http://localhost:5000';
@@ -10,16 +11,14 @@ const BASE_URL = 'http://localhost:5000';
 const KillDetailModal = ({ visible, onCancel, killData, onUpdate, token, initialEditing = false }) => {
     const [isEditing, setIsEditing] = useState(initialEditing);
     const [form] = Form.useForm();
-    const [availableUsers, setAvailableUsers] = useState([]); // 可用參與者列表
+    const [availableUsers, setAvailableUsers] = useState([]);
 
-    // 監聽 visible 和 initialEditing 變化，動態更新 isEditing
     useEffect(() => {
         if (visible) {
             setIsEditing(initialEditing);
         }
     }, [visible, initialEditing]);
 
-    // 獲取可用參與者列表
     useEffect(() => {
         const fetchUsers = async () => {
             try {
@@ -35,12 +34,12 @@ const KillDetailModal = ({ visible, onCancel, killData, onUpdate, token, initial
         if (visible && isEditing) fetchUsers();
     }, [visible, isEditing, token]);
 
-    // 初始化表單數據
     useEffect(() => {
         if (visible && killData) {
             form.setFieldsValue({
                 status: killData.status,
                 attendees: killData.attendees || [],
+                itemHolder: killData.itemHolder || '', // 初始化 itemHolder
             });
         }
     }, [visible, killData, form]);
@@ -98,7 +97,7 @@ const KillDetailModal = ({ visible, onCancel, killData, onUpdate, token, initial
             );
             message.success(res.data.msg || '更新成功！');
             setIsEditing(false);
-            onUpdate(); // 通知父組件刷新數據
+            onUpdate();
         } catch (err) {
             console.error('Update kill detail error:', err);
             message.error(`更新失敗: ${err.response?.data?.msg || err.message}`);
@@ -108,7 +107,7 @@ const KillDetailModal = ({ visible, onCancel, killData, onUpdate, token, initial
     return (
         <Modal
             title="擊殺記錄詳情"
-            visible={visible}
+            open={visible}
             onCancel={onCancel}
             footer={
                 isEditing ? [
@@ -129,7 +128,7 @@ const KillDetailModal = ({ visible, onCancel, killData, onUpdate, token, initial
                     </Button>,
                 ]
             }
-            width={800}
+            width={900}
         >
             <Spin spinning={false}>
                 {killData ? (
@@ -140,7 +139,7 @@ const KillDetailModal = ({ visible, onCancel, killData, onUpdate, token, initial
                                 size="middle"
                                 bordered
                                 style={{ marginBottom: '24px' }}
-                                labelStyle={{ width: '120px', fontWeight: 'bold' }}
+                                labelStyle={{ width: '160px', fontWeight: 'bold' }}
                                 contentStyle={{ fontSize: '14px' }}
                             >
                                 <Descriptions.Item label={<><UserOutlined /> 首領名稱</>}>
@@ -167,7 +166,7 @@ const KillDetailModal = ({ visible, onCancel, killData, onUpdate, token, initial
                                         {killData.dropped_items.length > 0 ? (
                                             killData.dropped_items.map((item, index) => (
                                                 <Text key={index} style={{ display: 'block', fontSize: '14px', marginBottom: '4px' }}>
-                                                     {item.name} ({item.type})
+                                                    {item.name} ({item.type})
                                                 </Text>
                                             ))
                                         ) : (
@@ -196,6 +195,22 @@ const KillDetailModal = ({ visible, onCancel, killData, onUpdate, token, initial
                                     <Text style={{ fontSize: '14px' }}>
                                         {killData.final_recipient || '未分配'}
                                     </Text>
+                                </Descriptions.Item>
+                                <Descriptions.Item label={<><UserOutlined /> 物品持有人</>}>
+                                    {isEditing ? (
+                                        <Form.Item name="itemHolder" noStyle>
+                                            <Select
+                                                style={{ width: '100%' }}
+                                                placeholder="選擇物品持有人"
+                                                allowClear
+                                                options={availableUsers.map(user => ({ label: user, value: user }))}
+                                            />
+                                        </Form.Item>
+                                    ) : (
+                                        <Text style={{ fontSize: '14px' }}>
+                                            {killData.itemHolder || '未分配'}
+                                        </Text>
+                                    )}
                                 </Descriptions.Item>
                             </Descriptions>
                         </Form>
@@ -237,17 +252,17 @@ const KillDetailModal = ({ visible, onCancel, killData, onUpdate, token, initial
                     <div>無數據</div>
                 )}
                 <style jsx global>{`
-                .ant-image .ant-image-mask {
-                    position: static !important; /* 覆蓋 Ant Design 的 position: relative */
-                }
-                .ant-descriptions-item-label {
-                    background-color: #f5f5f5;
-                    padding: 8px 16px;
-                }
-                .ant-descriptions-item-content {
-                    padding: 8px 16px;
-                }
-            `}</style>
+                    .ant-image .ant-image-mask {
+                        position: static !important;
+                    }
+                    .ant-descriptions-item-label {
+                        background-color: #f5f5f5;
+                        padding: 8px 16px;
+                    }
+                    .ant-descriptions-item-content {
+                        padding: 8px 16px;
+                    }
+                `}</style>
             </Spin>
         </Modal>
     );

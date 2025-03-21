@@ -24,14 +24,13 @@ import React, { useState } from 'react';
 import { NotificationProvider } from './components/NotificationContext';
 import { Layout, Spin } from 'antd';
 import ChangePassword from './components/ChangePassword';
+import LogViewer from './pages/LogViewer';
+
 
 const { Content } = Layout;
 
 function App() {
-    const [profileVisible, setProfileVisible] = useState(false);
-
-    // 調試信息
-    console.log('App rendered, checking routes');
+    const [profileVisible, setProfileVisible] = useState(false);   
 
     return (
         <NotificationProvider>
@@ -82,6 +81,14 @@ function App() {
                                         element={
                                             <RoleRoute allowedRoles={['admin']}>
                                                 <Stats />
+                                            </RoleRoute>
+                                        }
+                                    />
+                                    <Route
+                                        path="/logs"
+                                        element={
+                                            <RoleRoute allowedRoles={['admin']}>
+                                                <LogViewer />
                                             </RoleRoute>
                                         }
                                     />

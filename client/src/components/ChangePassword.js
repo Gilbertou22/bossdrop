@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Form, Input, Button, message } from 'antd';
 import axios from 'axios';
+import logger from '../utils/logger'; // 引入前端日誌工具
 import { useNavigate } from 'react-router-dom';
 
 const BASE_URL = 'http://localhost:5000';

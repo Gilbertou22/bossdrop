@@ -4,6 +4,7 @@ import { BellOutlined } from '@ant-design/icons';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import moment from 'moment';
+import logger from '../utils/logger'; // 引入前端日誌工具
 
 const BASE_URL = 'http://localhost:5000';
 

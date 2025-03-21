@@ -3,6 +3,7 @@ import { Form, Input, InputNumber, Upload, Button, message, Modal } from 'antd';
 import { UploadOutlined } from '@ant-design/icons';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
+import logger from '../utils/logger'; // 引入前端日誌工具
 
 const Register = () => {
     const [fileList, setFileList] = useState([]);

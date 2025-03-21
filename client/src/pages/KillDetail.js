@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 import axios from 'axios';
 import { Card, Spin, message, Image } from 'antd';
 import moment from 'moment';
+import logger from '../utils/logger'; // 引入前端日誌工具
 
 const BASE_URL = 'http://localhost:5000';
 

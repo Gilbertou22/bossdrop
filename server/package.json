@@ -23,6 +23,8 @@
     "mongoose": "^8.11.0",
     "multer": "^1.4.5-lts.1",
     "node-cron": "^3.0.3",
-    "tzdata": "^1.0.43"
+    "tzdata": "^1.0.43",
+    "winston": "^3.17.0",
+    "winston-mongodb": "^6.0.0"
   }
 }

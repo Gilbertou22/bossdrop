@@ -11,7 +11,7 @@ router.post('/register', async (req, res) => {
 
     try {
         // 檢查必填字段
-        if (!world_name || !character_name || !password ) {
+        if (!world_name || !character_name || !password) {
             return res.status(400).json({
                 code: 400,
                 msg: '缺少必填字段',
@@ -110,8 +110,6 @@ router.post('/login', async (req, res) => {
             });
         }
 
-        console.log('user:', user, password);
-
         // 驗證密碼
         const isMatch = await bcrypt.compare(password, user.password);
         if (!isMatch) {
@@ -138,7 +136,7 @@ router.post('/login', async (req, res) => {
             },
         });
     } catch (err) {
-        console.error('Login error:', err);
+        logger.error('Login error:', err);
         res.status(500).json({
             code: 500,
             msg: '登入失敗，請稍後再試',

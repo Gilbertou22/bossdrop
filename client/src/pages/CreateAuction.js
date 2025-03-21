@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import moment from 'moment';
 import axios from 'axios';
 import ErrorBoundary from '../components/ErrorBoundary';
+import logger from '../utils/logger'; // 引入前端日誌工具
 
 const { Option } = Select;
 
@@ -99,7 +100,7 @@ const CreateAuction = () => {
             let endTime = values.endTime;
             console.log('EndTime input from form:', endTime, 'Type:', typeof endTime);
 
-            
+
             const now = moment.utc();
             console.log('EndTime after format:', endTime, 'Now (UTC):', now.format());
             if (endTime.isBefore(now.add(1, 'hour'))) {
@@ -280,7 +281,7 @@ const CreateAuction = () => {
                                                     }
                                                     const now = moment();
                                                     const selectedTime = value;
-                                                    console.log('Validation - Now:', now.format(), 'Selected:',selectedTime, value);
+                                                    console.log('Validation - Now:', now.format(), 'Selected:', selectedTime, value);
                                                     if (selectedTime.isBefore(now.add(1, 'hour'))) {
                                                         return Promise.reject(new Error('截止時間必須至少在 1 小時後！'));
                                                     }
@@ -298,7 +299,7 @@ const CreateAuction = () => {
                                                 setDate(date);
                                                 form.setFieldsValue({ endTime: date });
                                             }}
-                                
+
                                             style={{ width: '100%' }}
                                             getPopupContainer={trigger => trigger.parentElement}
                                         />

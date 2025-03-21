@@ -5,6 +5,7 @@ import axios from 'axios';
 import moment from 'moment';
 import { useNavigate } from 'react-router-dom';
 import { useNotification } from '../components/NotificationContext';
+import logger from '../utils/logger'; // 引入前端日誌工具
 
 const { Option } = Select;
 

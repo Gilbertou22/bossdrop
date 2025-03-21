@@ -4,6 +4,7 @@ import MarkdownEditor from 'react-markdown-editor-lite';
 import MarkdownIt from 'markdown-it';
 import axios from 'axios';
 import 'react-markdown-editor-lite/lib/index.css';
+import logger from '../utils/logger'; // 引入前端日誌工具
 
 const BASE_URL = 'http://localhost:5000';
 

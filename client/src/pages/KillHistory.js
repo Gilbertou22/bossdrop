@@ -1,18 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { Row, Col, Button, DatePicker, Input, message, Image, Card, Spin, Alert, Tag, Tooltip, Popconfirm, Dropdown, Menu, Select } from 'antd';
-import { SearchOutlined, EditOutlined, PlusOutlined, CheckOutlined, MoreOutlined, InfoCircleOutlined, DeleteOutlined } from '@ant-design/icons';
+import { SearchOutlined, EditOutlined, PlusOutlined, CheckOutlined, MoreOutlined, InfoCircleOutlined, DeleteOutlined, UserOutlined } from '@ant-design/icons'; // 添加 UserOutlined
 import axios from 'axios';
 import moment from 'moment';
 import KillDetailModal from './KillDetailModal';
 import AddAttendeeModal from './AddAttendeeModal';
 import statusTag from '../utils/statusTag';
+import logger from '../utils/logger'; // 引入前端日誌工具
 
 const { RangePicker } = DatePicker;
 const { Option } = Select;
 
 const BASE_URL = 'http://localhost:5000';
 
-// 定義顏色映射，與 ManageItems.js 保持一致
 const colorMapping = {
     '白色': '#f0f0f0',
     '綠色': '#00cc00',
@@ -39,7 +39,7 @@ const KillHistory = () => {
     const [isEditing, setIsEditing] = useState(false);
     const [addVisible, setAddVisible] = useState(false);
     const [addKillId, setAddKillId] = useState(null);
-    const [applyDeadlineHours, setApplyDeadlineHours] = useState(48); // 預設 48 小時
+    const [applyDeadlineHours, setApplyDeadlineHours] = useState(48);
 
     useEffect(() => {
         if (!token) {
@@ -567,9 +567,9 @@ const KillHistory = () => {
                             </Popconfirm>
                         ),
                         record.status === 'pending' && (
-                        <Dropdown overlay={moreMenu} trigger={['click']}>
-                            <Button type="link" icon={<MoreOutlined />} style={{ padding: '0 8px' }} />
-                        </Dropdown>)
+                            <Dropdown overlay={moreMenu} trigger={['click']}>
+                                <Button type="link" icon={<MoreOutlined />} style={{ padding: '0 8px' }} />
+                            </Dropdown>)
                     ]}
                 >
                     <Card.Meta
@@ -584,6 +584,10 @@ const KillHistory = () => {
                             <>
                                 <p>狀態: {statusTag(record.status)}</p>
                                 <p>掉落物品: {record.dropped_items.map(item => item.name).join(', ') || '無'}</p>
+                                <p style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <UserOutlined style={{ color: '#000', fontSize: '16px' }} />
+                                    物品持有人: {record.itemHolder || '未分配'}
+                                </p>
                             </>
                         }
                     />

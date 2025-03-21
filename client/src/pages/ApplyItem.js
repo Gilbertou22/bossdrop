@@ -3,6 +3,7 @@ import { Form, Input, Button, Select, message, Modal } from 'antd';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import moment from 'moment';
+import logger from '../utils/logger'; // 引入前端日誌工具
 
 const { Option } = Select;
 

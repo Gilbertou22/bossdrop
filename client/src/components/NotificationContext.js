@@ -1,4 +1,5 @@
 import React, { createContext, useState, useContext } from 'react';
+import logger from '../utils/logger'; // 引入前端日誌工具
 
 const NotificationContext = createContext();
 

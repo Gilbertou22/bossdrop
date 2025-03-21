@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Navigate } from 'react-router-dom';
 import axios from 'axios';
+import logger from '../utils/logger'; // 引入前端日誌工具
 
 const RoleRoute = ({ children, allowedRoles }) => {
     const token = localStorage.getItem('token');

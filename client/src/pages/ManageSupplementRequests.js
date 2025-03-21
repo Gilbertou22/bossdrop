@@ -4,6 +4,7 @@ import { CheckOutlined, CloseOutlined } from '@ant-design/icons';
 import axios from 'axios';
 import moment from 'moment';
 import statusTag from '../utils/statusTag';
+import logger from '../utils/logger'; // 引入前端日誌工具
 
 const { Option } = Select;
 
@@ -160,7 +161,7 @@ const ManageSupplementRequests = () => {
                         </>
                     );
                 }
-                return ;
+                return;
             },
         },
     ];

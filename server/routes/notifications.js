@@ -1,20 +1,47 @@
+// routes/notifications.js
 const express = require('express');
 const router = express.Router();
 const Notification = require('../models/Notification');
 const User = require('../models/User');
 const { auth } = require('../middleware/auth');
 const mongoose = require('mongoose');
+const logger = require('../logger'); // 引入 logger
 
 // 獲取用戶的通知
 router.get('/', auth, async (req, res) => {
     try {
-        const notifications = await Notification.find({ userId: req.user.id })
+        // 確認 req.user 是否存在
+        if (!req.user || !req.user.id) {
+            logger.error('User not authenticated', { user: req.user });
+            return res.status(401).json({
+                code: 401,
+                msg: '未授權',
+                detail: '用戶未通過身份驗證',
+            });
+        }
+
+        const userId = req.user.id;
+        logger.info('Fetching notifications for user', { userId });
+
+        // 確認 Notification 模型是否可用
+        if (!Notification || typeof Notification.find !== 'function') {
+            logger.error('Notification model is not properly defined');
+            throw new Error('Notification model is not properly defined');
+        }
+
+        // 獲取用戶的所有通知
+        const notifications = await Notification.find({ userId })
             .sort({ createdAt: -1 })
             .lean();
-        const unreadCount = await Notification.countDocuments({ userId: req.user.id, read: false });
+
+        // 計算未讀通知數量
+        const unreadCount = await Notification.countDocuments({ userId, read: false });
+
+        logger.info('Fetched notifications', { userId, count: notifications.length, unreadCount });
+
         res.json({ notifications, unreadCount });
     } catch (err) {
-        console.error('Error fetching notifications:', err);
+        logger.error('Error fetching notifications', { userId: req.user?.id, error: err.message, stack: err.stack });
         res.status(500).json({
             code: 500,
             msg: '獲取通知失敗',
@@ -29,6 +56,7 @@ router.put('/:id/read', auth, async (req, res) => {
     const { id } = req.params;
     try {
         if (!mongoose.Types.ObjectId.isValid(id)) {
+            logger.warn('Invalid notification ID', { id });
             return res.status(400).json({
                 code: 400,
                 msg: '無效的通知 ID',
@@ -42,6 +70,7 @@ router.put('/:id/read', auth, async (req, res) => {
             { new: true, lean: true }
         );
         if (!notification) {
+            logger.warn('Notification not found', { id, userId: req.user.id });
             return res.status(404).json({
                 code: 404,
                 msg: '通知不存在',
@@ -49,9 +78,10 @@ router.put('/:id/read', auth, async (req, res) => {
             });
         }
 
+        logger.info('Marked notification as read', { id, userId: req.user.id });
         res.json({ code: 200, msg: '標記為已讀成功', notification });
     } catch (err) {
-        console.error('Error marking notification as read:', err);
+        logger.error('Error marking notification as read', { id, userId: req.user?.id, error: err.message, stack: err.stack });
         res.status(500).json({
             code: 500,
             msg: '標記為已讀失敗',
@@ -65,6 +95,7 @@ router.put('/:id/read', auth, async (req, res) => {
 router.post('/broadcast', auth, async (req, res) => {
     try {
         if (req.user.role !== 'admin' && req.user.role !== 'moderator') {
+            logger.warn('Unauthorized broadcast attempt', { userId: req.user.id, role: req.user.role });
             return res.status(403).json({
                 code: 403,
                 msg: '無權操作',
@@ -74,6 +105,7 @@ router.post('/broadcast', auth, async (req, res) => {
 
         const { message, auctionId } = req.body;
         if (!message || typeof message !== 'string') {
+            logger.warn('Invalid broadcast message', { message });
             return res.status(400).json({
                 code: 400,
                 msg: '無效的請求',
@@ -83,6 +115,7 @@ router.post('/broadcast', auth, async (req, res) => {
 
         const auctionIdValidation = auctionId ? mongoose.Types.ObjectId.isValid(auctionId) : true;
         if (auctionId && !auctionIdValidation) {
+            logger.warn('Invalid auction ID in broadcast', { auctionId });
             return res.status(400).json({
                 code: 400,
                 msg: '無效的拍賣 ID',
@@ -92,6 +125,7 @@ router.post('/broadcast', auth, async (req, res) => {
 
         const users = await User.find({}, '_id');
         if (!users || users.length === 0) {
+            logger.warn('No users found for broadcast');
             return res.status(404).json({
                 code: 404,
                 msg: '無可用用戶',
@@ -112,13 +146,14 @@ router.post('/broadcast', auth, async (req, res) => {
 
         await Notification.insertMany(notifications);
 
+        logger.info('Broadcast notification sent', { userId: req.user.id, userCount: users.length });
         res.status(201).json({
             code: 201,
             msg: '廣播通知發送成功',
             detail: `已向 ${users.length} 個用戶發送通知。`,
         });
     } catch (err) {
-        console.error('Error broadcasting notification:', err);
+        logger.error('Error broadcasting notification', { userId: req.user?.id, error: err.message, stack: err.stack });
         res.status(500).json({
             code: 500,
             msg: '發送廣播通知失敗',
@@ -133,6 +168,7 @@ router.post('/', auth, async (req, res) => {
     try {
         const { userId, message, type } = req.body;
         if (!userId || !message) {
+            logger.warn('Missing required fields for single notification', { userId, message });
             return res.status(400).json({
                 code: 400,
                 msg: '缺少必填字段',
@@ -142,6 +178,7 @@ router.post('/', auth, async (req, res) => {
         }
 
         if (!mongoose.Types.ObjectId.isValid(userId)) {
+            logger.warn('Invalid user ID for single notification', { userId });
             return res.status(400).json({
                 code: 400,
                 msg: '無效的用戶 ID',
@@ -151,6 +188,7 @@ router.post('/', auth, async (req, res) => {
 
         const user = await User.findById(userId);
         if (!user) {
+            logger.warn('User not found for single notification', { userId });
             return res.status(404).json({
                 code: 404,
                 msg: '用戶不存在',
@@ -165,13 +203,14 @@ router.post('/', auth, async (req, res) => {
         });
         await notification.save();
 
+        logger.info('Single notification sent', { userId, message, type: type || 'system' });
         res.status(201).json({
             code: 201,
             msg: '通知發送成功',
             notification,
         });
     } catch (err) {
-        console.error('Error sending notification:', err);
+        logger.error('Error sending single notification', { userId: req.body?.userId, error: err.message, stack: err.stack });
         res.status(500).json({
             code: 500,
             msg: '發送通知失敗',

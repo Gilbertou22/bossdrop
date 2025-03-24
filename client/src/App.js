@@ -25,6 +25,7 @@ import { NotificationProvider } from './components/NotificationContext';
 import { Layout, Spin } from 'antd';
 import ChangePassword from './components/ChangePassword';
 import LogViewer from './pages/LogViewer';
+import Wallet from './pages/Wallet';
 
 
 const { Content } = Layout;
@@ -105,6 +106,14 @@ function App() {
                                         element={
                                             <RoleRoute allowedRoles={['moderator', 'admin']}>
                                                 <BossKillForm />
+                                            </RoleRoute>
+                                        }
+                                    />
+                                    <Route
+                                        path="/wallet"
+                                        element={
+                                            <RoleRoute allowedRoles={['user', 'moderator', 'admin']}>
+                                                <Wallet />
                                             </RoleRoute>
                                         }
                                     />

@@ -41,13 +41,11 @@ const Home = () => {
     const fetchData = async () => {
         setLoading(true);
         try {
-
             const userRes = await axios.get(`${BASE_URL}/api/users/profile`, {
                 headers: { 'x-auth-token': token },
             });
             const fetchedUser = userRes.data;
             setUser(fetchedUser);
-
 
             const auctionsRes = await axios.get(`${BASE_URL}/api/auctions?status=active`, {
                 headers: { 'x-auth-token': token },
@@ -55,7 +53,15 @@ const Home = () => {
             const enrichedAuctions = await Promise.all(auctionsRes.data.slice(0, 3).map(async (auction) => {
                 let imageUrl = 'https://via.placeholder.com/50';
                 if (auction.itemId) {
-                    const bossKillRes = await axios.get(`${BASE_URL}/api/boss-kills/${auction.itemId}`, {
+                    // 修復：確保 auction.itemId 是一個字符串
+                    const itemId = typeof auction.itemId === 'object' && auction.itemId._id
+                        ? auction.itemId._id
+                        : auction.itemId;
+                    if (typeof itemId !== 'string') {
+                        logger.warn('Invalid itemId in auction', { auctionId: auction._id, itemId });
+                        return { ...auction, imageUrl };
+                    }
+                    const bossKillRes = await axios.get(`${BASE_URL}/api/boss-kills/${itemId}`, {
                         headers: { 'x-auth-token': token },
                     });
                     const bossKill = bossKillRes.data;
@@ -80,7 +86,6 @@ const Home = () => {
             setBossKills(enrichedBossKills);
 
             if (token && fetchedUser && fetchedUser.role === 'admin') {
-
                 const requests = [
                     axios.get(`${BASE_URL}/api/users/stats`, { headers: { 'x-auth-token': token } }).catch(err => ({ error: err })),
                     axios.get(`${BASE_URL}/api/auctions/pending-count`, { headers: { 'x-auth-token': token } }).catch(err => ({ error: err })),
@@ -96,18 +101,18 @@ const Home = () => {
                     adminStatsData.totalUsers = statsRes.data.totalUsers;
                     adminStatsData.activeUsers = statsRes.data.activeUsers;
                 } else {
-
+                    logger.error('Error fetching user stats:', statsRes.error);
                 }
                 if (!applicationsRes.error) {
                     adminStatsData.pendingApplications = applicationsRes.data.count;
                 } else {
-
+                    logger.error('Error fetching pending applications:', applicationsRes.error);
                 }
                 if (!monitorRes.error) {
                     adminStatsData.soonEndingCount = monitorRes.data.soonEndingCount;
                     adminStatsData.alertAuctions = monitorRes.data.alertAuctions;
                 } else {
-
+                    logger.error('Error fetching auction monitor:', monitorRes.error);
                 }
 
                 setAdminStats(adminStatsData);
@@ -115,8 +120,6 @@ const Home = () => {
                 setAuctionTrend(auctionTrendRes.error ? [] : auctionTrendRes.data);
                 setApplicationTrend(applicationTrendRes.error ? [] : applicationTrendRes.data);
                 console.log('Admin stats set:', adminStatsData);
-            } else {
-
             }
         } catch (err) {
             console.error('Fetch data error:', err.response?.data || err.message);
@@ -412,7 +415,6 @@ const Home = () => {
                                     </Button>
                                 </div>
                             </Card>
-
                         </>
                     )}
                 </>

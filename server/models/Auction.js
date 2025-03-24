@@ -2,9 +2,9 @@ const mongoose = require('mongoose');
 
 const AuctionSchema = new mongoose.Schema({
     itemId: {
-        type: mongoose.Schema.Types.ObjectId, // 應為 ObjectId 類型
+        type: mongoose.Schema.Types.ObjectId,
         required: true,
-        ref: 'BossKill', // 可選：參考 BossKill 模型
+        ref: 'BossKill',
     },
     startingPrice: {
         type: Number,
@@ -16,7 +16,7 @@ const AuctionSchema = new mongoose.Schema({
     },
     buyoutPrice: {
         type: Number,
-        default: null, // 可選字段，默認為 null 表示無直接得標價
+        default: null,
     },
     endTime: {
         type: Date,
@@ -30,16 +30,20 @@ const AuctionSchema = new mongoose.Schema({
     highestBidder: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User',
-        default: null, // 初始為 null
+        default: null,
+    },
+    itemHolder: {
+        type: String,
+        required: true, // 確保物品持有人字段必須存在
+    },
+    status: {
+        type: String,
+        enum: ['active', 'pending', 'completed', 'cancelled', 'settled'],
+        default: 'active',
     },
     createdAt: {
         type: Date,
         default: Date.now,
-    },
-    status: {
-        type: String,
-        enum: ['active', 'pending', 'completed', 'cancelled'], // 限制狀態值
-        default: 'active', // 默認為 active
     },
 });
 

@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import moment from 'moment';
 import formatNumber from '../utils/formatNumber';
-import logger from '../utils/logger'; // 引入前端日誌工具
+import logger from '../utils/logger';
 
 const { Option } = Select;
 
@@ -50,8 +50,9 @@ const Auction = () => {
             setUserDiamonds(res.data.diamonds || 0);
             setUserRole(res.data.role || 'user');
             setUserId(res.data.id);
+            logger.info('Fetched user info in Auction', { userId: res.data.id, role: res.data.role });
         } catch (err) {
-            console.error('Fetch user info error:', err);
+            logger.error('Fetch user info error in Auction', { error: err.message, stack: err.stack });
             message.error('無法獲取用戶信息，請重新登錄');
             navigate('/login');
         }
@@ -64,22 +65,20 @@ const Auction = () => {
             const res = await axios.get(`${BASE_URL}/api/auctions?status=${status}`, {
                 headers: { 'x-auth-token': token },
             });
-            console.log('Fetched auctions response with status filter:', { status, data: res.data });
+            logger.info('Fetched auctions with status filter', { status, count: res.data.length });
             if (Array.isArray(res.data)) {
                 const filteredAuctions = res.data.filter(auction => auction.status === status);
-                console.log('Filtered auctions by status:', filteredAuctions);
                 const sortedAuctions = [...filteredAuctions].sort((a, b) => {
                     if (sort === 'currentPrice') return b.currentPrice - a.currentPrice;
                     if (sort === 'endTime') return moment(b.endTime).diff(moment(a.endTime));
                     return moment(b.createdAt).diff(moment(a.createdAt));
                 });
-                console.log('Sorted auctions:', sortedAuctions);
                 setAuctions(sortedAuctions);
             } else {
                 throw new Error('後端返回數據格式錯誤，應為陣列');
             }
         } catch (err) {
-            console.error('Fetch auctions error:', {
+            logger.error('Fetch auctions error', {
                 status: err.response?.status,
                 data: err.response?.data,
                 message: err.message,
@@ -100,23 +99,20 @@ const Auction = () => {
     }, [filterStatus, sortBy, token, navigate]);
 
     const fetchWonAuctions = useCallback(async () => {
-        console.log('Starting fetchWonAuctions...');
         setWonLoading(true);
         setWonError(null);
         try {
-            console.log('Sending request to:', `${BASE_URL}/api/auctions/won`);
-            console.log('Using token:', token);
             const res = await axios.get(`${BASE_URL}/api/auctions/won`, {
                 headers: { 'x-auth-token': token },
             });
-            console.log('Fetched won auctions response:', res.data);
+            logger.info('Fetched won auctions', { count: res.data.length });
             if (Array.isArray(res.data)) {
                 setWonAuctions(res.data);
             } else {
                 throw new Error('後端返回數據格式錯誤，應為陣列');
             }
         } catch (err) {
-            console.error('Fetch won auctions error:', {
+            logger.error('Fetch won auctions error', {
                 status: err.response?.status,
                 data: err.response?.data,
                 message: err.message,
@@ -124,7 +120,6 @@ const Auction = () => {
             });
             const status = err.response?.status;
             if (status === 401 || status === 403) {
-                console.log('Authentication failed, redirecting to login...');
                 message.error('認證失敗，請重新登錄');
                 navigate('/login');
             } else if (status === 500) {
@@ -138,9 +133,7 @@ const Auction = () => {
     }, [token, navigate]);
 
     useEffect(() => {
-        console.log('useEffect triggered with token:', token);
         if (!token) {
-            console.log('No token found, redirecting to login...');
             message.error('請先登錄！');
             navigate('/login');
             return;
@@ -148,7 +141,15 @@ const Auction = () => {
         fetchUserInfo();
         fetchAuctions();
         fetchWonAuctions();
-    }, [fetchAuctions, fetchWonAuctions, navigate, token]);
+
+        // 定時刷新數據
+        const interval = setInterval(() => {
+            fetchAuctions(filterStatus, sortBy);
+            fetchWonAuctions();
+        }, 60000); // 每分鐘刷新一次
+
+        return () => clearInterval(interval);
+    }, [fetchAuctions, fetchWonAuctions, navigate, token, filterStatus, sortBy]);
 
     const handleStatusChange = (value) => {
         setFilterStatus(value);
@@ -159,7 +160,6 @@ const Auction = () => {
     };
 
     const handleRefresh = () => {
-        console.log('handleRefresh triggered');
         fetchAuctions(filterStatus, sortBy);
         fetchWonAuctions();
     };
@@ -173,8 +173,8 @@ const Auction = () => {
             fetchAuctions();
             fetchWonAuctions();
         } catch (err) {
-            console.error('Settle auction error:', err.response?.data || err);
-            message.error(`結算失敗: ${err.response?.data?.msg || err.message}`);
+            logger.error('Settle auction error', { auctionId, userId, error: err.response?.data || err.message, stack: err.stack });
+            message.error(`核實失敗: ${err.response?.data?.msg || err.message}`);
         }
     };
 
@@ -270,7 +270,7 @@ const Auction = () => {
                     ) : (
                         <Alert
                             message="無數據"
-                            description="您目前沒有得標的拍賣。"
+                            description="您目前沒有得標或持有的拍賣。"
                             type="info"
                             showIcon
                             style={{ marginBottom: '20px' }}
@@ -294,11 +294,7 @@ const Auction = () => {
                         <span style={{ fontSize: '16px', color: '#1890ff' }}>{formatNumber(userDiamonds)} 💎</span>
                     </div>
                     <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                        <Button type="primary" onClick={(e) => {
-                            e.stopPropagation();
-                            console.log('Refresh button clicked');
-                            handleRefresh();
-                        }}>
+                        <Button type="primary" onClick={handleRefresh}>
                             手動刷新
                         </Button>
                     </div>

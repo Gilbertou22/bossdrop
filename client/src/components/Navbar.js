@@ -14,6 +14,7 @@ import {
     CheckCircleOutlined,
     UserOutlined,
     BellOutlined,
+    SketchOutlined,
     AuditOutlined,
     CloudUploadOutlined,
     MenuOutlined,
@@ -115,7 +116,15 @@ const Navbar = () => {
                     });
                     const auction = auctionRes.data;
                     if (auction && auction.itemId) {
-                        const bossKillRes = await axios.get(`http://localhost:5000/api/boss-kills/${auction.itemId}`, {
+                        // 修復：確保 auction.itemId 是一個字符串
+                        const itemId = typeof auction.itemId === 'object' && auction.itemId._id
+                            ? auction.itemId._id
+                            : auction.itemId;
+                        if (typeof itemId !== 'string') {
+                            logger.warn('Invalid itemId in auction', { auctionId: notification.auctionId, itemId });
+                            return { ...notification, imageUrl };
+                        }
+                        const bossKillRes = await axios.get(`http://localhost:5000/api/boss-kills/${itemId}`, {
                             headers: { 'x-auth-token': token },
                         });
                         const bossKill = bossKillRes.data;
@@ -173,6 +182,7 @@ const Navbar = () => {
     const getItemsByRole = (role) => {
         const baseItems = [
             { key: '/', label: '首頁', icon: <HomeOutlined /> },
+            { key: '/wallet', label: '個人錢包', icon: <SketchOutlined /> },
             { key: '/apply-item', label: '申請物品', icon: <FileDoneOutlined /> },
             {
                 key: '/auction',

@@ -171,7 +171,7 @@ const Notifications = () => {
                                             style={{ width: '100%' }}
                                             onClick={() => {
                                                 if (!notification.read) markAsRead(notification._id);
-                                                if (notification.auctionId) navigate(`/auction/${notification.auctionId}`);
+                                                //if (notification.auctionId) navigate(`/auction/${notification.auctionId}`);
                                             }}
                                         >
                                             <Card.Meta

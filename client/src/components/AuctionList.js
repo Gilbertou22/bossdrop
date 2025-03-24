@@ -1,10 +1,25 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Button, Modal, Input, Tag, Image, Tooltip, Popconfirm, message, Table } from 'antd';
-import { InfoCircleOutlined, SketchOutlined, RiseOutlined, ShoppingCartOutlined, DiscordOutlined, TrophyOutlined, GiftOutlined, UserAddOutlined } from '@ant-design/icons';
+import { Card, Button, Modal, Input, Tag, Image, Tooltip, Popconfirm, message, Table, Alert } from 'antd';
+import {
+  InfoCircleOutlined,
+  SketchOutlined,
+  RiseOutlined,
+  ShoppingCartOutlined,
+  DiscordOutlined,
+  TrophyOutlined,
+  GiftOutlined,
+  UserAddOutlined,
+  HistoryOutlined,
+  CheckCircleOutlined,
+  DollarOutlined,
+  CloseCircleOutlined,
+  SyncOutlined,
+  DollarCircleOutlined,
+  AuditOutlined // 核實圖示
+} from '@ant-design/icons';
 import axios from 'axios';
 import moment from 'moment';
 import { useNavigate } from 'react-router-dom';
-import { HistoryOutlined } from '@ant-design/icons';
 import formatNumber from '../utils/formatNumber';
 import 'moment/locale/zh-tw';
 import logger from '../utils/logger';
@@ -39,6 +54,7 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
   const [characterName, setCharacterName] = useState(null);
   const [historyModalVisible, setHistoryModalVisible] = useState(false);
   const [selectedAuctionId, setSelectedAuctionId] = useState(null);
+  const [localUserRole, setLocalUserRole] = useState(null); // 本地狀態存儲 userRole
   const navigate = useNavigate();
   const token = localStorage.getItem('token');
 
@@ -53,7 +69,8 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
       });
       setUserDiamonds(res.data.diamonds || 0);
       setCharacterName(res.data.character_name);
-      logger.info('Fetched user info in AuctionList', { userId: res.data.id, character_name: res.data.character_name });
+      setLocalUserRole(res.data.role || 'user'); // 設置本地 userRole
+      logger.info('Fetched user info in AuctionList', { userId: res.data.id, character_name: res.data.character_name, role: res.data.role });
     } catch (err) {
       logger.error('Fetch user info error in AuctionList', { error: err.message, stack: err.stack });
       message.error('無法獲取用戶信息，請重新登錄');
@@ -104,7 +121,7 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
         break;
       case 'pending':
         color = 'orange';
-        text = '待處理（餘額不足）';
+        text = '待處理';
         break;
       case 'completed':
         color = 'blue';
@@ -379,8 +396,25 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
               : '無截止時間';
             const isItemHolder = auction.itemHolder === characterName;
 
+            // 調試日誌
             logger.debug('Auction itemHolder check', { auctionId: auction._id, itemHolder: auction.itemHolder, characterName });
-            logger.debug('Auction status check', { auctionId: auction._id, status: auction.status, isItemHolder, shouldShowButton: isItemHolder && auction.status === 'completed' });
+            logger.debug('Auction status check', { auctionId: auction._id, status: auction.status, isItemHolder, shouldShowCompleteButton: isItemHolder && auction.status === 'completed', userRole: localUserRole });
+            logger.debug('Settle button check', { auctionId: auction._id, status: auction.status, userRole: localUserRole, shouldShowSettleButton: localUserRole === 'admin' && auction.status === 'pending' });
+
+            // 如果按鈕未顯示，添加警告日誌
+            if (isWonTab && !isItemHolder) {
+              logger.warn('Complete transaction button not shown: user is not item holder', { auctionId: auction._id, itemHolder: auction.itemHolder, characterName });
+            }
+            if (isWonTab && auction.status !== 'completed') {
+              logger.warn('Complete transaction button not shown: auction status is not completed', { auctionId: auction._id, status: auction.status });
+            }
+            if (isWonTab && localUserRole === 'admin' && auction.status !== 'pending') {
+              logger.warn('Settle button not shown: auction status is not pending', { auctionId: auction._id, status: auction.status });
+            }
+
+            // 核實按鈕是否應該顯示
+            const shouldShowSettleButton = localUserRole === 'admin' && auction.status === 'pending';
+            logger.debug('Rendering settle button', { auctionId: auction._id, shouldShowSettleButton });
 
             return (
               <Card
@@ -451,83 +485,128 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
                   </div>
                 }
                 actions={
-                  isWonTab
-                    ? [
-                      isItemHolder && auction.status === 'completed' && (
-                        <Popconfirm
-                          title="確認交易已完成？"
-                          onConfirm={() => handleCompleteTransaction(auction._id)}
-                          okText="是"
-                          cancelText="否"
-                        >
-                          <Button type="primary">交易完成請按我</Button>
-                        </Popconfirm>
-                      ),
-                    ].filter(Boolean)
-                    : [
+                  isWonTab ? [
+                    localUserRole === 'admin' && auction.status === 'pending' && (
+                      <Popconfirm
+                        key="settle"
+                        title="確認核實此拍賣？"
+                        onConfirm={() => {
+                          logger.info('Settle button clicked', { auctionId: auction._id, userId });
+                          handleSettleAuction(auction._id);
+                        }}
+                        okText="是"
+                        cancelText="否"
+                      >
+                        <Tooltip title="核實交易">
+                          <Button
+                            type="default"
+                            shape="circle"
+                            icon={<AuditOutlined />}
+                            size="small"
+                          // 移除可能的 disabled 屬性，確保按鈕可點擊
+                          />
+                        </Tooltip>
+                      </Popconfirm>
+                    ),
+                    isItemHolder && auction.status === 'completed' && (
+                      <Popconfirm
+                        key="complete"
+                        title="確認交易已完成？"
+                        onConfirm={() => handleCompleteTransaction(auction._id)}
+                        okText="是"
+                        cancelText="否"
+                      >
+                        <Tooltip title="交易完成">
+                          <Button
+                            type="primary"
+                            shape="circle"
+                            icon={<CheckCircleOutlined />}
+                            size="small"
+                          />
+                        </Tooltip>
+                      </Popconfirm>
+                    ),
+                  ].filter(Boolean) : [
+                    <Tooltip key="bid" title="下標">
                       <Button
                         type="primary"
+                        shape="circle"
+                        icon={<DollarCircleOutlined />}
+                        size="small"
                         onClick={() => handleBidClick(auction)}
                         disabled={auction.status !== 'active'}
-                      >
-                        下標
-                      </Button>,
+                      />
+                    </Tooltip>,
+                    <Tooltip key="history" title="詳細">
                       <Button
                         type="default"
+                        shape="circle"
                         icon={<HistoryOutlined />}
+                        size="small"
                         onClick={() => handleHistoryClick(auction._id)}
+                      />
+                    </Tooltip>,
+                    localUserRole === 'admin' && auction.status !== 'completed' && auction.status !== 'cancelled' && (
+                      <Popconfirm
+                        key="settle"
+                        title="確認結算此拍賣？"
+                        onConfirm={() => handleSettleAuction(auction._id)}
+                        okText="是"
+                        cancelText="否"
+                        disabled={auction.status !== 'active' && auction.status !== 'completed'}
                       >
-                        詳細
-                      </Button>,
-                      userRole === 'admin' && auction.status !== 'completed' && auction.status !== 'cancelled' && (
-                        <Popconfirm
-                          title="確認結算此拍賣？"
-                          onConfirm={() => handleSettleAuction(auction._id)}
-                          okText="是"
-                          cancelText="否"
-                          disabled={auction.status !== 'active' && auction.status !== 'completed'}
-                        >
+                        <Tooltip title="結算">
                           <Button
                             type="default"
+                            shape="circle"
+                            icon={<DollarOutlined />}
+                            size="small"
                             disabled={auction.status !== 'active' && auction.status !== 'completed'}
-                          >
-                            結算
-                          </Button>
-                        </Popconfirm>
-                      ),
-                      userRole === 'admin' && auction.status !== 'completed' && auction.status !== 'cancelled' && (
-                        <Popconfirm
-                          title="確認取消此拍賣？"
-                          onConfirm={() => handleCancelAuction(auction._id)}
-                          okText="是"
-                          cancelText="否"
-                          disabled={auction.status !== 'active' && auction.status !== 'pending'}
-                        >
+                          />
+                        </Tooltip>
+                      </Popconfirm>
+                    ),
+                    localUserRole === 'admin' && auction.status !== 'completed' && auction.status !== 'cancelled' && (
+                      <Popconfirm
+                        key="cancel"
+                        title="確認取消此拍賣？"
+                        onConfirm={() => handleCancelAuction(auction._id)}
+                        okText="是"
+                        cancelText="否"
+                        disabled={auction.status !== 'active' && auction.status !== 'pending'}
+                      >
+                        <Tooltip title="取消">
                           <Button
                             type="danger"
+                            shape="circle"
+                            icon={<CloseCircleOutlined />}
+                            size="small"
                             disabled={auction.status !== 'active' && auction.status !== 'pending'}
-                          >
-                            取消
-                          </Button>
-                        </Popconfirm>
-                      ),
-                      userRole === 'admin' && auction.status === 'pending' && (
-                        <Popconfirm
-                          title="確認重新分配此拍賣？"
-                          onConfirm={() => handleReassignAuction(auction._id)}
-                          okText="是"
-                          cancelText="否"
-                          disabled={auction.status !== 'pending'}
-                        >
+                          />
+                        </Tooltip>
+                      </Popconfirm>
+                    ),
+                    localUserRole === 'admin' && auction.status === 'pending' && (
+                      <Popconfirm
+                        key="reassign"
+                        title="確認重新分配此拍賣？"
+                        onConfirm={() => handleReassignAuction(auction._id)}
+                        okText="是"
+                        cancelText="否"
+                        disabled={auction.status !== 'pending'}
+                      >
+                        <Tooltip title="重新分配">
                           <Button
                             type="default"
+                            shape="circle"
+                            icon={<SyncOutlined />}
+                            size="small"
                             disabled={auction.status !== 'pending'}
-                          >
-                            重新分配
-                          </Button>
-                        </Popconfirm>
-                      ),
-                    ].filter(Boolean)
+                          />
+                        </Tooltip>
+                      </Popconfirm>
+                    ),
+                  ]
                 }
               >
                 <Card.Meta
@@ -565,6 +644,16 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
                             <InfoCircleOutlined style={{ color: '#000', fontSize: '16px' }} />
                             {getStatusTag(auction.status)}
                           </div>
+                          {/* 提示信息 */}
+                          {isItemHolder && auction.status === 'pending' && localUserRole !== 'admin' && (
+                            <Alert
+                              message="等待管理員核實"
+                              description="此拍賣正在等待管理員核實交易，核實完成後您可以回報交易完成。"
+                              type="info"
+                              showIcon
+                              style={{ marginTop: '8px' }}
+                            />
+                          )}
                         </>
                       ) : (
                         <>
@@ -633,7 +722,7 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
             警告：您的餘額（{formatNumber(userDiamonds)} 💎）低於下標金額（{formatNumber(bidAmount)} 💎），請確保結算前充值！
           </p>
         )}
-        <p>注意：下標後，💎將在結算時扣除。您的餘額：{formatNumber(userDiamonds)} 💎</p>
+        <p>注意：下標後，💎將在結算時扣除。您的餘額：${formatNumber(userDiamonds)} 💎</p>
       </Modal>
 
       {/* 出價歷史 Modal */}
@@ -652,7 +741,12 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
           columns={bidColumns}
           dataSource={selectedAuctionId ? (bids[selectedAuctionId] || []).sort((a, b) => b.amount - a.amount) : []}
           rowKey="_id"
-          pagination={false}
+          pagination={{
+            pageSize: 10,
+            showSizeChanger: true,
+            pageSizeOptions: ['5', '10', '20'],
+            showTotal: (total) => `共 ${total} 條記錄`,
+          }}
           locale={{ emptyText: '暫無下標記錄' }}
           style={{
             background: '#f5f5f5',
@@ -665,47 +759,62 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
       </Modal>
 
       <style jsx global>{`
-        .highest-bid-row {
-          background-color: #e6f7e5 !important;
-        }
-        .highest-bid-row td {
-          border-bottom: 1px solid #d9d9d9 !important;
-        }
-        .ant-table-expanded-row .ant-table {
-          margin: 0 !important;
-        }
-        .ant-table-expanded-row .ant-table-thead > tr > th {
-          background: #e8e8e8 !important;
-          fontWeight: bold;
-        }
-        .ant-table-expanded-row .ant-table-tbody > tr:hover > td {
-          background: #fafafa !important;
-        }
-        .ant-image {
-          position: static !important;
-        }
-        .ant-image .ant-image-mask {
-          position: static !important;
-        }
-        .ant-card-actions {
-          display: flex;
-          justify-content: center;
-          gap: 8px;
-        }
-        .ant-card-actions > li {
-          margin: 0 !important;
-          width: auto !important;
-          text-align: center;
-        }
-        @media (max-width: 768px) {
-          .ant-card-actions > li {
-            padding: 0 4px !important;
-          }
-          .ant-btn-link {
-            padding: 0 6px !important;
-          }
-        }
-      `}</style>
+                .highest-bid-row {
+                    background-color: #e6f7e5 !important;
+                }
+                .highest-bid-row td {
+                    border-bottom: 1px solid #d9d9d9 !important;
+                }
+                .ant-table-expanded-row .ant-table {
+                    margin: 0 !important;
+                }
+                .ant-table-expanded-row .ant-table-thead > tr > th {
+                    background: #e8e8e8 !important;
+                    fontWeight: bold;
+                }
+                .ant-table-expanded-row .ant-table-tbody > tr:hover > td {
+                    background: #fafafa !important;
+                }
+                .ant-image {
+                    position: static !important;
+                }
+                .ant-image .ant-image-mask {
+                    position: static !important;
+                }
+                .ant-card-actions {
+                    display: flex !important;
+                    justify-content: center !important;
+                    gap: 8px !important;
+                    padding: 8px 0 !important;
+                }
+                .ant-card-actions > li {
+                    margin: 0 !important;
+                    width: auto !important;
+                    text-align: center !important;
+                }
+                .ant-card-actions .ant-btn {
+                    padding: 4px !important;
+                    width: 32px !important;
+                    height: 32px !important;
+                    display: flex !important;
+                    align-items: center !important;
+                    justify-content: center !important;
+                }
+                @media (max-width: 768px) {
+                    .ant-card-actions {
+                        gap: 4px !important;
+                    }
+                    .ant-card-actions .ant-btn {
+                        width: 28px !important;
+                        height: 28px !important;
+                    }
+                }
+                /* 確保核實按鈕可點擊 */
+                .ant-btn-circle {
+                    pointer-events: auto !important;
+                    opacity: 1 !important;
+                }
+            `}</style>
     </div>
   );
 };

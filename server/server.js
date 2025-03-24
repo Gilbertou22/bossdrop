@@ -43,6 +43,9 @@ app.use('/api/attendee-requests', require('./routes/attendeerequests'));
 console.log('AttendeeRequests route loaded');
 app.use('/api/logs', require('./routes/logs'));
 console.log('Logs route loaded');
+app.use('/api/wallet', require('./routes/wallet'));
+console.log('Wallet route loaded');
+
 
 try {
     startAuctionCron();

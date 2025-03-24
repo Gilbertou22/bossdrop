@@ -13,7 +13,7 @@ const BASE_URL = 'http://localhost:5000';
 const statusMap = {
     active: '活躍',
     pending: '待處理',
-    completed: '已結算',
+    completed: '已完成',
     cancelled: '已取消',
     settled: '已結算', // 新增 settled 狀態
     unknown: '未知',

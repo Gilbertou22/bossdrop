@@ -26,6 +26,8 @@ import { Layout, Spin } from 'antd';
 import ChangePassword from './components/ChangePassword';
 import LogViewer from './pages/LogViewer';
 import Wallet from './pages/Wallet';
+import DKPSettings from './pages/DKPSettings';
+import DKPHistory from './pages/DKPHistory';
 
 
 const { Content } = Layout;
@@ -90,6 +92,22 @@ function App() {
                                         element={
                                             <RoleRoute allowedRoles={['admin']}>
                                                 <LogViewer />
+                                            </RoleRoute>
+                                        }
+                                    />
+                                    <Route
+                                        path="/dkp/settings"
+                                        element={
+                                            <RoleRoute allowedRoles={['user', 'moderator', 'admin']}>
+                                                <DKPSettings />
+                                            </RoleRoute>
+                                        }
+                                    />
+                                    <Route
+                                        path="/dkp/history"
+                                        element={
+                                            <RoleRoute allowedRoles={['user', 'moderator', 'admin']}>
+                                                <DKPHistory />
                                             </RoleRoute>
                                         }
                                     />

@@ -32,7 +32,7 @@ const upload = multer({
 });
 
 router.use((req, res, next) => {
-    console.log(`Incoming request: ${req.method} ${req.path} - User:`, req.user);
+    //console.log(`Incoming request: ${req.method} ${req.path} - User:`, req.user);
     next();
 });
 
@@ -132,7 +132,7 @@ router.delete('/api/users/:id', auth, adminOnly, async (req, res) => {
 });
 
 router.put('/:id', auth, adminOnly, upload.single('screenshot'), async (req, res) => {
-    console.log('PUT /api/users/:id request - req.user:', req.user, 'params.id:', req.params.id);
+    //console.log('PUT /api/users/:id request - req.user:', req.user, 'params.id:', req.params.id);
     const { world_name, character_name, discord_id, raid_level, diamonds, status, role, password, guildId, mustChangePassword } = req.body;
     try {
         const user = await User.findById(req.params.id);
@@ -159,7 +159,7 @@ router.put('/:id', auth, adminOnly, upload.single('screenshot'), async (req, res
         }
         user.mustChangePassword = mustChangePassword !== undefined ? mustChangePassword : user.mustChangePassword; // 更新是否需更改密碼
         await user.save();
-        console.log(`User updated successfully: ${user._id}`);
+        //console.log(`User updated successfully: ${user._id}`);
         res.json({ msg: '用戶更新成功', user });
     } catch (err) {
         console.error('Update user error:', err);
@@ -253,7 +253,7 @@ router.post('/create-member', auth, adminOnly, upload.none(), async (req, res) =
     const { character_name, password, guildId, useGuildPassword, world_name } = req.body;
 
     try {
-        console.log('Received create-member request:', req.body); // 調試日誌
+        //console.log('Received create-member request:', req.body); // 調試日誌
 
         if (!character_name || !guildId) {
             return res.status(400).json({

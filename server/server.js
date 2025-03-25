@@ -45,6 +45,8 @@ app.use('/api/logs', require('./routes/logs'));
 console.log('Logs route loaded');
 app.use('/api/wallet', require('./routes/wallet'));
 console.log('Wallet route loaded');
+app.use('/api/dkp', require('./routes/dkp'));
+console.log('DKP route loaded');
 
 
 try {

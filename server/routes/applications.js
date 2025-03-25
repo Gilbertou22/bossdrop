@@ -24,7 +24,7 @@ router.post('/', auth, async (req, res) => {
     const user = req.user;
 
     try {
-        console.log('Received request body:', req.body);
+        //console.log('Received request body:', req.body);
 
         if (!user || !user.character_name) {
             return res.status(401).json({

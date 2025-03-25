@@ -7,7 +7,7 @@ const User = require('../models/User');
 const BossKill = require('../models/BossKill');
 const Item = require('../models/Item');
 const Notification = require('../models/Notification');
-const WalletTransaction = require('../models/WalletTransaction'); // 確認引入路徑正確
+const WalletTransaction = require('../models/WalletTransaction');
 const { auth } = require('../middleware/auth');
 const logger = require('../logger');
 const moment = require('moment');
@@ -336,7 +336,7 @@ router.get('/', auth, async (req, res) => {
                 itemHolder = auction.itemId.itemHolder;
             }
 
-            if (mongoose.Types.ObjectId.isValid(auction.itemId._id)) {
+            if (mongoose.Types.ObjectId.isValid(auction.itemId?._id)) {
                 const bossKill = auction.itemId;
                 if (bossKill && bossKill.dropped_items?.length) {
                     itemName = bossKill.dropped_items[0].name || '未知物品';
@@ -355,6 +355,7 @@ router.get('/', auth, async (req, res) => {
 
             return {
                 ...auction,
+                itemId: auction.itemId?._id ? auction.itemId._id.toString() : auction.itemId, // 確保 itemId 是字符串
                 itemName,
                 imageUrl,
                 level,
@@ -408,7 +409,7 @@ router.get('/:id', auth, async (req, res) => {
             itemHolder = auction.itemId.itemHolder;
         }
 
-        if (mongoose.Types.ObjectId.isValid(auction.itemId._id)) {
+        if (mongoose.Types.ObjectId.isValid(auction.itemId?._id)) {
             const bossKill = auction.itemId;
             if (bossKill && bossKill.dropped_items?.length) {
                 itemName = bossKill.dropped_items[0].name || '未知物品';
@@ -427,6 +428,7 @@ router.get('/:id', auth, async (req, res) => {
 
         const enrichedAuction = {
             ...auction,
+            itemId: auction.itemId?._id ? auction.itemId._id.toString() : auction.itemId, // 確保 itemId 是字符串
             itemName,
             imageUrl,
             level,
@@ -555,6 +557,19 @@ router.post('/:id/bid', auth, async (req, res) => {
                 source: 'auction',
             });
             if (!existingTransaction) {
+                // 扣除中標者鑽石
+                logger.info('Deducting diamonds for buyout bid', { userId, auctionId, amount: finalPrice });
+                const updateResult = await User.findByIdAndUpdate(
+                    userId,
+                    { $inc: { diamonds: -finalPrice } },
+                    { new: true }
+                );
+                if (!updateResult) {
+                    logger.error('Failed to deduct diamonds for buyout bid', { userId, auctionId });
+                    throw new Error('Failed to deduct diamonds for buyout bid');
+                }
+                logger.info('Diamonds deducted successfully for buyout bid', { userId, newDiamonds: updateResult.diamonds });
+
                 const bidderTransaction = new WalletTransaction({
                     userId: userId,
                     amount: -finalPrice,
@@ -564,10 +579,21 @@ router.post('/:id/bid', auth, async (req, res) => {
                     auctionId: auctionId,
                 });
                 await bidderTransaction.save();
+                logger.info('Bidder transaction recorded for buyout', { userId, auctionId });
 
                 // 記錄旅團帳戶的收入
                 const guildAccount = await User.findOne({ character_name: GUILD_ACCOUNT_NAME });
                 if (guildAccount) {
+                    const guildUpdateResult = await User.findByIdAndUpdate(
+                        guildAccount._id,
+                        { $inc: { diamonds: finalPrice } },
+                        { new: true }
+                    );
+                    if (!guildUpdateResult) {
+                        logger.error('Failed to add diamonds to guild account for buyout bid', { guildAccountId: guildAccount._id, auctionId });
+                        throw new Error('Failed to add diamonds to guild account for buyout bid');
+                    }
+                    logger.info('Guild account diamonds updated for buyout bid', { guildAccountId: guildAccount._id, newDiamonds: guildUpdateResult.diamonds });
                     const guildTransaction = new WalletTransaction({
                         userId: guildAccount._id,
                         amount: finalPrice,
@@ -577,6 +603,7 @@ router.post('/:id/bid', auth, async (req, res) => {
                         auctionId: auctionId,
                     });
                     await guildTransaction.save();
+                    logger.info('Guild transaction recorded for buyout', { guildAccountId: guildAccount._id, auctionId });
                 } else {
                     logger.warn('Guild account not found during bid', { guildAccountName: GUILD_ACCOUNT_NAME });
                 }
@@ -657,7 +684,7 @@ router.put('/:id/settle', auth, async (req, res) => {
         if (auction.buyoutPrice && auction.currentPrice > auction.buyoutPrice) {
             finalPrice = auction.buyoutPrice;
         }
-        // 檢查中標者餘額
+        // 檢查中標者餘額（確保結算前餘額足夠）
         const bidder = await User.findById(highestBidder._id);
         if (bidder.diamonds < finalPrice) {
             let itemName = '未知物品';
@@ -684,29 +711,121 @@ router.put('/:id/settle', auth, async (req, res) => {
         }
         // 管理員核實通過，拍賣進入 completed 狀態
         await Auction.findByIdAndUpdate(id, { status: 'completed' });
+        logger.info('Auction status updated to completed', { auctionId: id });
 
-        // 檢查是否已經有扣款記錄
-        const existingTransaction = await WalletTransaction.findOne({
-            userId: highestBidder._id,
-            auctionId: id,
-            type: 'expense',
-            source: 'auction',
-        });
-        if (!existingTransaction) {
-            // 如果沒有扣款記錄，則記錄得標者的支出
-            const bidderTransaction = new WalletTransaction({
-                userId: highestBidder._id,
-                amount: -finalPrice,
-                type: 'expense',
-                source: 'auction',
-                description: `拍賣得標扣款 (ID: ${id})`,
-                auctionId: id,
+        // 獲取 BossKill 記錄中的出席成員
+        let attendees = [];
+        if (mongoose.Types.ObjectId.isValid(auction.itemId._id)) {
+            const bossKill = auction.itemId;
+            if (bossKill && bossKill.attendees && Array.isArray(bossKill.attendees)) {
+                attendees = bossKill.attendees;
+            } else {
+                logger.warn('No attendees found in BossKill record', { auctionId: id, bossKillId: auction.itemId._id });
+            }
+        } else {
+            logger.warn('Invalid itemId for auction', { auctionId: id, itemId: auction.itemId });
+        }
+
+        // 分配收益給出席成員
+        if (attendees.length > 0) {
+            const sharePerMember = Math.floor(finalPrice / attendees.length); // 平均分配，捨去小數
+            const totalDistributed = sharePerMember * attendees.length;
+            const remainder = finalPrice - totalDistributed; // 剩餘部分（由於捨去小數）
+
+            logger.info('Distributing profits to attendees', { auctionId: id, finalPrice, attendeesCount: attendees.length, sharePerMember, remainder });
+
+            // 為每個出席成員分配收益
+            const distributionPromises = attendees.map(async (attendeeId) => {
+                try {
+                    // 檢查 attendeeId 是否為有效的 ObjectId
+                    if (!mongoose.Types.ObjectId.isValid(attendeeId)) {
+                        // 如果不是 ObjectId，假設它是 character_name，嘗試查找對應的用戶
+                        const user = await User.findOne({ character_name: attendeeId });
+                        if (!user) {
+                            logger.warn('Attendee not found by character_name', { attendeeId, auctionId: id });
+                            return;
+                        }
+                        attendeeId = user._id; // 使用查找到的用戶 ID
+                    }
+
+                    const attendee = await User.findById(attendeeId);
+                    if (!attendee) {
+                        logger.warn('Attendee not found by ID', { attendeeId, auctionId: id });
+                        return;
+                    }
+                    // 更新成員的鑽石餘額
+                    const updateResult = await User.findByIdAndUpdate(
+                        attendee._id,
+                        { $inc: { diamonds: sharePerMember } },
+                        { new: true }
+                    );
+                    if (!updateResult) {
+                        logger.error('Failed to add diamonds to attendee', { attendeeId: attendee._id, auctionId: id });
+                        throw new Error(`Failed to add diamonds to attendee ${attendee._id}`);
+                    }
+                    logger.info('Diamonds added to attendee', { attendeeId: attendee._id, newDiamonds: updateResult.diamonds, share: sharePerMember });
+
+                    // 記錄成員的收益
+                    const attendeeTransaction = new WalletTransaction({
+                        userId: attendee._id,
+                        amount: sharePerMember,
+                        type: 'income',
+                        source: 'auction',
+                        description: `拍賣收益分配 (ID: ${id})`,
+                        auctionId: id,
+                    });
+                    await attendeeTransaction.save();
+                    logger.info('Attendee transaction recorded', { attendeeId: attendee._id, auctionId: id });
+                } catch (err) {
+                    logger.error('Error distributing to attendee', { attendeeId, auctionId: id, error: err.message, stack: err.stack });
+                }
             });
-            await bidderTransaction.save();
 
-            // 記錄旅團帳戶的收入
+            await Promise.all(distributionPromises);
+
+            // 將剩餘部分（如果有）分配給旅團帳戶
+            if (remainder > 0) {
+                const guildAccount = await User.findOne({ character_name: GUILD_ACCOUNT_NAME });
+                if (guildAccount) {
+                    const guildUpdateResult = await User.findByIdAndUpdate(
+                        guildAccount._id,
+                        { $inc: { diamonds: remainder } },
+                        { new: true }
+                    );
+                    if (!guildUpdateResult) {
+                        logger.error('Failed to add remainder to guild account', { guildAccountId: guildAccount._id, auctionId: id });
+                        throw new Error('Failed to add remainder to guild account');
+                    }
+                    logger.info('Remainder added to guild account', { guildAccountId: guildAccount._id, newDiamonds: guildUpdateResult.diamonds, remainder });
+                    const guildTransaction = new WalletTransaction({
+                        userId: guildAccount._id,
+                        amount: remainder,
+                        type: 'income',
+                        source: 'auction',
+                        description: `拍賣收益剩餘分配 (ID: ${id})`,
+                        auctionId: id,
+                    });
+                    await guildTransaction.save();
+                    logger.info('Guild remainder transaction recorded', { guildAccountId: guildAccount._id, auctionId: id });
+                } else {
+                    logger.warn('Guild account not found, remainder not distributed', { guildAccountName: GUILD_ACCOUNT_NAME, remainder });
+                }
+            }
+        } else {
+            logger.warn('No attendees to distribute profits, distributing to guild account', { auctionId: id });
+            // 如果沒有出席成員，將全部收益分配給旅團帳戶
             const guildAccount = await User.findOne({ character_name: GUILD_ACCOUNT_NAME });
             if (guildAccount) {
+                const guildUpdateResult = await User.findByIdAndUpdate(
+                    guildAccount._id,
+                    { $inc: { diamonds: finalPrice } },
+                    { new: true }
+                );
+                if (!guildUpdateResult) {
+                    logger.error('Failed to add diamonds to guild account', { guildAccountId: guildAccount._id, auctionId: id });
+                    throw new Error('Failed to add diamonds to guild account');
+                }
+                logger.info('Diamonds added to guild account', { guildAccountId: guildAccount._id, newDiamonds: guildUpdateResult.diamonds, amount: finalPrice });
                 const guildTransaction = new WalletTransaction({
                     userId: guildAccount._id,
                     amount: finalPrice,
@@ -716,11 +835,10 @@ router.put('/:id/settle', auth, async (req, res) => {
                     auctionId: id,
                 });
                 await guildTransaction.save();
+                logger.info('Guild transaction recorded', { guildAccountId: guildAccount._id, auctionId: id });
             } else {
-                logger.warn('Guild account not found during auction settlement', { guildAccountName: GUILD_ACCOUNT_NAME });
+                logger.warn('Guild account not found, profits not distributed', { guildAccountName: GUILD_ACCOUNT_NAME });
             }
-        } else {
-            logger.info('Settle transaction already exists, skipping duplicate', { userId: highestBidder._id, auctionId: id });
         }
 
         // 發送通知給物品持有人
@@ -748,7 +866,7 @@ router.put('/:id/settle', auth, async (req, res) => {
         res.status(200).json({
             code: 200,
             msg: '拍賣核實成功',
-            detail: `拍賣 ${id} 已核實，等待物品持有人確認交易完成。`,
+            detail: `拍賣 ${id} 已核實，收益已分配給出席成員，等待物品持有人確認交易完成。`,
         });
     } catch (err) {
         logger.error('Error settling auction', { auctionId: id, userId: req.user.id, error: err.message, stack: err.stack });
@@ -1113,9 +1231,22 @@ router.put('/:id/complete-transaction', auth, async (req, res) => {
             type: 'expense',
             source: 'auction',
         });
+        let guildAccount = null; // 定義 guildAccount 變量
+        let hasDeducted = false; // 標記是否已實際扣款
+
         if (!existingTransaction) {
             // 如果沒有扣款記錄，則扣除中標者鑽石
-            await User.findByIdAndUpdate(highestBidder._id, { $inc: { diamonds: -finalPrice } });
+            logger.info('No existing transaction found, deducting diamonds', { userId: highestBidder._id, auctionId: id, amount: finalPrice });
+            const updateResult = await User.findByIdAndUpdate(
+                highestBidder._id,
+                { $inc: { diamonds: -finalPrice } },
+                { new: true }
+            );
+            if (!updateResult) {
+                logger.error('Failed to deduct diamonds from bidder', { userId: highestBidder._id, auctionId: id });
+                throw new Error('Failed to deduct diamonds from bidder');
+            }
+            logger.info('Diamonds deducted successfully', { userId: highestBidder._id, newDiamonds: updateResult.diamonds });
 
             // 記錄得標者的支出
             const bidderTransaction = new WalletTransaction({
@@ -1127,25 +1258,73 @@ router.put('/:id/complete-transaction', auth, async (req, res) => {
                 auctionId: id,
             });
             await bidderTransaction.save();
+            logger.info('Bidder transaction recorded', { userId: highestBidder._id, auctionId: id });
 
             // 將收益分配給旅團帳戶
-            const guildAccount = await User.findOne({ character_name: GUILD_ACCOUNT_NAME });
-            if (!guildAccount) {
-                logger.warn('Guild account not found, proceeding without guild account allocation', { guildAccountName: GUILD_ACCOUNT_NAME });
-            } else {
-                await User.findByIdAndUpdate(guildAccount._id, { $inc: { diamonds: finalPrice } });
-                const guildTransaction = new WalletTransaction({
-                    userId: guildAccount._id,
-                    amount: finalPrice,
-                    type: 'income',
-                    source: 'auction',
-                    description: `拍賣交易完成收益 (ID: ${id})`,
-                    auctionId: id,
-                });
-                await guildTransaction.save();
+            try {
+                guildAccount = await User.findOne({ character_name: GUILD_ACCOUNT_NAME });
+                if (guildAccount) {
+                    const guildUpdateResult = await User.findByIdAndUpdate(
+                        guildAccount._id,
+                        { $inc: { diamonds: finalPrice } },
+                        { new: true }
+                    );
+                    if (!guildUpdateResult) {
+                        logger.error('Failed to add diamonds to guild account', { guildAccountId: guildAccount._id, auctionId: id });
+                        throw new Error('Failed to add diamonds to guild account');
+                    }
+                    logger.info('Guild account diamonds updated', { guildAccountId: guildAccount._id, newDiamonds: guildUpdateResult.diamonds });
+                    const guildTransaction = new WalletTransaction({
+                        userId: guildAccount._id,
+                        amount: finalPrice,
+                        type: 'income',
+                        source: 'auction',
+                        description: `拍賣交易完成收益 (ID: ${id})`,
+                        auctionId: id,
+                    });
+                    await guildTransaction.save();
+                    logger.info('Guild transaction recorded', { guildAccountId: guildAccount._id, auctionId: id });
+                } else {
+                    logger.warn('Guild account not found, proceeding without guild account allocation', { guildAccountName: GUILD_ACCOUNT_NAME });
+                }
+            } catch (err) {
+                logger.error('Error handling guild account', { error: err.message, stack: err.stack });
+                guildAccount = null;
             }
+            hasDeducted = true;
         } else {
-            logger.info('Complete transaction already exists, skipping duplicate', { userId: highestBidder._id, auctionId: id });
+            logger.info('Complete transaction already exists, checking actual deduction', { userId: highestBidder._id, auctionId: id });
+            // 檢查是否實際扣款
+            const bidderBefore = await User.findById(highestBidder._id);
+            const expectedDiamonds = bidderBefore.diamonds + existingTransaction.amount;
+            if (bidder.diamonds >= expectedDiamonds) {
+                // 如果當前餘額大於等於預期餘額，說明未實際扣款
+                logger.warn('Diamonds not deducted despite existing transaction', { userId: highestBidder._id, auctionId: id, currentDiamonds: bidder.diamonds, expectedDiamonds });
+                const updateResult = await User.findByIdAndUpdate(
+                    highestBidder._id,
+                    { $inc: { diamonds: -finalPrice } },
+                    { new: true }
+                );
+                if (!updateResult) {
+                    logger.error('Failed to deduct diamonds from bidder during correction', { userId: highestBidder._id, auctionId: id });
+                    throw new Error('Failed to deduct diamonds from bidder during correction');
+                }
+                logger.info('Diamonds deducted during correction', { userId: highestBidder._id, newDiamonds: updateResult.diamonds });
+                hasDeducted = true;
+            } else {
+                logger.info('Diamonds already deducted', { userId: highestBidder._id, auctionId: id });
+                hasDeducted = true;
+            }
+            // 確保 guildAccount 已定義
+            try {
+                guildAccount = await User.findOne({ character_name: GUILD_ACCOUNT_NAME });
+                if (!guildAccount) {
+                    logger.warn('Guild account not found during notification', { guildAccountName: GUILD_ACCOUNT_NAME });
+                }
+            } catch (err) {
+                logger.error('Error fetching guild account for notification', { error: err.message, stack: err.stack });
+                guildAccount = null;
+            }
         }
 
         // 發送通知
@@ -1158,7 +1337,7 @@ router.put('/:id/complete-transaction', auth, async (req, res) => {
         }
         const bidderNotification = new Notification({
             userId: highestBidder._id,
-            message: `拍賣 ${itemName} (ID: ${id}) 交易已完成，您已支付 ${finalPrice} 鑽石。`,
+            message: `拍賣 ${itemName} (ID: ${id}) 交易已完成，${hasDeducted ? `您已支付 ${finalPrice} 鑽石。` : '但未成功扣款，請聯繫管理員。'}`,
             auctionId: id,
         });
         const itemHolderNotification = new Notification({
@@ -1177,12 +1356,13 @@ router.put('/:id/complete-transaction', auth, async (req, res) => {
             highestBidder: highestBidder._id,
             itemHolder,
             finalPrice,
-            guildAccount: guildAccount ? guildAccount._id : 'not found',
+            guildAccountId: guildAccount ? guildAccount._id : 'not found',
+            hasDeducted,
         });
         res.status(200).json({
             code: 200,
             msg: '交易完成，結算成功',
-            detail: `用戶 ${highestBidder.character_name} 支付 ${finalPrice} 鑽石，${guildAccount ? `旅團帳戶收到 ${finalPrice} 鑽石。` : '旅團帳戶未設置，收益未分配。'}`,
+            detail: `用戶 ${highestBidder.character_name} 支付 ${finalPrice} 鑽石，${guildAccount ? `旅團帳戶收到 ${finalPrice} 鑽石。` : '旅團帳戶未設置，收益未分配。'}${!hasDeducted ? ' 但未成功扣款，請聯繫管理員。' : ''}`,
         });
     } catch (err) {
         logger.error('Error completing transaction', { auctionId: id, userId: req.user.id, error: err.message, stack: err.stack });

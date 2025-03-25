@@ -32,23 +32,23 @@ const logToBackend = async (level, message, metadata = {}) => {
 
 const logger = {
     info: (message, metadata = {}) => {
-        console.log(`[INFO] ${message}`, metadata);
+        //console.log(`[INFO] ${message}`, metadata);
         logToBackend('info', message, metadata);
     },
     error: (message, metadata = {}) => {
-        console.error(`[ERROR] ${message}`, metadata);
+        //console.error(`[ERROR] ${message}`, metadata);
         logToBackend('error', message, metadata);
     },
     warn: (message, metadata = {}) => {
-        console.warn(`[WARN] ${message}`, metadata);
+        //console.warn(`[WARN] ${message}`, metadata);
         logToBackend('warn', message, metadata);
     },
     log: (message, metadata = {}) => {
-        console.warn('[DEPRECATION WARNING] logger.log is deprecated, use logger.info instead');
+        //console.warn('[DEPRECATION WARNING] logger.log is deprecated, use logger.info instead');
         logger.info(message, metadata);
     },
     debug: (message, metadata = {}) => {
-        console.debug(`[DEBUG] ${message}`, metadata);
+        //console.debug(`[DEBUG] ${message}`, metadata);
         logToBackend('debug', message, metadata);
     },
 };

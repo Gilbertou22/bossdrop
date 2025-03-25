@@ -235,11 +235,11 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
     const currentPrice = selectedAuction?.currentPrice || 0;
 
     if (bidValue === currentPrice) {
-      message.error(`下標金額不能等於當前價格 ${formatNumber(currentPrice)} 💎，請輸入更高的金額！`);
+      message.error(`下標金額不能等於當前價格 {formatNumber(currentPrice)} 💎，請輸入更高的金額！`);
       return;
     }
     if (bidValue < currentPrice) {
-      message.error(`下標金額必須大於當前價格 ${formatNumber(currentPrice)} 💎！`);
+      message.error(`下標金額必須大於當前價格 {formatNumber(currentPrice)} 💎！`);
       return;
     }
 
@@ -272,7 +272,7 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
         message.success('下標成功，已直接得標！競標已結束。');
         await sendSystemNotification(userId, selectedAuction._id, selectedAuction.itemName, finalPrice);
       } else {
-        message.success(`下標成功！您已下標 ${formatNumber(finalPrice)} 💎，請確保結算前餘額足夠（當前餘額：${formatNumber(userDiamonds)} 💎）。`);
+        message.success(`下標成功！您已下標 {formatNumber(finalPrice)} 💎，請確保結算前餘額足夠（當前餘額：{formatNumber(userDiamonds)} 💎）。`);
       }
 
       await fetchAuctions();
@@ -397,9 +397,9 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
             const isItemHolder = auction.itemHolder === characterName;
 
             // 調試日誌
-            logger.debug('Auction itemHolder check', { auctionId: auction._id, itemHolder: auction.itemHolder, characterName });
-            logger.debug('Auction status check', { auctionId: auction._id, status: auction.status, isItemHolder, shouldShowCompleteButton: isItemHolder && auction.status === 'completed', userRole: localUserRole });
-            logger.debug('Settle button check', { auctionId: auction._id, status: auction.status, userRole: localUserRole, shouldShowSettleButton: localUserRole === 'admin' && auction.status === 'pending' });
+            //logger.debug('Auction itemHolder check', { auctionId: auction._id, itemHolder: auction.itemHolder, characterName });
+            //logger.debug('Auction status check', { auctionId: auction._id, status: auction.status, isItemHolder, shouldShowCompleteButton: isItemHolder && auction.status === 'completed', userRole: localUserRole });
+            //logger.debug('Settle button check', { auctionId: auction._id, status: auction.status, userRole: localUserRole, shouldShowSettleButton: localUserRole === 'admin' && auction.status === 'pending' });
 
             // 如果按鈕未顯示，添加警告日誌
             if (isWonTab && !isItemHolder) {
@@ -414,7 +414,7 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
 
             // 核實按鈕是否應該顯示
             const shouldShowSettleButton = localUserRole === 'admin' && auction.status === 'pending';
-            logger.debug('Rendering settle button', { auctionId: auction._id, shouldShowSettleButton });
+            //logger.debug('Rendering settle button', { auctionId: auction._id, shouldShowSettleButton });
 
             return (
               <Card
@@ -705,9 +705,9 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
         okText="下標"
         cancelText="取消"
       >
-        <p>當前價格: ${formatNumber(selectedAuction?.currentPrice) || 0} 💎</p>
+        <p>當前價格: {formatNumber(selectedAuction?.currentPrice) || 0} 💎</p>
         {selectedAuction?.buyoutPrice && (
-          <p>直接得標價: ${formatNumber(selectedAuction.buyoutPrice)} 💎</p>
+          <p>直接得標價: {formatNumber(selectedAuction.buyoutPrice)} 💎</p>
         )}
         <Input
           type="number"
@@ -722,7 +722,7 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
             警告：您的餘額（{formatNumber(userDiamonds)} 💎）低於下標金額（{formatNumber(bidAmount)} 💎），請確保結算前充值！
           </p>
         )}
-        <p>注意：下標後，💎將在結算時扣除。您的餘額：${formatNumber(userDiamonds)} 💎</p>
+        <p>注意：下標後，💎將在結算時扣除。您的餘額：{formatNumber(userDiamonds)} 💎</p>
       </Modal>
 
       {/* 出價歷史 Modal */}

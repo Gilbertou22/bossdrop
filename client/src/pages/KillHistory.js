@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { Row, Col, Button, DatePicker, Input, message, Image, Card, Spin, Alert, Tag, Tooltip, Popconfirm, Dropdown, Menu, Select } from 'antd';
-import { SearchOutlined, EditOutlined, PlusOutlined, CheckOutlined, MoreOutlined, InfoCircleOutlined, DeleteOutlined, UserOutlined } from '@ant-design/icons'; // 添加 UserOutlined
+import { SearchOutlined, EditOutlined, PlusOutlined, CheckOutlined, MoreOutlined, InfoCircleOutlined, DeleteOutlined, UserOutlined } from '@ant-design/icons';
 import axios from 'axios';
 import moment from 'moment';
 import KillDetailModal from './KillDetailModal';
 import AddAttendeeModal from './AddAttendeeModal';
 import statusTag from '../utils/statusTag';
-import logger from '../utils/logger'; // 引入前端日誌工具
+import logger from '../utils/logger';
 
 const { RangePicker } = DatePicker;
 const { Option } = Select;
@@ -24,7 +24,7 @@ const colorMapping = {
 
 const KillHistory = () => {
     const [history, setHistory] = useState([]);
-    const [filters, setFilters] = useState({ boss_name: '', start_time: null, end_time: null, status: '' });
+    const [filters, setFilters] = useState({ boss_name: '', start_time: null, end_time: null, status: 'pending' }); // 預設篩選條件為待分配
     const [role, setRole] = useState(null);
     const [currentUser, setCurrentUser] = useState(null);
     const [loading, setLoading] = useState(false);
@@ -673,13 +673,6 @@ const KillHistory = () => {
                 }
                 .ant-image .ant-image-mask {
                     position: static !important;
-                }
-                .ant-descriptions-item-label {
-                    background-color: #f5f5f5;
-                    padding: 8px 16px;
-                }
-                .ant-descriptions-item-content {
-                    padding: 8px 16px;
                 }
                 .ant-card-actions {
                     display: flex;

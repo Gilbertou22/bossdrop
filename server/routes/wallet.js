@@ -51,50 +51,32 @@ router.post('/transactions', auth, async (req, res) => {
     }
 });
 
-// 獲取用戶的錢包記錄（支持分頁和篩選）
+// 獲取錢包交易記錄
 router.get('/transactions', auth, async (req, res) => {
-    const userId = req.user.id;
-    const {
-        page = 1,
-        pageSize = 10,
-        type, // 篩選類型：income 或 expense
-        startDate, // 開始日期
-        endDate, // 結束日期
-        sortBy = 'timestamp', // 排序字段
-        sortOrder = 'desc', // 排序順序：asc 或 desc
-    } = req.query;
-
+    const { page = 1, pageSize = 10, type, startDate, endDate, sortBy = 'timestamp', sortOrder = 'desc' } = req.query;
     try {
-        // 構建查詢條件
-        const query = { userId };
+        const query = { userId: req.user.id };
         if (type) query.type = type;
         if (startDate && endDate) {
             query.timestamp = { $gte: new Date(startDate), $lte: new Date(endDate) };
-        } else if (startDate) {
-            query.timestamp = { $gte: new Date(startDate) };
-        } else if (endDate) {
-            query.timestamp = { $lte: new Date(endDate) };
         }
 
-        // 構建排序條件
-        const sort = {};
-        sort[sortBy] = sortOrder === 'asc' ? 1 : -1;
-
-        // 查詢記錄
-        const transactions = await WalletTransaction.find(query)
-            .sort(sort)
-            .skip((page - 1) * pageSize)
-            .limit(parseInt(pageSize))
-            .lean()
-            .populate('auctionId', 'itemName'); // 可選：如果需要顯示拍賣相關信息
-
-        // 獲取總記錄數
         const total = await WalletTransaction.countDocuments(query);
+        const transactions = await WalletTransaction.find(query)
+            .lean() // 使用 .lean() 將 Mongoose 文檔轉為普通 JavaScript 對象
+            .sort({ [sortBy]: sortOrder === 'desc' ? -1 : 1 })
+            .skip((page - 1) * pageSize)
+            .limit(parseInt(pageSize));
 
-        logger.info('Fetched wallet transactions', { userId, page, pageSize, total });
+        // 確保 auctionId 是字符串
+        const formattedTransactions = transactions.map(transaction => ({
+            ...transaction,
+            auctionId: transaction.auctionId ? transaction.auctionId.toString() : null,
+        }));
+
+        logger.info('Fetched wallet transactions', { userId: req.user.id, count: transactions.length });
         res.json({
-            code: 200,
-            transactions,
+            transactions: formattedTransactions,
             pagination: {
                 current: parseInt(page),
                 pageSize: parseInt(pageSize),
@@ -102,12 +84,8 @@ router.get('/transactions', auth, async (req, res) => {
             },
         });
     } catch (err) {
-        logger.error('Error fetching wallet transactions', { userId, error: err.message, stack: err.stack });
-        res.status(500).json({
-            code: 500,
-            msg: '獲取錢包記錄失敗',
-            detail: err.message,
-        });
+        logger.error('Error fetching wallet transactions', { userId: req.user.id, error: err.message, stack: err.stack });
+        res.status(500).json({ msg: '獲取錢包交易記錄失敗', error: err.message });
     }
 });
 

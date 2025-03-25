@@ -13,6 +13,10 @@ const UserSchema = new mongoose.Schema({
     password: { type: String, required: true },
     guildId: { type: mongoose.Schema.Types.ObjectId, ref: 'Guild', default: null }, // 添加旅團 ID
     mustChangePassword: { type: Boolean, default: false }, // 新增字段，表示是否需更改密碼
+    dkpPoints: {
+        type: Number,
+        default: 0, // 玩家的 DKP 總點數
+    },
 });
 
 // 密碼加密

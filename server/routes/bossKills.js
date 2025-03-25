@@ -6,9 +6,10 @@ const Application = require('../models/Application');
 const Auction = require('../models/Auction');
 const Guild = require('../models/Guild');
 const Item = require('../models/Item');
+const ItemLevel = require('../models/ItemLevel'); // 引入 ItemLevel 模型
 const multer = require('multer');
 const { auth, adminOnly } = require('../middleware/auth');
-const logger = require('../logger'); // 引入日誌器
+const logger = require('../logger');
 
 const upload = multer({
     storage: multer.diskStorage({
@@ -38,6 +39,12 @@ router.get('/', auth, async (req, res) => {
         const applyDeadlineHours = guild?.settings?.applyDeadlineHours || 48;
         const currentDate = new Date();
 
+        // 查找默認的 ItemLevel（'一般' 等級，'白色' 顏色）
+        const defaultItemLevel = await ItemLevel.findOne({ level: '一般', color: '白色' }).lean();
+        if (!defaultItemLevel) {
+            console.warn('Default ItemLevel (level: "一般", color: "白色") not found in database.');
+        }
+
         const enrichedKills = await Promise.all(bossKills.map(async kill => {
             const updatedItems = await Promise.all(kill.dropped_items.map(async item => {
                 const approvedApplication = await Application.findOne({
@@ -46,8 +53,14 @@ router.get('/', auth, async (req, res) => {
                     status: 'approved',
                 }).lean();
 
-                const itemDoc = await Item.findOne({ name: item.name }).populate('level', 'level color');
-                const level = itemDoc?.level || null;
+                const itemDoc = await Item.findOne({ name: item.name }).populate('level', 'level color').lean();
+                let level = itemDoc?.level || null;
+
+                // 如果 itemDoc 或 level 為 null，設置默認值
+                if (!itemDoc || !level) {
+                    console.warn(`Item "${item.name}" (ID: ${item._id}) has no associated Item record or level. Using default level.`);
+                    level = defaultItemLevel || { level: '一般', color: '白色' };
+                }
 
                 return {
                     ...item,
@@ -66,7 +79,7 @@ router.get('/', auth, async (req, res) => {
                 dropped_items: updatedItems,
                 canSupplement,
                 remainingSupplementHours: remainingHours,
-                itemHolder: kill.itemHolder, // 確保返回 itemHolder
+                itemHolder: kill.itemHolder,
             };
         }));
 
@@ -89,7 +102,36 @@ router.get('/:id', auth, async (req, res) => {
         if (!kill) {
             return res.status(404).json({ msg: '擊殺記錄不存在' });
         }
-        res.json(kill);
+
+        // 查找默認的 ItemLevel（'一般' 等級，'白色' 顏色）
+        const defaultItemLevel = await ItemLevel.findOne({ level: '一般', color: '白色' }).lean();
+        if (!defaultItemLevel) {
+            console.warn('Default ItemLevel (level: "一般", color: "白色") not found in database.');
+        }
+
+        // 處理 dropped_items 的 level 字段
+        const updatedItems = await Promise.all(kill.dropped_items.map(async item => {
+            const itemDoc = await Item.findOne({ name: item.name }).populate('level', 'level color').lean();
+            let level = itemDoc?.level || null;
+
+            // 如果 itemDoc 或 level 為 null，設置默認值
+            if (!itemDoc || !level) {
+                console.warn(`Item "${item.name}" (ID: ${item._id}) has no associated Item record or level. Using default level.`);
+                level = defaultItemLevel || { level: '一般', color: '白色' };
+            }
+
+            return {
+                ...item,
+                level,
+            };
+        }));
+
+        const updatedKill = {
+            ...kill,
+            dropped_items: updatedItems,
+        };
+
+        res.json(updatedKill);
     } catch (err) {
         res.status(500).json({ msg: '獲取詳情失敗', error: err.message });
     }
@@ -109,14 +151,26 @@ router.get('/all', auth, adminOnly, async (req, res) => {
 
         const total = await BossKill.countDocuments();
 
+        // 查找默認的 ItemLevel（'一般' 等級，'白色' 顏色）
+        const defaultItemLevel = await ItemLevel.findOne({ level: '一般', color: '白色' }).lean();
+        if (!defaultItemLevel) {
+            console.warn('Default ItemLevel (level: "一般", color: "白色") not found in database.');
+        }
+
         const enrichedKills = await Promise.all(bossKills.map(async (kill) => {
             const enrichedItems = await Promise.all(kill.dropped_items.map(async (item) => {
                 const auction = await Auction.findOne({ itemId: item._id }).lean();
                 const application = await Application.findOne({ item_id: item._id, status: 'approved' }).lean();
 
                 const isAssigned = auction || application || item.final_recipient;
-                const itemDoc = await Item.findOne({ name: item.name }).populate('level', 'level color');
-                const level = itemDoc?.level || null;
+                const itemDoc = await Item.findOne({ name: item.name }).populate('level', 'level color').lean();
+                let level = itemDoc?.level || null;
+
+                // 如果 itemDoc 或 level 為 null，設置默認值
+                if (!itemDoc || !level) {
+                    console.warn(`Item "${item.name}" (ID: ${item._id}) has no associated Item record or level. Using default level.`);
+                    level = defaultItemLevel || { level: '一般', color: '白色' };
+                }
 
                 return {
                     ...item,
@@ -170,7 +224,7 @@ router.put('/:id', auth, adminOnly, async (req, res) => {
         if (status) bossKill.status = status;
         if (final_recipient) bossKill.final_recipient = final_recipient;
         if (attendees) bossKill.attendees = attendees;
-        if (itemHolder) bossKill.itemHolder = itemHolder; // 更新物品持有人
+        if (itemHolder) bossKill.itemHolder = itemHolder;
 
         // 更新 dropped_items（不涉及 status）
         if (dropped_items && Array.isArray(dropped_items)) {
@@ -197,7 +251,6 @@ router.put('/:id', auth, adminOnly, async (req, res) => {
     }
 });
 
-// 修正路由：僅更新頂層 status 為 expired
 router.put('/:killId/items/:itemId', auth, adminOnly, async (req, res) => {
     try {
         const bossKill = await BossKill.findById(req.params.killId);
@@ -218,17 +271,17 @@ router.put('/:killId/items/:itemId', auth, adminOnly, async (req, res) => {
             });
         }
 
-        console.log('Before update - BossKill status:', bossKill.status); // 調試日志
+        console.log('Before update - BossKill status:', bossKill.status);
 
         // 直接更新頂層 status 為 expired
         bossKill.status = 'expired';
         await bossKill.save();
 
-        console.log('After update - BossKill status:', bossKill.status); // 調試日志
+        console.log('After update - BossKill status:', bossKill.status);
 
         // 重新查詢以確保返回最新數據
         const updatedBossKill = await BossKill.findById(req.params.killId).lean();
-        console.log('Fetched updated bossKill:', updatedBossKill); // 調試日志
+        console.log('Fetched updated bossKill:', updatedBossKill);
         res.json({ msg: '物品狀態更新成功', bossKill: updatedBossKill });
     } catch (err) {
         console.error('Update item status error:', err);
@@ -246,8 +299,21 @@ router.post('/', auth, adminOnly, upload.array('screenshots', 5), async (req, re
 
     try {
         const screenshots = req.files.map(file => file.path);
+
+        // 查找默認的 ItemLevel（'一般' 等級，'白色' 顏色）
+        const defaultItemLevel = await ItemLevel.findOne({ level: '一般', color: '白色' }).lean();
+        if (!defaultItemLevel) {
+            console.warn('Default ItemLevel (level: "一般", color: "白色") not found in database.');
+            return res.status(500).json({
+                code: 500,
+                msg: '無法找到默認物品等級',
+                suggestion: '請確保 ItemLevel 數據庫中存在 "一般" 等級（白色）。',
+            });
+        }
+
         const items = JSON.parse(dropped_items).map(item => {
-            const level = item.level ? new mongoose.Types.ObjectId(item.level) : null;
+            // 如果前端未傳遞 level，設置為默認值
+            const level = item.level ? new mongoose.Types.ObjectId(item.level) : defaultItemLevel._id;
             return {
                 _id: new mongoose.Types.ObjectId(),
                 name: item.name,
@@ -291,7 +357,7 @@ router.post('/', auth, adminOnly, upload.array('screenshots', 5), async (req, re
                 final_recipient: final_recipient || null,
                 status: status || 'pending',
                 userId: req.user.id,
-                itemHolder: itemHolder || null, // 保存物品持有人
+                itemHolder: itemHolder || null,
             });
             await bossKill.save();
             results.push({ kill_id: bossKill._id });

@@ -1,269 +1,409 @@
 import React, { useState, useEffect } from 'react';
-import { Modal, Descriptions, Divider, Image, Spin, Tag, Typography, Button, Select, Form, message } from 'antd';
-import { UserOutlined, ClockCircleOutlined, TeamOutlined, GiftOutlined, CheckCircleOutlined, EditOutlined, SaveOutlined, CloseOutlined } from '@ant-design/icons';
-import moment from 'moment';
+import { Modal, Form, Input, DatePicker, Button, Upload, message, Spin, Select, Image, Descriptions, Tag, Space } from 'antd';
+import { UploadOutlined, DeleteOutlined, ClockCircleOutlined, UserOutlined, GiftOutlined, TagOutlined, AppstoreOutlined, TeamOutlined } from '@ant-design/icons';
 import axios from 'axios';
-import logger from '../utils/logger'; // 引入前端日誌工具
+import moment from 'moment';
 
-const { Text } = Typography;
+const { Option } = Select;
+
 const BASE_URL = 'http://localhost:5000';
 
+// 定義 colorMapping，將 ItemLevel 表中的 color 字段映射到 CSS 顏色值
+const colorMapping = {
+    '白色': '#f0f0f0',
+    '綠色': '#00cc00',
+    '藍色': '#1e90ff',
+    '紅色': '#EC3636',
+    '紫色': '#B931F3',
+    '金色': '#ffd700',
+};
+
 const KillDetailModal = ({ visible, onCancel, killData, onUpdate, token, initialEditing = false }) => {
-    const [isEditing, setIsEditing] = useState(initialEditing);
     const [form] = Form.useForm();
-    const [availableUsers, setAvailableUsers] = useState([]);
+    const [editing, setEditing] = useState(initialEditing);
+    const [loading, setLoading] = useState(false);
+    const [fileList, setFileList] = useState([]);
+    const [attendees, setAttendees] = useState([]);
+    const [allUsers, setAllUsers] = useState([]);
 
     useEffect(() => {
-        if (visible) {
-            setIsEditing(initialEditing);
-        }
-    }, [visible, initialEditing]);
-
-    useEffect(() => {
-        const fetchUsers = async () => {
-            try {
-                const res = await axios.get(`${BASE_URL}/api/users`, {
-                    headers: { 'x-auth-token': token },
-                });
-                setAvailableUsers(res.data.map(user => user.character_name));
-            } catch (err) {
-                console.error('Fetch users error:', err);
-                message.error('載入用戶列表失敗');
-            }
-        };
-        if (visible && isEditing) fetchUsers();
-    }, [visible, isEditing, token]);
-
-    useEffect(() => {
-        if (visible && killData) {
+        if (killData) {
             form.setFieldsValue({
-                status: killData.status,
+                boss_name: killData.boss_name,
+                kill_time: killData.kill_time ? moment(killData.kill_time) : null,
+                itemHolder: killData.itemHolder,
                 attendees: killData.attendees || [],
-                itemHolder: killData.itemHolder || '', // 初始化 itemHolder
+                dropped_items: killData.dropped_items?.map(item => ({
+                    name: item.name,
+                    level: item.level?.color || '白色', // 當 item.level 為 null 時，默認使用 '白色'
+                })) || [],
             });
+            setAttendees(killData.attendees || []);
+            setFileList(killData.screenshots?.map((url, index) => ({
+                uid: index,
+                name: `screenshot-${index}.png`,
+                status: 'done',
+                url,
+            })) || []);
         }
-    }, [visible, killData, form]);
+    }, [killData, form]);
 
-    const getStatusTag = (status) => {
-        let color, text;
-        switch (status) {
-            case 'pending':
-                color = 'gold';
-                text = '待分配';
-                break;
-            case 'assigned':
-                color = 'green';
-                text = '已分配';
-                break;
-            case 'expired':
-                color = 'red';
-                text = '已過期';
-                break;
-            default:
-                color = 'default';
-                text = status || '未知';
+    useEffect(() => {
+        if (editing) {
+            fetchAllUsers();
         }
-        return (
-            <Tag
-                color={color}
-                style={{
-                    borderRadius: '12px',
-                    padding: '2px 12px',
-                    fontWeight: 'bold',
-                    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
-                }}
-            >
-                {text}
-            </Tag>
-        );
-    };
+    }, [editing]);
 
-    const handleEdit = () => {
-        setIsEditing(true);
-    };
-
-    const handleCancelEdit = () => {
-        setIsEditing(false);
-        form.resetFields();
-    };
-
-    const handleSave = async () => {
+    const fetchAllUsers = async () => {
         try {
-            const values = await form.validateFields();
-            const res = await axios.put(
-                `${BASE_URL}/api/boss-kills/${killData._id}`,
-                values,
-                { headers: { 'x-auth-token': token } }
-            );
+            const res = await axios.get(`${BASE_URL}/api/users`, {
+                headers: { 'x-auth-token': token },
+            });
+            setAllUsers(res.data);
+        } catch (err) {
+            message.error('無法載入用戶列表');
+        }
+    };
+
+    const handleSubmit = async (values) => {
+        setLoading(true);
+        try {
+            const formData = new FormData();
+            formData.append('boss_name', values.boss_name);
+            formData.append('kill_time', values.kill_time.toISOString());
+            formData.append('itemHolder', values.itemHolder);
+            values.attendees.forEach(attendee => formData.append('attendees[]', attendee));
+            values.dropped_items.forEach((item, index) => {
+                formData.append(`dropped_items[${index}][name]`, item.name);
+                formData.append(`dropped_items[${index}][level]`, item.level);
+            });
+            fileList.forEach(file => {
+                if (file.originFileObj) {
+                    formData.append('screenshots', file.originFileObj);
+                }
+            });
+
+            const res = await axios.put(`${BASE_URL}/api/boss-kills/${killData._id}`, formData, {
+                headers: {
+                    'x-auth-token': token,
+                    'Content-Type': 'multipart/form-data',
+                },
+            });
             message.success(res.data.msg || '更新成功！');
-            setIsEditing(false);
             onUpdate();
         } catch (err) {
-            console.error('Update kill detail error:', err);
             message.error(`更新失敗: ${err.response?.data?.msg || err.message}`);
+        } finally {
+            setLoading(false);
         }
+    };
+
+    const handleDeleteScreenshot = (file) => {
+        setFileList(fileList.filter(item => item.uid !== file.uid));
+    };
+
+    const handleUploadChange = ({ fileList }) => {
+        setFileList(fileList);
+    };
+
+    const renderDetailView = () => {
+        if (!killData) return null;
+
+        return (
+            <div>
+                <h3 style={{ fontSize: '14px', marginBottom: '8px', color: '#1890ff' }}>擊殺詳情</h3>
+                <Descriptions column={1} bordered size="small">
+                    <Descriptions.Item label={<span><ClockCircleOutlined style={{ marginRight: 4 }} />擊殺時間</span>}>
+                        {moment(killData.kill_time).format('YYYY-MM-DD HH:mm:ss')}
+                    </Descriptions.Item>
+                    <Descriptions.Item label={<span><TagOutlined style={{ marginRight: 4 }} />首領名稱</span>}>
+                        {killData.boss_name || '未知首領'}
+                    </Descriptions.Item>
+                    <Descriptions.Item label={<span><TagOutlined style={{ marginRight: 4 }} />狀態</span>}>
+                        <Tag
+                            color={
+                                killData.status === 'pending' ? 'orange' :
+                                    killData.status === 'assigned' ? 'blue' :
+                                        killData.status === 'expired' ? 'red' : 'default'
+                            }
+                        >
+                            {killData.status === 'pending' ? '待分配' :
+                                killData.status === 'assigned' ? '已分配' :
+                                    killData.status === 'expired' ? '已過期' : '未知'}
+                        </Tag>
+                    </Descriptions.Item>
+                    <Descriptions.Item label={<span><UserOutlined style={{ marginRight: 4 }} />物品持有人</span>}>
+                        {killData.itemHolder || '未分配'}
+                    </Descriptions.Item>
+                </Descriptions>
+
+                <h3 style={{ fontSize: '14px', margin: '12px 0 8px', color: '#1890ff' }}>參與者</h3>
+                <div
+                    style={{
+                        maxHeight: '60px',
+                        overflowY: 'auto',
+                        background: '#fff',
+                        borderRadius: '6px',
+                        padding: '4px',
+                        border: '1px solid #e8e8e8',
+                    }}
+                >
+                    {killData.attendees && killData.attendees.length > 0 ? (
+                        <Space wrap>
+                            {killData.attendees.map((attendee, index) => (
+                                <Tag
+                                    key={index}
+                                    icon={<TeamOutlined style={{ marginRight: 4, color: '#1890ff' }} />}
+                                    color="blue"
+                                    style={{ margin: '2px', padding: '2px 6px', fontSize: '11px' }}
+                                >
+                                    {attendee}
+                                </Tag>
+                            ))}
+                        </Space>
+                    ) : (
+                        <p style={{ margin: 0, fontSize: '11px' }}>無參與者</p>
+                    )}
+                </div>
+
+                <h3 style={{ fontSize: '14px', margin: '12px 0 8px', color: '#1890ff' }}>掉落物品</h3>
+                {killData.dropped_items && killData.dropped_items.length > 0 ? (
+                    killData.dropped_items.map((item, index) => (
+                        <div
+                            key={index}
+                            style={{
+                                border: '1px solid #e8e8e8',
+                                borderRadius: '6px',
+                                padding: '8px',
+                                background: '#fafafa',
+                                marginBottom: '8px',
+                            }}
+                        >
+                            <Descriptions column={1} bordered size="small">
+                                <Descriptions.Item label={<span><GiftOutlined style={{ marginRight: 4 }} />物品名稱</span>}>
+                                    <span style={{ color: colorMapping[item.level?.color] || colorMapping['白色'] }}>
+                                        {item.name || '未知物品'}
+                                    </span>
+                                </Descriptions.Item>
+                                <Descriptions.Item label={<span><TagOutlined style={{ marginRight: 4 }} />等級</span>}>
+                                    {item.level?.level || 'N/A'}
+                                </Descriptions.Item>
+                                <Descriptions.Item label={<span><TagOutlined style={{ marginRight: 4 }} />申請狀態</span>}>
+                                    <Tag
+                                        color={
+                                            item.status === 'pending' ? 'orange' :
+                                                item.status === 'assigned' ? 'blue' :
+                                                    item.status === 'expired' ? 'red' : 'default'
+                                        }
+                                    >
+                                        {item.status === 'pending' ? '待分配' :
+                                            item.status === 'assigned' ? '已分配' :
+                                                item.status === 'expired' ? '已過期' : item.status || '待分配'}
+                                    </Tag>
+                                </Descriptions.Item>
+                            </Descriptions>
+                        </div>
+                    ))
+                ) : (
+                    <p style={{ margin: 0, fontSize: '11px' }}>無掉落物品</p>
+                )}
+
+                <h3 style={{ fontSize: '14px', margin: '12px 0 8px', color: '#1890ff' }}>擊殺截圖</h3>
+                {killData.screenshots && killData.screenshots.length > 0 ? (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                        {killData.screenshots.map((url, index) => (
+                            <Image
+                                key={index}
+                                src={url}
+                                alt={`擊殺截圖 ${index + 1}`}
+                                style={{ maxWidth: '100px', maxHeight: '100px', borderRadius: '6px' }}
+                            />
+                        ))}
+                    </div>
+                ) : (
+                    <p style={{ margin: 0, fontSize: '11px' }}>無擊殺截圖</p>
+                )}
+            </div>
+        );
     };
 
     return (
         <Modal
-            title="擊殺記錄詳情"
+            title={<span style={{ fontSize: '16px', fontWeight: 'bold' }}>擊殺詳情</span>}
             open={visible}
             onCancel={onCancel}
-            footer={
-                isEditing ? [
-                    <Button key="cancel" onClick={handleCancelEdit}>
-                        取消
-                    </Button>,
-                    <Button key="save" type="primary" onClick={handleSave}>
-                        保存
-                    </Button>,
-                ] : [
-                    killData?.status === 'pending' && (
-                        <Button key="edit" type="primary" icon={<EditOutlined />} onClick={handleEdit}>
-                            編輯
-                        </Button>
-                    ),
-                    <Button key="close" onClick={onCancel}>
-                        關閉
-                    </Button>,
-                ]
-            }
-            width={900}
+            footer={editing ? [
+                <Button key="cancel" onClick={onCancel}>
+                    取消
+                </Button>,
+                <Button key="submit" type="primary" onClick={() => form.submit()} loading={loading}>
+                    提交
+                </Button>,
+            ] : [
+                <Button key="close" onClick={onCancel}>
+                    關閉
+                </Button>,
+            ]}
+            width="90vw"
+            style={{ maxWidth: '800px', top: '10px' }}
+            bodyStyle={{ maxHeight: '80vh', overflowY: 'hidden' }}
         >
-            <Spin spinning={false}>
-                {killData ? (
-                    <div>
-                        <Form form={form}>
-                            <Descriptions
-                                column={2}
-                                size="middle"
-                                bordered
-                                style={{ marginBottom: '24px' }}
-                                labelStyle={{ width: '160px', fontWeight: 'bold' }}
-                                contentStyle={{ fontSize: '14px' }}
+            <Spin spinning={loading}>
+                {editing ? (
+                    <Form
+                        form={form}
+                        layout="vertical"
+                        onFinish={handleSubmit}
+                    >
+                        <Form.Item
+                            name="boss_name"
+                            label="首領名稱"
+                            rules={[{ required: true, message: '請輸入首領名稱' }]}
+                        >
+                            <Input />
+                        </Form.Item>
+                        <Form.Item
+                            name="kill_time"
+                            label="擊殺時間"
+                            rules={[{ required: true, message: '請選擇擊殺時間' }]}
+                        >
+                            <DatePicker showTime style={{ width: '100%' }} />
+                        </Form.Item>
+                        <Form.Item
+                            name="itemHolder"
+                            label="物品持有人"
+                            rules={[{ required: true, message: '請選擇物品持有人' }]}
+                        >
+                            <Select placeholder="選擇物品持有人">
+                                {allUsers.map(user => (
+                                    <Option key={user._id} value={user.character_name}>
+                                        {user.character_name}
+                                    </Option>
+                                ))}
+                            </Select>
+                        </Form.Item>
+                        <Form.Item
+                            name="attendees"
+                            label="參與者"
+                            rules={[{ required: true, message: '請選擇參與者' }]}
+                        >
+                            <Select
+                                mode="multiple"
+                                placeholder="選擇參與者"
+                                onChange={(value) => setAttendees(value)}
                             >
-                                <Descriptions.Item label={<><UserOutlined /> 首領名稱</>}>
-                                    {killData.boss_name || '未知首領'}
-                                </Descriptions.Item>
-                                <Descriptions.Item label={<><ClockCircleOutlined /> 擊殺時間</>}>
-                                    {moment(killData.kill_time).format('YYYY-MM-DD HH:mm')}
-                                </Descriptions.Item>
-                                <Descriptions.Item label={<><CheckCircleOutlined /> 狀態</>}>
-                                    {isEditing ? (
-                                        <Form.Item name="status" noStyle>
-                                            <Select style={{ width: '120px' }}>
-                                                <Select.Option value="pending">待分配</Select.Option>
-                                                <Select.Option value="assigned">已分配</Select.Option>
-                                                <Select.Option value="expired">已過期</Select.Option>
-                                            </Select>
-                                        </Form.Item>
-                                    ) : (
-                                        getStatusTag(killData.status)
-                                    )}
-                                </Descriptions.Item>
-                                <Descriptions.Item label={<><GiftOutlined /> 掉落物品</>} span={2}>
-                                    <div>
-                                        {killData.dropped_items.length > 0 ? (
-                                            killData.dropped_items.map((item, index) => (
-                                                <Text key={index} style={{ display: 'block', fontSize: '14px', marginBottom: '4px' }}>
-                                                    {item.name} ({item.type})
-                                                </Text>
-                                            ))
-                                        ) : (
-                                            <Text style={{ fontSize: '14px' }}>無</Text>
-                                        )}
-                                    </div>
-                                </Descriptions.Item>
-                                <Descriptions.Item label={<><TeamOutlined /> 參與者</>} span={2}>
-                                    {isEditing ? (
-                                        <Form.Item name="attendees" noStyle>
-                                            <Select
-                                                mode="multiple"
-                                                style={{ width: '100%' }}
-                                                placeholder="選擇參與者"
-                                                allowClear
-                                                options={availableUsers.map(user => ({ label: user, value: user }))}
+                                {allUsers.map(user => (
+                                    <Option key={user._id} value={user.character_name}>
+                                        {user.character_name}
+                                    </Option>
+                                ))}
+                            </Select>
+                        </Form.Item>
+                        <Form.List name="dropped_items">
+                            {(fields, { add, remove }) => (
+                                <>
+                                    {fields.map(({ key, name, ...restField }) => (
+                                        <Space key={key} style={{ display: 'flex', marginBottom: 8 }} align="baseline">
+                                            <Form.Item
+                                                {...restField}
+                                                name={[name, 'name']}
+                                                rules={[{ required: true, message: '請輸入物品名稱' }]}
+                                            >
+                                                <Input placeholder="物品名稱" />
+                                            </Form.Item>
+                                            <Form.Item
+                                                {...restField}
+                                                name={[name, 'level']}
+                                                rules={[{ required: true, message: '請選擇物品等級' }]}
+                                            >
+                                                <Select placeholder="物品等級" style={{ width: 120 }}>
+                                                    <Option value="白色">白色</Option>
+                                                    <Option value="綠色">綠色</Option>
+                                                    <Option value="藍色">藍色</Option>
+                                                    <Option value="紅色">紅色</Option>
+                                                    <Option value="紫色">紫色</Option>
+                                                    <Option value="金色">金色</Option>
+                                                </Select>
+                                            </Form.Item>
+                                            <Button
+                                                type="link"
+                                                icon={<DeleteOutlined />}
+                                                onClick={() => remove(name)}
                                             />
-                                        </Form.Item>
-                                    ) : (
-                                        <Text style={{ fontSize: '14px' }}>
-                                            {killData.attendees?.join(', ') || '無'}
-                                        </Text>
-                                    )}
-                                </Descriptions.Item>
-                                <Descriptions.Item label={<><UserOutlined /> 最終獲得者</>}>
-                                    <Text style={{ fontSize: '14px' }}>
-                                        {killData.final_recipient || '未分配'}
-                                    </Text>
-                                </Descriptions.Item>
-                                <Descriptions.Item label={<><UserOutlined /> 物品持有人</>}>
-                                    {isEditing ? (
-                                        <Form.Item name="itemHolder" noStyle>
-                                            <Select
-                                                style={{ width: '100%' }}
-                                                placeholder="選擇物品持有人"
-                                                allowClear
-                                                options={availableUsers.map(user => ({ label: user, value: user }))}
-                                            />
-                                        </Form.Item>
-                                    ) : (
-                                        <Text style={{ fontSize: '14px' }}>
-                                            {killData.itemHolder || '未分配'}
-                                        </Text>
-                                    )}
-                                </Descriptions.Item>
-                            </Descriptions>
-                        </Form>
-                        {killData.screenshots.length > 0 && (
-                            <div>
-                                <Divider orientation="left">截圖</Divider>
-                                <Image.PreviewGroup>
-                                    {killData.screenshots.map((src, index) => (
-                                        <Image
-                                            key={index}
-                                            src={src}
-                                            alt={`截圖 ${index + 1}`}
-                                            style={{
-                                                width: '200px',
-                                                marginRight: '8px',
-                                                marginBottom: '8px',
-                                                border: '1px solid #d9d9d9',
-                                                borderRadius: '4px',
-                                                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
-                                                position: 'relative',
-                                                zIndex: 0,
-                                            }}
-                                            preview={{
-                                                mask: '點擊預覽',
-                                                toolbarRender: () => (
-                                                    <span>預覽</span>
-                                                ),
-                                                onVisibleChange: (visible) => {
-                                                    if (visible) console.log('Preview opened');
-                                                },
-                                            }}
-                                        />
+                                        </Space>
                                     ))}
-                                </Image.PreviewGroup>
-                            </div>
-                        )}
-                    </div>
+                                    <Form.Item>
+                                        <Button type="dashed" onClick={() => add()} block icon={<UploadOutlined />}>
+                                            添加掉落物品
+                                        </Button>
+                                    </Form.Item>
+                                </>
+                            )}
+                        </Form.List>
+                        <Form.Item label="擊殺截圖">
+                            <Upload
+                                listType="picture-card"
+                                fileList={fileList}
+                                onRemove={handleDeleteScreenshot}
+                                onChange={handleUploadChange}
+                                beforeUpload={() => false} // 阻止自動上傳
+                            >
+                                {fileList.length >= 8 ? null : (
+                                    <div>
+                                        <UploadOutlined />
+                                        <div style={{ marginTop: 8 }}>上傳</div>
+                                    </div>
+                                )}
+                            </Upload>
+                        </Form.Item>
+                    </Form>
                 ) : (
-                    <div>無數據</div>
+                    renderDetailView()
                 )}
-                <style jsx global>{`
-                    .ant-image .ant-image-mask {
-                        position: static !important;
+            </Spin>
+
+            <style jsx global>{`
+                .ant-modal-body {
+                    padding: 16px;
+                }
+                .ant-descriptions-item-label {
+                    width: 150px;
+                    background: #f5f5f5;
+                    font-weight: 500;
+                    font-size: 12px;
+                    padding: 4px 8px;
+                }
+                .ant-descriptions-item-content {
+                    background: #fff;
+                    font-size: 12px;
+                    padding: 4px 8px;
+                }
+                .ant-tag {
+                    padding: 2px 6px;
+                    font-size: 11px;
+                }
+                @media (max-width: 768px) {
+                    .ant-modal-body {
+                        padding: 12px;
                     }
                     .ant-descriptions-item-label {
-                        background-color: #f5f5f5;
-                        padding: 8px 16px;
+                        width: 80px;
+                        font-size: 11px;
+                        padding: 2px 4px;
                     }
                     .ant-descriptions-item-content {
-                        padding: 8px 16px;
+                        font-size: 11px;
+                        padding: 2px 4px;
                     }
-                `}</style>
-            </Spin>
+                    .ant-tag {
+                        padding: 1px 4px;
+                        font-size: 10px;
+                    }
+                    .ant-modal-content {
+                        top: 5px;
+                    }
+                }
+            `}</style>
         </Modal>
     );
 };

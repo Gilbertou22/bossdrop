@@ -31,6 +31,10 @@ const BossKillSchema = new mongoose.Schema({
         required: true,
     },
     itemHolder: { type: String }, // 新增字段：物品持有人
+    dkpDistributed: {
+        type: Boolean,
+        default: false, // 是否已分配 DKP 點數
+    },
 }, {
     strictPopulate: false, // 臨時禁用嚴格填充檢查
 });

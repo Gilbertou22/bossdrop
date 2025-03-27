@@ -1,14 +1,35 @@
+// models/BossKill.js
 const mongoose = require('mongoose');
 
 const BossKillSchema = new mongoose.Schema({
-    boss_name: { type: String, required: true },
-    kill_time: { type: Date, required: true },
+    bossId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Boss', // 參考 Boss 表
+        required: true,
+    },
+    kill_time: {
+        type: Date,
+        required: true,
+    },
     dropped_items: [
         {
             _id: { type: mongoose.Schema.Types.ObjectId, default: () => new mongoose.Types.ObjectId() },
             name: { type: String, required: true },
             type: { type: String, enum: ['equipment', 'skill'], required: true },
             apply_deadline: { type: Date, required: true },
+            level: {
+                type: mongoose.Schema.Types.ObjectId,
+                ref: 'ItemLevel', // 參考 ItemLevel 表
+            },
+            final_recipient: {
+                type: String,
+                default: null, // 最終分配者
+            },
+            status: {
+                type: String,
+                enum: ['pending', 'assigned', 'expired'],
+                default: 'pending', // 物品狀態
+            },
         },
     ],
     attendees: {
@@ -25,12 +46,12 @@ const BossKillSchema = new mongoose.Schema({
     final_recipient: { type: String, default: null },
     status: { type: String, enum: ['pending', 'assigned', 'expired'], default: 'pending' },
     created_at: { type: Date, default: Date.now },
-    userId: { // 添加 userId 字段
+    userId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User',
         required: true,
     },
-    itemHolder: { type: String }, // 新增字段：物品持有人
+    itemHolder: { type: String },
     dkpDistributed: {
         type: Boolean,
         default: false, // 是否已分配 DKP 點數
@@ -58,7 +79,6 @@ BossKillSchema.pre('save', function (next) {
             _id: item._id || new mongoose.Types.ObjectId(),
         }));
     }
-    // 確保 userId 已設置（例如從 req.user.id）
     if (this.isNew && !this.userId) {
         return next(new Error('userId 是必填字段'));
     }

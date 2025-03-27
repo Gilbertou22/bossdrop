@@ -47,6 +47,8 @@ app.use('/api/wallet', require('./routes/wallet'));
 console.log('Wallet route loaded');
 app.use('/api/dkp', require('./routes/dkp'));
 console.log('DKP route loaded');
+app.use('/api/item-levels', require('./routes/item-levels'));
+console.log('ItemLevels route loaded');
 
 
 try {

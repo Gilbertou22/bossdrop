@@ -1,9 +1,10 @@
+// pages/ApproveApplications.js
 import React, { useState, useEffect } from 'react';
 import { Table, Button, message, Popconfirm, Card, Spin, Alert, Tag, Input, Select } from 'antd';
 import { SearchOutlined, CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons';
 import axios from 'axios';
 import moment from 'moment';
-import logger from '../utils/logger'; // 引入前端日誌工具
+import logger from '../utils/logger';
 
 const { Search } = Input;
 const { Option } = Select;
@@ -54,12 +55,12 @@ const ApproveApplications = () => {
                 status: filters.status === 'all' ? undefined : filters.status,
                 search: filters.search || undefined,
             };
-            console.log('Fetching applications with params:', params); // 調試參數
+            console.log('Fetching applications with params:', params);
             const res = await axios.get(`${BASE_URL}/api/applications`, {
                 headers: { 'x-auth-token': token },
                 params,
             });
-            console.log('Fetched applications data:', res.data); // 調試返回數據
+            console.log('Fetched applications data:', res.data);
             setApplications(res.data);
         } catch (err) {
             console.error('Fetch applications error:', err.response?.data || err);
@@ -136,7 +137,7 @@ const ApproveApplications = () => {
             title: '擊殺記錄',
             dataIndex: 'kill_id',
             key: 'kill_id',
-            render: (kill) => `${kill?.boss_name || '未知'} - ${moment(kill?.kill_time).format('YYYY-MM-DD HH:mm') || '無時間'}`,
+            render: (kill) => `${kill?.bossId?.name || '未知'} - ${moment(kill?.kill_time).format('YYYY-MM-DD HH:mm') || '無時間'}`,
             width: 200,
         },
         {

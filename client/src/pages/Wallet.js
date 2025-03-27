@@ -1,21 +1,23 @@
+// pages/Wallet.js
 import React, { useState, useEffect, useCallback } from 'react';
-import { Table, Tag, Card, message, Select, DatePicker, Button, Space, Modal, Descriptions, Image } from 'antd';
+import { Table, Tag, Card, message, Select, DatePicker, Button, Space, Modal, Descriptions, Image, Row, Col, Tabs } from 'antd';
 import axios from 'axios';
 import moment from 'moment';
 import logger from '../utils/logger';
 import formatNumber from '../utils/formatNumber';
-import { DownloadOutlined, EyeOutlined, ClockCircleOutlined, SwapOutlined, DollarOutlined, AppstoreOutlined, UserOutlined, CalendarOutlined, GiftOutlined, TagOutlined } from '@ant-design/icons';
+import { DownloadOutlined, EyeOutlined, ClockCircleOutlined, SwapOutlined, DollarOutlined, AppstoreOutlined, UserOutlined, CalendarOutlined, GiftOutlined, TagOutlined, FilterOutlined, WalletOutlined, LineChartOutlined } from '@ant-design/icons';
 import Papa from 'papaparse';
+import CountUp from 'react-countup';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 const { Option } = Select;
 const { RangePicker } = DatePicker;
+const { TabPane } = Tabs;
 
 const BASE_URL = 'http://localhost:5000';
 
-// 簡單的正則表達式，用於驗證 MongoDB ObjectId（24 位十六進制字符串）
 const isValidObjectId = (id) => /^[0-9a-fA-F]{24}$/.test(id);
 
-// 定義 colorMapping，與 KillDetailModal.js 保持一致
 const colorMapping = {
     '白色': '#f0f0f0',
     '綠色': '#00cc00',
@@ -30,14 +32,17 @@ const Wallet = () => {
     const [pagination, setPagination] = useState({ current: 1, pageSize: 10, total: 0 });
     const [loading, setLoading] = useState(false);
     const [diamonds, setDiamonds] = useState(0);
-    const [dkpPoints, setDkpPoints] = useState(0); // 新增 DKP 總點數
+    const [dkpPoints, setDkpPoints] = useState(0);
     const [filters, setFilters] = useState({
         type: null,
         dateRange: null,
+        source: null, // 新增來源篩選
     });
     const [modalVisible, setModalVisible] = useState(false);
     const [selectedTransaction, setSelectedTransaction] = useState(null);
     const [auctionDetails, setAuctionDetails] = useState(null);
+    const [trendData, setTrendData] = useState([]);
+    const [trendRange, setTrendRange] = useState('all'); // 趨勢圖時間範圍
 
     const fetchUserInfo = useCallback(async () => {
         try {
@@ -46,7 +51,6 @@ const Wallet = () => {
             });
             setDiamonds(res.data.diamonds || 0);
 
-            // 獲取 DKP 總點數
             const dkpRes = await axios.get(`${BASE_URL}/api/dkp/stats`, {
                 headers: { 'x-auth-token': localStorage.getItem('token') },
             });
@@ -64,6 +68,7 @@ const Wallet = () => {
                 page,
                 pageSize,
                 type: filters.type,
+                source: filters.source,
                 startDate: filters.dateRange ? filters.dateRange[0].toISOString() : null,
                 endDate: filters.dateRange ? filters.dateRange[1].toISOString() : null,
                 sortBy: 'timestamp',
@@ -75,13 +80,23 @@ const Wallet = () => {
             });
             setTransactions(res.data.transactions);
             setPagination(res.data.pagination);
+
+            const trend = res.data.transactions.reduce((acc, transaction) => {
+                const date = moment(transaction.timestamp).format('YYYY-MM-DD');
+                const lastEntry = acc.length > 0 ? acc[acc.length - 1] : { diamonds: diamonds, dkpPoints: dkpPoints };
+                const newDiamonds = transaction.source !== 'dkp' ? lastEntry.diamonds + transaction.amount : lastEntry.diamonds;
+                const newDkpPoints = transaction.source === 'dkp' ? lastEntry.dkpPoints + transaction.amount : lastEntry.dkpPoints;
+                acc.push({ date, diamonds: newDiamonds, dkpPoints: newDkpPoints });
+                return acc;
+            }, []);
+            setTrendData(trend);
         } catch (err) {
             logger.error('Fetch wallet transactions error', { error: err.message, stack: err.stack });
             message.error('無法獲取錢包記錄');
         } finally {
             setLoading(false);
         }
-    }, [filters]);
+    }, [filters, diamonds, dkpPoints]);
 
     useEffect(() => {
         fetchUserInfo();
@@ -92,7 +107,8 @@ const Wallet = () => {
         fetchTransactions(pagination.current, pagination.pageSize);
     };
 
-    const handleFilterChange = () => {
+    const handleFilterChange = (field, value) => {
+        setFilters(prev => ({ ...prev, [field]: value }));
         fetchTransactions(1, pagination.pageSize);
     };
 
@@ -100,6 +116,7 @@ const Wallet = () => {
         try {
             const params = {
                 type: filters.type,
+                source: filters.source,
                 startDate: filters.dateRange ? filters.dateRange[0].toISOString() : null,
                 endDate: filters.dateRange ? filters.dateRange[1].toISOString() : null,
             };
@@ -111,8 +128,8 @@ const Wallet = () => {
             const data = res.data.transactions.map((transaction) => ({
                 時間: moment(transaction.timestamp).format('YYYY-MM-DD HH:mm:ss'),
                 類型: transaction.type === 'income' ? '收入' : '支出',
-                異動: `${transaction.amount > 0 ? '▲' : '▼'}${formatNumber(Math.abs(transaction.amount))} 💎`,
-                來源: transaction.source === 'auction' ? '拍賣' : transaction.source === 'recharge' ? '充值' : '系統',
+                異動: `${transaction.amount > 0 ? '▲' : '▼'}${formatNumber(Math.abs(transaction.amount))} ${transaction.source === 'dkp' ? '' : '💎'}`,
+                來源: transaction.source === 'auction' ? '拍賣' : transaction.source === 'recharge' ? '充值' : transaction.source === 'system' ? '系統' : transaction.source === 'dkp' ? 'DKP' : '未知',
                 描述: transaction.description,
             }));
 
@@ -162,6 +179,19 @@ const Wallet = () => {
         setModalVisible(true);
     };
 
+    const handleTrendRangeChange = (value) => {
+        setTrendRange(value);
+        const filteredTrendData = trendData.filter(data => {
+            if (value === '7d') {
+                return moment(data.date).isAfter(moment().subtract(7, 'days'));
+            } else if (value === '30d') {
+                return moment(data.date).isAfter(moment().subtract(30, 'days'));
+            }
+            return true;
+        });
+        setTrendData(filteredTrendData);
+    };
+
     const columns = [
         {
             title: '時間',
@@ -175,11 +205,25 @@ const Wallet = () => {
             dataIndex: 'amount',
             key: 'amount',
             sorter: (a, b) => a.amount - b.amount,
-            render: (amount) => (
+            render: (amount, record) => (
                 <span style={{ color: amount > 0 ? '#52c41a' : '#ff4d4f' }}>
-                    {amount > 0 ? '▲' : '▼'} {formatNumber(Math.abs(amount))}
+                    {amount > 0 ? '▲' : '▼'} {formatNumber(Math.abs(amount))} {record.source === 'dkp' ? '' : '💎'}
                 </span>
             ),
+        },
+        {
+            title: '來源',
+            dataIndex: 'source',
+            key: 'source',
+            render: (source) => {
+                const sourceMap = {
+                    auction: '拍賣',
+                    recharge: '充值',
+                    system: '系統',
+                    dkp: 'DKP',
+                };
+                return sourceMap[source] || source;
+            },
         },
         {
             title: '備註',
@@ -194,6 +238,7 @@ const Wallet = () => {
                     type="link"
                     icon={<EyeOutlined />}
                     onClick={() => handleViewDetails(record)}
+                    className="view-details-btn"
                 >
                     查看
                 </Button>
@@ -203,35 +248,105 @@ const Wallet = () => {
 
     return (
         <div className="wallet-container">
-            <Card title="個人錢包" className="wallet-balance-card">
-                <h3>當前餘額：{formatNumber(diamonds)} 💎</h3>
-                <h3>DKP 總點數：{dkpPoints}</h3> {/* 顯示 DKP 總點數 */}
+            <Card className="wallet-balance-card">
+                <Row gutter={[16, 16]} align="middle">
+                    <Col xs={24} sm={12}>
+                        <div className="balance-section">
+                            <WalletOutlined style={{ fontSize: '32px', color: '#1890ff', marginRight: '16px' }} />
+                            <div>
+                                <h3>當前餘額</h3>
+                                <h2 className="balance-value">
+                                    <CountUp end={diamonds} duration={1.5} separator="," /> 💎
+                                </h2>
+                            </div>
+                        </div>
+                    </Col>
+                    <Col xs={24} sm={12}>
+                        <div className="balance-section">
+                            <DollarOutlined style={{ fontSize: '32px', color: '#fa8c16', marginRight: '16px' }} />
+                            <div>
+                                <h3>DKP 總點數</h3>
+                                <h2 className="balance-value">
+                                    <CountUp end={dkpPoints} duration={1.5} separator="," />
+                                </h2>
+                            </div>
+                        </div>
+                    </Col>
+                </Row>
             </Card>
-            <Card className="wallet-filter-card">
-                <Space direction="vertical" style={{ width: '100%' }}>
-                    <Space wrap>
+
+            <Card className="wallet-trend-card">
+                <Row gutter={[16, 16]} align="middle">
+                    <Col xs={24} sm={6}>
                         <Select
-                            placeholder="篩選類型"
-                            style={{ width: 120 }}
-                            allowClear
-                            onChange={(value) => setFilters({ ...filters, type: value })}
+                            placeholder="趨勢範圍"
+                            style={{ width: '100%' }}
+                            onChange={handleTrendRangeChange}
+                            defaultValue="all"
                         >
-                            <Option value="income">收入</Option>
-                            <Option value="expense">支出</Option>
+                            <Option value="all">全部</Option>
+                            <Option value="7d">最近 7 天</Option>
+                            <Option value="30d">最近 30 天</Option>
                         </Select>
-                        <RangePicker
-                            onChange={(dates) => setFilters({ ...filters, dateRange: dates })}
-                            style={{ width: 240 }}
-                        />
-                        <Button type="primary" onClick={handleFilterChange}>
-                            篩選
-                        </Button>
-                        <Button icon={<DownloadOutlined />} onClick={handleExportCSV}>
-                            導出 CSV
-                        </Button>
-                    </Space>
+                    </Col>
+                    <Col xs={24} sm={18}>
+                        <h3 style={{ fontSize: '16px', marginBottom: '16px', color: '#1890ff' }}>
+                            <LineChartOutlined style={{ marginRight: '8px' }} /> 餘額與 DKP 趨勢
+                        </h3>
+                        <ResponsiveContainer width="100%" height={200}>
+                            <LineChart data={trendData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                                <CartesianGrid strokeDasharray="3 3" />
+                                <XAxis dataKey="date" />
+                                <YAxis />
+                                <Tooltip />
+                                <Legend />
+                                <Line type="monotone" dataKey="diamonds" name="餘額 (💎)" stroke="#1890ff" activeDot={{ r: 8 }} />
+                                <Line type="monotone" dataKey="dkpPoints" name="DKP 點數" stroke="#fa8c16" />
+                            </LineChart>
+                        </ResponsiveContainer>
+                    </Col>
+                </Row>
+            </Card>
+
+            <Card className="wallet-filter-card">
+                <Space wrap>
+                    <Select
+                        placeholder="篩選類型"
+                        style={{ width: 120 }}
+                        allowClear
+                        onChange={(value) => handleFilterChange('type', value)}
+                        prefix={<FilterOutlined />}
+                    >
+                        <Option value="income">收入</Option>
+                        <Option value="expense">支出</Option>
+                    </Select>
+                    <Select
+                        placeholder="篩選來源"
+                        style={{ width: 120 }}
+                        allowClear
+                        onChange={(value) => handleFilterChange('source', value)}
+                        prefix={<FilterOutlined />}
+                    >
+                        <Option value="auction">拍賣</Option>
+                        <Option value="recharge">充值</Option>
+                        <Option value="system">系統</Option>
+                        <Option value="dkp">DKP</Option>
+                    </Select>
+                    <RangePicker
+                        onChange={(dates) => handleFilterChange('dateRange', dates)}
+                        style={{ width: 240 }}
+                    />
+                    <Button
+                        type="primary"
+                        icon={<DownloadOutlined />}
+                        onClick={handleExportCSV}
+                        className="export-btn"
+                    >
+                        導出 CSV
+                    </Button>
                 </Space>
             </Card>
+
             <Table
                 columns={columns}
                 dataSource={transactions}
@@ -247,6 +362,10 @@ const Wallet = () => {
                 loading={loading}
                 onChange={handleTableChange}
                 className="wallet-table"
+                onRow={(record) => ({
+                    onClick: () => handleViewDetails(record),
+                    className: 'clickable-row',
+                })}
             />
 
             <Modal
@@ -258,36 +377,42 @@ const Wallet = () => {
                         關閉
                     </Button>,
                 ]}
-                width={600}
+                width={700}
             >
                 {selectedTransaction && (
-                    <div>
-                        <h3 style={{ fontSize: '16px', marginBottom: '16px', color: '#1890ff' }}>交易信息</h3>
-                        <Descriptions column={1} bordered size="small">
-                            <Descriptions.Item label={<span><ClockCircleOutlined style={{ marginRight: 8 }} />時間</span>}>
-                                {moment(selectedTransaction.timestamp).format('YYYY-MM-DD HH:mm:ss')}
-                            </Descriptions.Item>
-                            <Descriptions.Item label={<span><SwapOutlined style={{ marginRight: 8 }} />類型</span>}>
-                                <Tag color={selectedTransaction.type === 'income' ? 'green' : 'red'}>
-                                    {selectedTransaction.type === 'income' ? '收入' : '支出'}
-                                </Tag>
-                            </Descriptions.Item>
-                            <Descriptions.Item label={<span><DollarOutlined style={{ marginRight: 8 }} />異動</span>}>
-                                <span style={{ color: selectedTransaction.amount > 0 ? '#52c41a' : '#ff4d4f' }}>
-                                    {selectedTransaction.amount > 0 ? '▲' : '▼'} {formatNumber(Math.abs(selectedTransaction.amount))} 💎
-                                </span>
-                            </Descriptions.Item>
-                            <Descriptions.Item label={<span><AppstoreOutlined style={{ marginRight: 8 }} />來源</span>}>
-                                {selectedTransaction.source === 'auction' ? '拍賣' : selectedTransaction.source === 'recharge' ? '充值' : '系統'}
-                            </Descriptions.Item>
-                            <Descriptions.Item label={<span><TagOutlined style={{ marginRight: 8 }} />描述</span>}>
-                                {selectedTransaction.description}
-                            </Descriptions.Item>
-                        </Descriptions>
+                    <Tabs defaultActiveKey="transaction" className="transaction-tabs">
+                        <TabPane
+                            tab={<span><SwapOutlined style={{ marginRight: 8 }} />交易信息</span>}
+                            key="transaction"
+                        >
+                            <Descriptions column={1} bordered size="small">
+                                <Descriptions.Item label={<span><ClockCircleOutlined style={{ marginRight: 8 }} />時間</span>}>
+                                    {moment(selectedTransaction.timestamp).format('YYYY-MM-DD HH:mm:ss')}
+                                </Descriptions.Item>
+                                <Descriptions.Item label={<span><SwapOutlined style={{ marginRight: 8 }} />類型</span>}>
+                                    <Tag color={selectedTransaction.type === 'income' ? 'green' : 'red'}>
+                                        {selectedTransaction.type === 'income' ? '收入' : '支出'}
+                                    </Tag>
+                                </Descriptions.Item>
+                                <Descriptions.Item label={<span><DollarOutlined style={{ marginRight: 8 }} />異動</span>}>
+                                    <span style={{ color: selectedTransaction.amount > 0 ? '#52c41a' : '#ff4d4f' }}>
+                                        {selectedTransaction.amount > 0 ? '▲' : '▼'} {formatNumber(Math.abs(selectedTransaction.amount))} {selectedTransaction.source === 'dkp' ? 'DKP' : '💎'}
+                                    </span>
+                                </Descriptions.Item>
+                                <Descriptions.Item label={<span><AppstoreOutlined style={{ marginRight: 8 }} />來源</span>}>
+                                    {selectedTransaction.source === 'auction' ? '拍賣' : selectedTransaction.source === 'recharge' ? '充值' : selectedTransaction.source === 'system' ? '系統' : selectedTransaction.source === 'dkp' ? 'DKP' : '未知'}
+                                </Descriptions.Item>
+                                <Descriptions.Item label={<span><TagOutlined style={{ marginRight: 8 }} />描述</span>}>
+                                    {selectedTransaction.description}
+                                </Descriptions.Item>
+                            </Descriptions>
+                        </TabPane>
 
                         {selectedTransaction.source === 'auction' && auctionDetails && (
-                            <>
-                                <h3 style={{ fontSize: '16px', margin: '24px 0 16px', color: '#1890ff' }}>拍賣詳情</h3>
+                            <TabPane
+                                tab={<span><GiftOutlined style={{ marginRight: 8 }} />拍賣詳情</span>}
+                                key="auction"
+                            >
                                 <div style={{ border: '1px solid #e8e8e8', borderRadius: '8px', padding: '16px', background: '#fafafa' }}>
                                     {auctionDetails.imageUrl && (
                                         <div style={{ marginBottom: '16px', textAlign: 'center' }}>
@@ -347,62 +472,134 @@ const Wallet = () => {
                                         </Descriptions.Item>
                                     </Descriptions>
                                 </div>
-                            </>
+                            </TabPane>
                         )}
-                    </div>
+                    </Tabs>
                 )}
             </Modal>
 
             <style jsx global>{`
                 .wallet-container {
-                    padding: 20px;
+                    padding: 24px;
                     background: #f5f5f5;
                     min-height: 100vh;
                 }
                 .wallet-balance-card {
-                    margin-bottom: 20px;
-                    border-radius: 8px;
-                    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-                    background: #fff;
+                    margin-bottom: 24px;
+                    border-radius: 12px;
+                    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+                    background: linear-gradient(135deg, #ffffff, #f0f4f8);
+                    padding: 24px;
+                    transition: transform 0.3s ease;
                 }
-                .wallet-balance-card h3 {
-                    font-size: 24px;
+                .wallet-balance-card:hover {
+                    transform: translateY(-4px);
+                }
+                .balance-section {
+                    display: flex;
+                    align-items: center;
+                }
+                .balance-value {
+                    font-size: 28px;
+                    font-weight: bold;
                     color: #1890ff;
+                }
+                .balance-section h3 {
+                    font-size: 16px;
+                    color: #666;
                     margin: 0;
                 }
-                .wallet-filter-card {
-                    margin-bottom: 20px;
-                    border-radius: 8px;
-                    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+                .wallet-trend-card {
+                    margin-bottom: 24px;
+                    border-radius: 12px;
+                    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
                     background: #fff;
+                    padding: 16px;
+                }
+                .wallet-filter-card {
+                    margin-bottom: 24px;
+                    border-radius: 12px;
+                    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+                    background: #fff;
+                    padding: 16px;
                 }
                 .wallet-table {
                     background: #fff;
-                    border-radius: 8px;
-                    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+                    border-radius: 12px;
+                    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
                 }
                 .wallet-table .ant-table-tbody > tr > td {
-                    padding: 8px !important;
-                    line-height: 1.2 !important;
+                    padding: 12px !important;
+                    line-height: 1.5 !important;
+                    transition: background-color 0.3s ease;
                 }
                 .wallet-table .ant-table-thead > tr > th {
-                    padding: 8px !important;
+                    padding: 12px !important;
                     background: #e8e8e8 !important;
                     font-weight: bold;
+                    color: #333;
                 }
                 .wallet-table .ant-table-row {
-                    height: 40px !important;
+                    transition: background-color 0.3s ease;
+                }
+                .wallet-table .ant-table-row:hover {
+                    background-color: #f0f4f8 !important;
+                }
+                .clickable-row {
+                    cursor: pointer;
+                }
+                .view-details-btn {
+                    transition: transform 0.3s ease;
+                }
+                .view-details-btn:hover {
+                    transform: scale(1.1);
+                }
+                .export-btn {
+                    transition: transform 0.3s ease;
+                }
+                .export-btn:hover {
+                    transform: scale(1.05);
                 }
                 .ant-modal-body {
                     padding: 24px;
                 }
                 .ant-descriptions-item-label {
-                    width: 120px;
+                    width: 150px;
                     background: #f5f5f5;
                     font-weight: 500;
                 }
                 .ant-descriptions-item-content {
                     background: #fff;
+                }
+                .transaction-tabs .ant-tabs-tab {
+                    font-size: 14px;
+                    padding: 8px 16px;
+                    transition: all 0.3s ease;
+                }
+                .transaction-tabs .ant-tabs-tab:hover {
+                    color: #1890ff;
+                }
+                .transaction-tabs .ant-tabs-tab-active {
+                    font-weight: bold;
+                    color: #1890ff;
+                }
+                .transaction-tabs .ant-tabs-ink-bar {
+                    background: #1890ff;
+                }
+                @media (max-width: 768px) {
+                    .wallet-container {
+                        padding: 16px;
+                    }
+                    .wallet-balance-card {
+                        padding: 16px;
+                    }
+                    .balance-value {
+                        font-size: 24px;
+                    }
+                    .wallet-table .ant-table-tbody > tr > td,
+                    .wallet-table .ant-table-thead > tr > th {
+                        padding: 8px !important;
+                    }
                 }
             `}</style>
         </div>

@@ -69,7 +69,7 @@ router.get('/auctionable', auth, async (req, res) => {
     try {
         const query = {
             status: 'expired',
-            final_recipient: null,
+            'dropped_items.final_recipient': null,
         };
         console.log('Initial Query:', JSON.stringify(query, null, 2));
 
@@ -78,17 +78,22 @@ router.get('/auctionable', auth, async (req, res) => {
 
         const auctionableBossKills = await BossKill.find({
             ...query,
-            _id: { $nin: existingAuctions },
-        }).select('_id dropped_items');
+            'dropped_items._id': { $nin: existingAuctions },
+        })
+            .populate('bossId', 'name')
+            .lean();
 
         console.log('Auctionable BossKills count:', auctionableBossKills.length, 'Data:', auctionableBossKills);
 
         const auctionableItems = auctionableBossKills.reduce((acc, bossKill) => {
-            const items = (bossKill.dropped_items || []).map(item => ({
-                _id: `${bossKill._id}_${item.name}`,
-                name: item.name,
-                bossKillId: bossKill._id,
-            }));
+            const items = (bossKill.dropped_items || [])
+                .filter(item => !item.final_recipient && !existingAuctions.includes(item._id.toString()))
+                .map(item => ({
+                    _id: item._id.toString(),
+                    name: item.name,
+                    bossKillId: bossKill._id.toString(),
+                    bossName: bossKill.bossId?.name || '未知首領',
+                }));
             return [...acc, ...items];
         }, []);
 
@@ -117,7 +122,7 @@ router.get('/', async (req, res) => {
             ];
         }
         const items = await Item.find(query)
-            .populate('level', 'level color') // 關聯查詢等級和顏色
+            .populate('level', 'level color')
             .lean();
         res.json(items);
     } catch (err) {

@@ -1,82 +1,81 @@
+// routes/wallet.js
 const express = require('express');
-const mongoose = require('mongoose');
 const router = express.Router();
-const { auth } = require('../middleware/auth');
 const WalletTransaction = require('../models/WalletTransaction');
-const logger = require('../logger');
+const DKPRecord = require('../models/DKPRecord');
+const { auth } = require('../middleware/auth');
+const moment = require('moment');
 
-// 記錄一筆收支
-router.post('/transactions', auth, async (req, res) => {
-    const { userId, amount, type, source, description, auctionId } = req.body;
-    try {
-        // 驗證請求數據
-        if (!userId || !amount || !type || !source) {
-            return res.status(400).json({
-                code: 400,
-                msg: '缺少必要字段',
-                detail: 'userId, amount, type 和 source 為必填字段',
-            });
-        }
-        if (!['income', 'expense'].includes(type)) {
-            return res.status(400).json({
-                code: 400,
-                msg: '無效的類型',
-                detail: 'type 必須為 income 或 expense',
-            });
-        }
-
-        const transaction = new WalletTransaction({
-            userId,
-            amount,
-            type,
-            source,
-            description,
-            auctionId,
-        });
-        await transaction.save();
-
-        logger.info('Wallet transaction created', { userId, amount, type, source, auctionId });
-        res.status(201).json({
-            code: 201,
-            msg: '錢包記錄已創建',
-            transaction,
-        });
-    } catch (err) {
-        logger.error('Error creating wallet transaction', { error: err.message, stack: err.stack });
-        res.status(500).json({
-            code: 500,
-            msg: '創建錢包記錄失敗',
-            detail: err.message,
-        });
-    }
-});
-
-// 獲取錢包交易記錄
 router.get('/transactions', auth, async (req, res) => {
-    const { page = 1, pageSize = 10, type, startDate, endDate, sortBy = 'timestamp', sortOrder = 'desc' } = req.query;
     try {
-        const query = { userId: req.user.id };
-        if (type) query.type = type;
-        if (startDate && endDate) {
-            query.timestamp = { $gte: new Date(startDate), $lte: new Date(endDate) };
+        const { page = 1, pageSize = 10, type, source, startDate, endDate, sortBy = 'timestamp', sortOrder = 'desc' } = req.query;
+
+        // 查詢條件
+        const walletQuery = { userId: req.user.id };
+        const dkpQuery = { userId: req.user.id };
+
+        if (type) {
+            walletQuery.type = type;
+            dkpQuery.type = type;
+        }
+        if (source) {
+            walletQuery.source = source;
+            if (source !== 'dkp') {
+                dkpQuery.type = null; // 如果來源不是 DKP，則不查詢 DKP 記錄
+            }
+        }
+        if (startDate || endDate) {
+            walletQuery.timestamp = {};
+            dkpQuery.createdAt = {};
+            if (startDate) {
+                walletQuery.timestamp.$gte = new Date(startDate);
+                dkpQuery.createdAt.$gte = new Date(startDate);
+            }
+            if (endDate) {
+                walletQuery.timestamp.$lte = new Date(endDate);
+                dkpQuery.createdAt.$lte = new Date(endDate);
+            }
         }
 
-        const total = await WalletTransaction.countDocuments(query);
-        const transactions = await WalletTransaction.find(query)
-            .lean() // 使用 .lean() 將 Mongoose 文檔轉為普通 JavaScript 對象
+        // 查詢 WalletTransaction
+        const walletTransactions = await WalletTransaction.find(walletQuery)
             .sort({ [sortBy]: sortOrder === 'desc' ? -1 : 1 })
             .skip((page - 1) * pageSize)
-            .limit(parseInt(pageSize));
+            .limit(parseInt(pageSize))
+            .lean();
 
-        // 確保 auctionId 是字符串
-        const formattedTransactions = transactions.map(transaction => ({
-            ...transaction,
-            auctionId: transaction.auctionId ? transaction.auctionId.toString() : null,
+        // 查詢 DKPRecord
+        const dkpRecords = source && source !== 'dkp' ? [] : await DKPRecord.find(dkpQuery)
+            .sort({ [sortBy]: sortOrder === 'desc' ? -1 : 1 })
+            .skip((page - 1) * pageSize)
+            .limit(parseInt(pageSize))
+            .lean();
+
+        // 將 DKP 記錄轉換為錢包交易格式
+        const dkpTransactions = dkpRecords.map(record => ({
+            _id: record._id,
+            userId: record.userId,
+            amount: record.amount,
+            type: record.amount > 0 ? 'income' : 'expense',
+            source: 'dkp',
+            description: record.description,
+            timestamp: record.createdAt,
         }));
 
-        logger.info('Fetched wallet transactions', { userId: req.user.id, count: transactions.length });
+        // 合併交易記錄
+        const allTransactions = [...walletTransactions, ...dkpTransactions]
+            .sort((a, b) => {
+                const dateA = new Date(a.timestamp);
+                const dateB = new Date(b.timestamp);
+                return sortOrder === 'desc' ? dateB - dateA : dateA - dateB;
+            });
+
+        // 分頁處理
+        const total = await WalletTransaction.countDocuments(walletQuery) + await DKPRecord.countDocuments(dkpQuery);
+        const paginatedTransactions = allTransactions.slice((page - 1) * pageSize, page * pageSize);
+
         res.json({
-            transactions: formattedTransactions,
+            transactions: paginatedTransactions,
             pagination: {
                 current: parseInt(page),
                 pageSize: parseInt(pageSize),
@@ -84,43 +83,70 @@ router.get('/transactions', auth, async (req, res) => {
             },
         });
     } catch (err) {
-        logger.error('Error fetching wallet transactions', { userId: req.user.id, error: err.message, stack: err.stack });
-        res.status(500).json({ msg: '獲取錢包交易記錄失敗', error: err.message });
+        console.error('Error fetching wallet transactions:', err);
+        res.status(500).json({
+            code: 500,
+            msg: '無法獲取錢包記錄',
+            detail: err.message || '伺服器處理錯誤',
+            suggestion: '請稍後重試或聯繫管理員。',
+        });
     }
 });
 
-// 獲取所有錢包記錄（用於導出 CSV）
 router.get('/transactions/export', auth, async (req, res) => {
-    const userId = req.user.id;
-    const { type, startDate, endDate } = req.query;
-
     try {
-        const query = { userId };
-        if (type) query.type = type;
-        if (startDate && endDate) {
-            query.timestamp = { $gte: new Date(startDate), $lte: new Date(endDate) };
-        } else if (startDate) {
-            query.timestamp = { $gte: new Date(startDate) };
-        } else if (endDate) {
-            query.timestamp = { $lte: new Date(endDate) };
+        const { type, source, startDate, endDate } = req.query;
+
+        const walletQuery = { userId: req.user.id };
+        const dkpQuery = { userId: req.user.id };
+
+        if (type) {
+            walletQuery.type = type;
+            dkpQuery.type = type;
+        }
+        if (source) {
+            walletQuery.source = source;
+            if (source !== 'dkp') {
+                dkpQuery.type = null;
+            }
+        }
+        if (startDate || endDate) {
+            walletQuery.timestamp = {};
+            dkpQuery.createdAt = {};
+            if (startDate) {
+                walletQuery.timestamp.$gte = new Date(startDate);
+                dkpQuery.createdAt.$gte = new Date(startDate);
+            }
+            if (endDate) {
+                walletQuery.timestamp.$lte = new Date(endDate);
+                dkpQuery.createdAt.$lte = new Date(endDate);
+            }
         }
 
-        const transactions = await WalletTransaction.find(query)
-            .sort({ timestamp: -1 })
-            .lean()
-            .populate('auctionId', 'itemName');
+        const walletTransactions = await WalletTransaction.find(walletQuery).lean();
+        const dkpRecords = source && source !== 'dkp' ? [] : await DKPRecord.find(dkpQuery).lean();
 
-        logger.info('Exported wallet transactions', { userId, count: transactions.length });
-        res.json({
-            code: 200,
-            transactions,
-        });
+        const dkpTransactions = dkpRecords.map(record => ({
+            _id: record._id,
+            userId: record.userId,
+            amount: record.amount,
+            type: record.amount > 0 ? 'income' : 'expense',
+            source: 'dkp',
+            description: record.description,
+            timestamp: record.createdAt,
+        }));
+
+        const allTransactions = [...walletTransactions, ...dkpTransactions]
+            .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+        res.json({ transactions: allTransactions });
     } catch (err) {
-        logger.error('Error exporting wallet transactions', { userId, error: err.message, stack: err.stack });
+        console.error('Error exporting wallet transactions:', err);
         res.status(500).json({
             code: 500,
             msg: '導出錢包記錄失敗',
-            detail: err.message,
+            detail: err.message || '伺服器處理錯誤',
+            suggestion: '請稍後重試或聯繫管理員。',
         });
     }
 });

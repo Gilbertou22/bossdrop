@@ -1,15 +1,25 @@
 import React, { useState, useEffect } from 'react';
-import { Form, Button, Upload, AutoComplete, Select, message, DatePicker, Input, Row, Col, Alert, Spin, Card } from 'antd';
-import { UploadOutlined, UserOutlined } from '@ant-design/icons'; // 添加 UserOutlined
+import { Form, Button, Upload, Select, message, DatePicker, Input, Row, Col, Alert, Spin, Card } from 'antd';
+import { UploadOutlined, UserOutlined, PlusOutlined, DeleteOutlined } from '@ant-design/icons';
 import axios from 'axios';
 import moment from 'moment';
 import imageCompression from 'browser-image-compression';
-import logger from '../utils/logger'; // 引入前端日誌工具
+import logger from '../utils/logger';
 
 const { Option } = Select;
 const { TextArea } = Input;
 
 const BASE_URL = 'http://localhost:5000';
+
+// 與 Wallet.js 一致的顏色映射
+const colorMapping = {
+    '白色': '#f0f0f0',
+    '綠色': '#00cc00',
+    '藍色': '#1e90ff',
+    '紅色': '#EC3636',
+    '紫色': '#B931F3',
+    '金色': '#ffd700',
+};
 
 const BossKillForm = () => {
     const [fileList, setFileList] = useState([]);
@@ -17,8 +27,6 @@ const BossKillForm = () => {
     const [bosses, setBosses] = useState([]);
     const [items, setItems] = useState([]);
     const [users, setUsers] = useState([]);
-    const [bossOptions, setBossOptions] = useState([]);
-    const [itemOptions, setItemOptions] = useState([]);
     const [userOptions, setUserOptions] = useState([]);
     const [date, setDate] = useState(null);
     const [uploading, setUploading] = useState(false);
@@ -58,9 +66,10 @@ const BossKillForm = () => {
 
     const fetchBosses = async () => {
         try {
-            const res = await axios.get(`${BASE_URL}/api/bosses`);
+            const res = await axios.get(`${BASE_URL}/api/bosses`, {
+                headers: { 'x-auth-token': token },
+            });
             setBosses(res.data);
-            setBossOptions(res.data.map(boss => ({ value: boss.name })));
         } catch (err) {
             message.error('載入首領失敗');
         }
@@ -68,9 +77,10 @@ const BossKillForm = () => {
 
     const fetchItems = async () => {
         try {
-            const res = await axios.get(`${BASE_URL}/api/items`);
+            const res = await axios.get(`${BASE_URL}/api/items`, {
+                headers: { 'x-auth-token': token },
+            });
             setItems(res.data);
-            setItemOptions(res.data.map(item => ({ value: item.name, type: item.type })));
         } catch (err) {
             message.error('載入物品失敗');
         }
@@ -146,10 +156,10 @@ const BossKillForm = () => {
         }
 
         if (values.item_names && values.item_names.length > 0) {
-            const itemsText = values.item_names.join(', ');
+            const itemsText = values.item_names.map(item => item.name).join(', ');
             if (window.confirm(
                 `確認提交以下信息？\n\n` +
-                `- 首領名稱: ${values.boss_name}\n` +
+                `- 首領名稱: ${bosses.find(b => b._id === values.bossId)?.name || '未知'}\n` +
                 `- 擊殺時間: ${values.kill_time ? values.kill_time.format('YYYY-MM-DD HH:mm') : ''}\n` +
                 `- 掉落物品: ${itemsText}\n` +
                 `- 出席成員: ${Array.isArray(values.attendees) ? values.attendees.join(', ') : ''}\n` +
@@ -170,18 +180,26 @@ const BossKillForm = () => {
         const itemNames = values.item_names || [];
         const results = [];
 
-        for (const itemName of itemNames) {
+        for (const item of itemNames) {
+            const selectedItem = items.find(i => i.name === item.name);
+            if (!selectedItem) {
+                message.error(`未找到物品 ${item.name} 的等級信息`);
+                setLoading(false);
+                return;
+            }
+
             const formData = new FormData();
-            formData.append('boss_name', values.boss_name);
+            formData.append('bossId', values.bossId);
             formData.append('kill_time', values.kill_time.toISOString());
             const droppedItem = {
-                name: itemName,
-                type: items.find(i => i.name === itemName)?.type || 'equipment',
+                name: item.name,
+                type: selectedItem.type || 'equipment',
+                level: selectedItem.level,
             };
             formData.append('dropped_items', JSON.stringify([droppedItem]));
             const attendeesArray = Array.isArray(values.attendees) ? values.attendees : [];
             formData.append('attendees', JSON.stringify(attendeesArray));
-            formData.append('itemHolder', values.itemHolder || ''); // 添加 itemHolder
+            formData.append('itemHolder', values.itemHolder || '');
             fileList.forEach(file => formData.append('screenshots', file.originFileObj));
 
             try {
@@ -190,15 +208,25 @@ const BossKillForm = () => {
                     window.location.href = '/login';
                     return;
                 }
-                console.log(`Sending request for item: ${itemName}`);
+                console.log(`Sending request for item: ${item.name}`);
                 const res = await axios.post(`${BASE_URL}/api/boss-kills`, formData, {
                     headers: { 'x-auth-token': token, 'Content-Type': 'multipart/form-data' },
                 });
                 results.push(res.data);
-                console.log(`API response for ${itemName}:`, res.data);
+
+                // 自動分配 DKP 點數
+                const killId = res.data.results[0]?.kill_id;
+                if (killId) {
+                    await axios.post(`${BASE_URL}/api/dkp/distribute/${killId}`, {}, {
+                        headers: { 'x-auth-token': token },
+                    });
+                    console.log(`DKP distributed for killId: ${killId}`);
+                }
+
+                console.log(`API response for ${item.name}:`, res.data);
             } catch (err) {
-                console.error(`Submit error for ${itemName}:`, err);
-                message.error(`提交失敗 (${itemName}): ${err.response?.data?.msg || err.message}`);
+                console.error(`Submit error for ${item.name}:`, err);
+                message.error(`提交失敗 (${item.name}): ${err.response?.data?.msg || err.message}`);
                 if (err.response?.status === 401 || err.response?.status === 403) {
                     window.location.href = '/login';
                 }
@@ -206,7 +234,7 @@ const BossKillForm = () => {
         }
 
         if (results.length > 0) {
-            const successIds = results.map(r => r.kill_id).join(', ');
+            const successIds = results.map(r => r.results[0]?.kill_id).join(', ');
             alert(`擊殺記錄成功！ID: ${successIds}`);
             form.resetFields();
             setFileList([]);
@@ -239,20 +267,6 @@ const BossKillForm = () => {
         accept: 'image/jpeg,image/png',
     };
 
-    const handleBossSearch = (value) => {
-        const filteredOptions = bosses
-            .filter(boss => boss.name.toLowerCase().includes(value.toLowerCase()))
-            .map(boss => ({ value: boss.name }));
-        setBossOptions(filteredOptions);
-    };
-
-    const handleItemSearch = (value) => {
-        const filteredOptions = items
-            .filter(item => item.name.toLowerCase().includes(value.toLowerCase()))
-            .map(item => ({ value: item.name, type: item.type }));
-        setItemOptions(filteredOptions);
-    };
-
     const handleAttendeesChange = (value) => {
         if (value.includes('all')) {
             const allAttendees = userOptions.map(option => option.value);
@@ -261,6 +275,16 @@ const BossKillForm = () => {
             form.setFieldsValue({ attendees: value.filter(val => val !== 'all') });
         }
         console.log('Selected attendees:', value);
+    };
+
+    // 渲染物品選項，帶有顏色
+    const renderItemOption = (item) => {
+        const color = item.level?.color || '白色'; // 從 Item 表的 level 中獲取 color
+        return (
+            <Select.Option key={item.name} value={item.name}>
+                <span style={{ color: colorMapping[color] || '#000000' }}>{item.name}</span>
+            </Select.Option>
+        );
     };
 
     return (
@@ -292,18 +316,21 @@ const BossKillForm = () => {
                         <Row gutter={16}>
                             <Col xs={24} sm={12}>
                                 <Form.Item
-                                    name="boss_name"
+                                    name="bossId"
                                     label="首領名稱"
-                                    rules={[{ required: true, message: '請輸入或選擇首領名稱！' }]}
+                                    rules={[{ required: true, message: '請選擇首領！' }]}
                                     style={{ marginBottom: 16 }}
                                 >
-                                    <AutoComplete
-                                        options={bossOptions}
-                                        onSearch={handleBossSearch}
-                                        placeholder="輸入或選擇首領名稱"
-                                        autoComplete="off"
-                                        hasFeedback
-                                    />
+                                    <Select
+                                        placeholder="選擇首領"
+                                        allowClear
+                                    >
+                                        {bosses.map(boss => (
+                                            <Option key={boss._id} value={boss._id}>
+                                                {boss.name}
+                                            </Option>
+                                        ))}
+                                    </Select>
                                 </Form.Item>
                                 <Form.Item
                                     name="kill_time"
@@ -321,26 +348,47 @@ const BossKillForm = () => {
                                         disabledDate={(current) => current && current > moment().endOf('day')}
                                     />
                                 </Form.Item>
-                                <Form.Item
-                                    name="item_names"
-                                    label="掉落物品（多選）"
-                                    rules={[{ required: true, message: '請選擇至少一個掉落物品！' }]}
-                                    style={{ marginBottom: 16 }}
-                                >
-                                    <Select
-                                        mode="multiple"
-                                        allowClear
-                                        placeholder="請選擇掉落物品（可多選）"
-                                        onSearch={handleItemSearch}
-                                        onChange={(values) => {
-                                            values.forEach(value => {
-                                                const item = items.find(i => i.name === value);
-                                                if (!item) console.warn(`Item not found for value: ${value}`);
-                                            });
-                                        }}
-                                        options={itemOptions}
-                                    />
-                                </Form.Item>
+                                <Form.List name="item_names">
+                                    {(fields, { add, remove }) => (
+                                        <>
+                                            {fields.map(({ key, name, ...restField }) => (
+                                                <Row gutter={16} key={key} style={{ marginBottom: 16 }}>
+                                                    <Col xs={24} sm={22}>
+                                                        <Form.Item
+                                                            {...restField}
+                                                            name={[name, 'name']}
+                                                            rules={[{ required: true, message: '請選擇掉落物品！' }]}
+                                                        >
+                                                            <Select
+                                                                placeholder="選擇掉落物品"
+                                                                allowClear
+                                                            >
+                                                                {items.map(item => renderItemOption(item))}
+                                                            </Select>
+                                                        </Form.Item>
+                                                    </Col>
+                                                    <Col xs={24} sm={2}>
+                                                        <Button
+                                                            type="link"
+                                                            onClick={() => remove(name)}
+                                                            icon={<DeleteOutlined />}
+                                                        />
+                                                    </Col>
+                                                </Row>
+                                            ))}
+                                            <Form.Item>
+                                                <Button
+                                                    type="dashed"
+                                                    onClick={() => add()}
+                                                    block
+                                                    icon={<PlusOutlined />}
+                                                >
+                                                    添加掉落物品
+                                                </Button>
+                                            </Form.Item>
+                                        </>
+                                    )}
+                                </Form.List>
                             </Col>
                             <Col xs={24} sm={12}>
                                 <Form.Item
@@ -355,7 +403,6 @@ const BossKillForm = () => {
                                         style={{ width: '100%' }}
                                         placeholder="請選擇出席成員（可多選）"
                                         onChange={handleAttendeesChange}
-                                        value={form.getFieldValue('attendees')}
                                     >
                                         <Option key="all" value="all">
                                             選擇全部

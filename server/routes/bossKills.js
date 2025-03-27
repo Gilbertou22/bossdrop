@@ -1,3 +1,4 @@
+// routes/boss-kills.js
 const express = require('express');
 const mongoose = require('mongoose');
 const router = express.Router();
@@ -6,7 +7,11 @@ const Application = require('../models/Application');
 const Auction = require('../models/Auction');
 const Guild = require('../models/Guild');
 const Item = require('../models/Item');
-const ItemLevel = require('../models/ItemLevel'); // 引入 ItemLevel 模型
+const ItemLevel = require('../models/ItemLevel');
+const Boss = require('../models/Boss');
+const DKPRecord = require('../models/DKPRecord');
+const User = require('../models/User');
+const BossDKPSetting = require('../models/BossDKPSetting');
 const multer = require('multer');
 const { auth, adminOnly } = require('../middleware/auth');
 const logger = require('../logger');
@@ -21,10 +26,10 @@ const upload = multer({
 
 router.get('/', auth, async (req, res) => {
     try {
-        const { boss_name, start_time, end_time, status } = req.query;
+        const { bossId, start_time, end_time, status, page = 1, pageSize = 10 } = req.query;
         let query = {};
 
-        if (boss_name) query.boss_name = { $regex: boss_name, $options: 'i' };
+        if (bossId) query.bossId = bossId;
         if (start_time || end_time) {
             query.kill_time = {};
             if (start_time) query.kill_time.$gte = new Date(start_time);
@@ -33,17 +38,32 @@ router.get('/', auth, async (req, res) => {
         if (status) query.status = status;
 
         console.log('Querying boss kills with:', query);
-        const bossKills = await BossKill.find(query).lean();
+
+        // 計算總記錄數
+        const total = await BossKill.countDocuments(query);
+
+        // 分頁查詢
+        const bossKills = await BossKill.find(query)
+            .populate('bossId', 'name description difficulty')
+            .sort({ kill_time: -1 })
+            .skip((page - 1) * pageSize)
+            .limit(parseInt(pageSize))
+            .lean();
+
+        console.log('Fetched boss kills count:', bossKills.length);
+
+        // 檢查是否有 bossId 缺失的記錄
+        bossKills.forEach(kill => {
+            if (!kill.bossId) {
+                console.warn(`BossKill record missing bossId: ${kill._id}`);
+            } else if (!kill.bossId.name) {
+                console.warn(`Boss record missing name for bossId: ${kill.bossId._id}`);
+            }
+        });
 
         const guild = await Guild.findOne({ createdBy: req.user.id }).lean();
         const applyDeadlineHours = guild?.settings?.applyDeadlineHours || 48;
         const currentDate = new Date();
-
-        // 查找默認的 ItemLevel（'一般' 等級，'白色' 顏色）
-        const defaultItemLevel = await ItemLevel.findOne({ level: '一般', color: '白色' }).lean();
-        if (!defaultItemLevel) {
-            console.warn('Default ItemLevel (level: "一般", color: "白色") not found in database.');
-        }
 
         const enrichedKills = await Promise.all(bossKills.map(async kill => {
             const updatedItems = await Promise.all(kill.dropped_items.map(async item => {
@@ -56,10 +76,9 @@ router.get('/', auth, async (req, res) => {
                 const itemDoc = await Item.findOne({ name: item.name }).populate('level', 'level color').lean();
                 let level = itemDoc?.level || null;
 
-                // 如果 itemDoc 或 level 為 null，設置默認值
                 if (!itemDoc || !level) {
                     console.warn(`Item "${item.name}" (ID: ${item._id}) has no associated Item record or level. Using default level.`);
-                    level = defaultItemLevel || { level: '一般', color: '白色' };
+                    level = { level: '一般', color: '白色' };
                 }
 
                 return {
@@ -84,7 +103,14 @@ router.get('/', auth, async (req, res) => {
         }));
 
         console.log('Fetched boss kills:', enrichedKills.length);
-        res.json(enrichedKills);
+        res.json({
+            data: enrichedKills,
+            pagination: {
+                current: parseInt(page),
+                pageSize: parseInt(pageSize),
+                total,
+            },
+        });
     } catch (err) {
         console.error('Error fetching boss kills:', err);
         res.status(500).json({
@@ -98,26 +124,20 @@ router.get('/', auth, async (req, res) => {
 
 router.get('/:id', auth, async (req, res) => {
     try {
-        const kill = await BossKill.findById(req.params.id).lean();
+        const kill = await BossKill.findById(req.params.id)
+            .populate('bossId', 'name description difficulty')
+            .lean();
         if (!kill) {
             return res.status(404).json({ msg: '擊殺記錄不存在' });
         }
 
-        // 查找默認的 ItemLevel（'一般' 等級，'白色' 顏色）
-        const defaultItemLevel = await ItemLevel.findOne({ level: '一般', color: '白色' }).lean();
-        if (!defaultItemLevel) {
-            console.warn('Default ItemLevel (level: "一般", color: "白色") not found in database.');
-        }
-
-        // 處理 dropped_items 的 level 字段
         const updatedItems = await Promise.all(kill.dropped_items.map(async item => {
             const itemDoc = await Item.findOne({ name: item.name }).populate('level', 'level color').lean();
             let level = itemDoc?.level || null;
 
-            // 如果 itemDoc 或 level 為 null，設置默認值
             if (!itemDoc || !level) {
-                console.warn(`Item "${item.name}" (ID: ${item._id}) has no associated Item record or level. Using default level.`);
-                level = defaultItemLevel || { level: '一般', color: '白色' };
+                console.warn(`Item "${item.name}" (ID: ${item._id}) has no associated Item record or level.`);
+                level = { level: '一般', color: '白色' };
             }
 
             return {
@@ -147,15 +167,10 @@ router.get('/all', auth, adminOnly, async (req, res) => {
             .sort({ kill_time: -1 })
             .skip(skip)
             .limit(parseInt(limit))
+            .populate('bossId', 'name description difficulty')
             .lean();
 
         const total = await BossKill.countDocuments();
-
-        // 查找默認的 ItemLevel（'一般' 等級，'白色' 顏色）
-        const defaultItemLevel = await ItemLevel.findOne({ level: '一般', color: '白色' }).lean();
-        if (!defaultItemLevel) {
-            console.warn('Default ItemLevel (level: "一般", color: "白色") not found in database.');
-        }
 
         const enrichedKills = await Promise.all(bossKills.map(async (kill) => {
             const enrichedItems = await Promise.all(kill.dropped_items.map(async (item) => {
@@ -166,10 +181,9 @@ router.get('/all', auth, adminOnly, async (req, res) => {
                 const itemDoc = await Item.findOne({ name: item.name }).populate('level', 'level color').lean();
                 let level = itemDoc?.level || null;
 
-                // 如果 itemDoc 或 level 為 null，設置默認值
                 if (!itemDoc || !level) {
-                    console.warn(`Item "${item.name}" (ID: ${item._id}) has no associated Item record or level. Using default level.`);
-                    level = defaultItemLevel || { level: '一般', color: '白色' };
+                    console.warn(`Item "${item.name}" (ID: ${item._id}) has no associated Item record or level.`);
+                    level = { level: '一般', color: '白色' };
                 }
 
                 return {
@@ -226,7 +240,6 @@ router.put('/:id', auth, adminOnly, async (req, res) => {
         if (attendees) bossKill.attendees = attendees;
         if (itemHolder) bossKill.itemHolder = itemHolder;
 
-        // 更新 dropped_items（不涉及 status）
         if (dropped_items && Array.isArray(dropped_items)) {
             bossKill.dropped_items = bossKill.dropped_items.map(item => {
                 const updatedItem = dropped_items.find(di => (di._id || di.id) === (item._id || item.id));
@@ -273,13 +286,11 @@ router.put('/:killId/items/:itemId', auth, adminOnly, async (req, res) => {
 
         console.log('Before update - BossKill status:', bossKill.status);
 
-        // 直接更新頂層 status 為 expired
         bossKill.status = 'expired';
         await bossKill.save();
 
         console.log('After update - BossKill status:', bossKill.status);
 
-        // 重新查詢以確保返回最新數據
         const updatedBossKill = await BossKill.findById(req.params.killId).lean();
         console.log('Fetched updated bossKill:', updatedBossKill);
         res.json({ msg: '物品狀態更新成功', bossKill: updatedBossKill });
@@ -295,34 +306,40 @@ router.put('/:killId/items/:itemId', auth, adminOnly, async (req, res) => {
 });
 
 router.post('/', auth, adminOnly, upload.array('screenshots', 5), async (req, res) => {
-    const { boss_name, kill_time, dropped_items, attendees, final_recipient, status, apply_deadline_days, itemHolder } = req.body;
+    const { bossId, kill_time, dropped_items, attendees, final_recipient, status, apply_deadline_days, itemHolder } = req.body;
 
     try {
         const screenshots = req.files.map(file => file.path);
 
-        // 查找默認的 ItemLevel（'一般' 等級，'白色' 顏色）
-        const defaultItemLevel = await ItemLevel.findOne({ level: '一般', color: '白色' }).lean();
-        if (!defaultItemLevel) {
-            console.warn('Default ItemLevel (level: "一般", color: "白色") not found in database.');
-            return res.status(500).json({
-                code: 500,
-                msg: '無法找到默認物品等級',
-                suggestion: '請確保 ItemLevel 數據庫中存在 "一般" 等級（白色）。',
+        // 確認 bossId 存在
+        const boss = await Boss.findById(bossId);
+        if (!boss) {
+            return res.status(404).json({
+                code: 404,
+                msg: 'Boss 不存在',
+                suggestion: '請檢查 bossId 是否正確',
             });
         }
 
-        const items = JSON.parse(dropped_items).map(item => {
-            // 如果前端未傳遞 level，設置為默認值
-            const level = item.level ? new mongoose.Types.ObjectId(item.level) : defaultItemLevel._id;
+        let parsedItems = JSON.parse(dropped_items);
+        const items = await Promise.all(parsedItems.map(async item => {
+            const itemDoc = await Item.findOne({ name: item.name }).populate('level', 'level color').lean();
+            if (!itemDoc || !itemDoc.level) {
+                return res.status(400).json({
+                    code: 400,
+                    msg: `物品 ${item.name} 未找到或未定義等級`,
+                    suggestion: '請確保物品存在於 Item 表中且已設置等級',
+                });
+            }
             return {
                 _id: new mongoose.Types.ObjectId(),
                 name: item.name,
                 type: item.type,
                 apply_deadline: new Date(new Date(kill_time).getTime() + (apply_deadline_days || 7) * 24 * 60 * 60 * 1000),
                 final_recipient: null,
-                level,
+                level: itemDoc.level._id,
             };
-        });
+        }));
 
         let parsedAttendees = attendees;
         if (typeof attendees === 'string') {
@@ -349,7 +366,7 @@ router.post('/', auth, adminOnly, upload.array('screenshots', 5), async (req, re
         const results = [];
         for (const item of items) {
             const bossKill = new BossKill({
-                boss_name,
+                bossId,
                 kill_time,
                 dropped_items: [item],
                 attendees: parsedAttendees,
@@ -369,6 +386,135 @@ router.post('/', auth, adminOnly, upload.array('screenshots', 5), async (req, re
         res.status(500).json({
             code: 500,
             msg: '保存擊殺記錄失敗',
+            detail: err.message || '伺服器處理錯誤',
+            suggestion: '請稍後重試或聯繫管理員。',
+        });
+    }
+});
+
+router.post('/distribute/:killId', auth, adminOnly, async (req, res) => {
+    try {
+        const bossKill = await BossKill.findById(req.params.killId).populate('bossId');
+        if (!bossKill) {
+            return res.status(404).json({ msg: '擊殺記錄不存在' });
+        }
+
+        if (bossKill.dkpDistributed) {
+            return res.status(400).json({ msg: '該擊殺記錄已分配 DKP 點數' });
+        }
+
+        const setting = await BossDKPSetting.findOne({ bossId: bossKill.bossId._id });
+        if (!setting) {
+            return res.status(404).json({ msg: `未找到 ${bossKill.bossId.name} 的 DKP 設定` });
+        }
+
+        const dkpPoints = setting.dkpPoints;
+        const attendees = bossKill.attendees;
+
+        const dkpRecords = await Promise.all(attendees.map(async attendee => {
+            const user = await User.findOne({ character_name: attendee });
+            if (!user) {
+                console.warn(`User ${attendee} not found for DKP distribution.`);
+                return null;
+            }
+
+            user.dkpPoints = (user.dkpPoints || 0) + dkpPoints;
+            await user.save();
+
+            const dkpRecord = new DKPRecord({
+                userId: user._id,
+                amount: dkpPoints,
+                type: 'participation',
+                description: `參與討伐 ${bossKill.bossId.name}`,
+                bossKillId: bossKill._id,
+            });
+            await dkpRecord.save();
+
+            return dkpRecord;
+        }));
+
+        bossKill.dkpDistributed = true;
+        await bossKill.save();
+
+        res.json({ msg: 'DKP 點數分配成功', dkpRecords: dkpRecords.filter(record => record !== null) });
+    } catch (err) {
+        console.error('Error distributing DKP:', err);
+        res.status(500).json({ msg: 'DKP 點數分配失敗', error: err.message });
+    }
+});
+
+router.post('/batch-delete', auth, adminOnly, async (req, res) => {
+    try {
+        const { killIds } = req.body;
+        if (!Array.isArray(killIds) || killIds.length === 0) {
+            return res.status(400).json({
+                code: 400,
+                msg: '請提供有效的擊殺記錄 ID 陣列',
+                suggestion: '檢查 killIds 格式，例如 ["id1", "id2"]',
+            });
+        }
+
+        const invalidIds = killIds.filter(id => !mongoose.Types.ObjectId.isValid(id));
+        if (invalidIds.length > 0) {
+            return res.status(400).json({
+                code: 400,
+                msg: '包含無效的擊殺記錄 ID',
+                detail: `無效的 ID: ${invalidIds.join(', ')}`,
+                suggestion: '請提供有效的 ObjectId',
+            });
+        }
+
+        const result = await BossKill.deleteMany({ _id: { $in: killIds } });
+        res.json({ msg: '批量刪除成功', deletedCount: result.deletedCount });
+    } catch (err) {
+        console.error('Batch delete boss kills error:', err);
+        res.status(500).json({
+            code: 500,
+            msg: '批量刪除擊殺記錄失敗',
+            detail: err.message || '伺服器處理錯誤',
+            suggestion: '請稍後重試或聯繫管理員。',
+        });
+    }
+});
+
+router.post('/batch-set-expired', auth, adminOnly, async (req, res) => {
+    try {
+        const { items } = req.body; // 格式: [{ killId: "id1", itemId: "item1" }, ...]
+        if (!Array.isArray(items) || items.length === 0) {
+            return res.status(400).json({
+                code: 400,
+                msg: '請提供有效的物品陣列',
+                suggestion: '檢查 items 格式，例如 [{ killId: "id1", itemId: "item1" }, ...]',
+            });
+        }
+
+        const updatedItems = [];
+        for (const { killId, itemId } of items) {
+            if (!mongoose.Types.ObjectId.isValid(killId) || !mongoose.Types.ObjectId.isValid(itemId)) {
+                continue;
+            }
+
+            const bossKill = await BossKill.findById(killId);
+            if (!bossKill) {
+                continue;
+            }
+
+            const itemIndex = bossKill.dropped_items.findIndex(i => (i._id || i.id).toString() === itemId);
+            if (itemIndex === -1) {
+                continue;
+            }
+
+            bossKill.status = 'expired';
+            await bossKill.save();
+            updatedItems.push({ killId, itemId });
+        }
+
+        res.json({ msg: '批量設置物品狀態成功', updatedItems });
+    } catch (err) {
+        console.error('Batch set items expired error:', err);
+        res.status(500).json({
+            code: 500,
+            msg: '批量設置物品狀態失敗',
             detail: err.message || '伺服器處理錯誤',
             suggestion: '請稍後重試或聯繫管理員。',
         });

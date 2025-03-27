@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Modal, Form, Input, DatePicker, Button, Upload, message, Spin, Select, Image, Descriptions, Tag, Space } from 'antd';
-import { UploadOutlined, DeleteOutlined, ClockCircleOutlined, UserOutlined, GiftOutlined, TagOutlined, AppstoreOutlined, TeamOutlined } from '@ant-design/icons';
+import { UploadOutlined, DeleteOutlined, ClockCircleOutlined, UserOutlined, GiftOutlined, TagOutlined, AppstoreOutlined, TeamOutlined, CheckOutlined } from '@ant-design/icons';
 import axios from 'axios';
 import moment from 'moment';
 
@@ -8,7 +8,6 @@ const { Option } = Select;
 
 const BASE_URL = 'http://localhost:5000';
 
-// 定義 colorMapping，將 ItemLevel 表中的 color 字段映射到 CSS 顏色值
 const colorMapping = {
     '白色': '#f0f0f0',
     '綠色': '#00cc00',
@@ -25,17 +24,21 @@ const KillDetailModal = ({ visible, onCancel, killData, onUpdate, token, initial
     const [fileList, setFileList] = useState([]);
     const [attendees, setAttendees] = useState([]);
     const [allUsers, setAllUsers] = useState([]);
+    const [currentUser, setCurrentUser] = useState(null); // 存儲當前登入用戶
 
     useEffect(() => {
+        if (visible) {
+            fetchCurrentUser(); // 獲取當前登入用戶
+        }
         if (killData) {
             form.setFieldsValue({
-                boss_name: killData.boss_name,
+                bossId: killData.bossId?._id,
                 kill_time: killData.kill_time ? moment(killData.kill_time) : null,
                 itemHolder: killData.itemHolder,
                 attendees: killData.attendees || [],
                 dropped_items: killData.dropped_items?.map(item => ({
                     name: item.name,
-                    level: item.level?.color || '白色', // 當 item.level 為 null 時，默認使用 '白色'
+                    level: item.level?._id || item.level,
                 })) || [],
             });
             setAttendees(killData.attendees || []);
@@ -46,13 +49,26 @@ const KillDetailModal = ({ visible, onCancel, killData, onUpdate, token, initial
                 url,
             })) || []);
         }
-    }, [killData, form]);
+    }, [killData, form, visible]);
 
     useEffect(() => {
         if (editing) {
             fetchAllUsers();
         }
     }, [editing]);
+
+    const fetchCurrentUser = async () => {
+        try {
+            const res = await axios.get(`${BASE_URL}/api/users/me`, {
+                headers: { 'x-auth-token': token },
+            });
+            setCurrentUser(res.data.character_name);
+            console.log('Fetched current user:', res.data.character_name);
+        } catch (err) {
+            console.error('Fetch current user error:', err);
+            message.error('無法獲取當前用戶信息');
+        }
+    };
 
     const fetchAllUsers = async () => {
         try {
@@ -69,7 +85,7 @@ const KillDetailModal = ({ visible, onCancel, killData, onUpdate, token, initial
         setLoading(true);
         try {
             const formData = new FormData();
-            formData.append('boss_name', values.boss_name);
+            formData.append('bossId', values.bossId);
             formData.append('kill_time', values.kill_time.toISOString());
             formData.append('itemHolder', values.itemHolder);
             values.attendees.forEach(attendee => formData.append('attendees[]', attendee));
@@ -111,13 +127,13 @@ const KillDetailModal = ({ visible, onCancel, killData, onUpdate, token, initial
 
         return (
             <div>
-                <h3 style={{ fontSize: '14px', marginBottom: '8px', color: '#1890ff' }}>擊殺詳情</h3>
+                <h3 style={{ fontSize: '16px', marginBottom: '16px', color: '#1890ff' }}>擊殺詳情</h3>
                 <Descriptions column={1} bordered size="small">
                     <Descriptions.Item label={<span><ClockCircleOutlined style={{ marginRight: 4 }} />擊殺時間</span>}>
                         {moment(killData.kill_time).format('YYYY-MM-DD HH:mm:ss')}
                     </Descriptions.Item>
                     <Descriptions.Item label={<span><TagOutlined style={{ marginRight: 4 }} />首領名稱</span>}>
-                        {killData.boss_name || '未知首領'}
+                        {killData.bossId?.name || '未知首領'}
                     </Descriptions.Item>
                     <Descriptions.Item label={<span><TagOutlined style={{ marginRight: 4 }} />狀態</span>}>
                         <Tag
@@ -137,36 +153,50 @@ const KillDetailModal = ({ visible, onCancel, killData, onUpdate, token, initial
                     </Descriptions.Item>
                 </Descriptions>
 
-                <h3 style={{ fontSize: '14px', margin: '12px 0 8px', color: '#1890ff' }}>參與者</h3>
+                <h3 style={{ fontSize: '16px', margin: '12px 0 8px', color: '#1890ff' }}>參與者</h3>
                 <div
                     style={{
-                        maxHeight: '60px',
-                        overflowY: 'auto',
+                        display: 'flex',
+                        flexWrap: 'wrap',
+                        gap: '8px',
                         background: '#fff',
                         borderRadius: '6px',
-                        padding: '4px',
+                        padding: '8px',
                         border: '1px solid #e8e8e8',
                     }}
                 >
                     {killData.attendees && killData.attendees.length > 0 ? (
-                        <Space wrap>
-                            {killData.attendees.map((attendee, index) => (
+                        killData.attendees.map((attendee, index) => {
+                            const isCurrentUser = currentUser && attendee === currentUser; // 檢查是否為當前用戶
+                            return (
                                 <Tag
                                     key={index}
-                                    icon={<TeamOutlined style={{ marginRight: 4, color: '#1890ff' }} />}
-                                    color="blue"
-                                    style={{ margin: '2px', padding: '2px 6px', fontSize: '11px' }}
+                                    icon={
+                                        isCurrentUser ? (
+                                            <CheckOutlined style={{ marginRight: 4, color: '#C90B0B' }} />
+                                        ) : (
+                                            <TeamOutlined style={{ marginRight: 4, color: isCurrentUser ? '#fff' : '#1890ff' }} />
+                                        )
+                                    }
+                                    color={isCurrentUser ? 'red' : 'blue'} // 當前用戶使用橙色，其他用戶使用藍色
+                                    style={{
+                                        margin: '2px',
+                                        padding: '2px 6px',
+                                        fontSize: '11px',
+                                        borderRadius: '4px',
+                                        color: isCurrentUser ? '#C90B0B' : undefined, // 當前用戶使用白色文字
+                                    }}
                                 >
                                     {attendee}
                                 </Tag>
-                            ))}
-                        </Space>
+                            );
+                        })
                     ) : (
                         <p style={{ margin: 0, fontSize: '11px' }}>無參與者</p>
                     )}
                 </div>
 
-                <h3 style={{ fontSize: '14px', margin: '12px 0 8px', color: '#1890ff' }}>掉落物品</h3>
+                <h3 style={{ fontSize: '16px', margin: '12px 0 8px', color: '#1890ff' }}>掉落物品</h3>
                 {killData.dropped_items && killData.dropped_items.length > 0 ? (
                     killData.dropped_items.map((item, index) => (
                         <div
@@ -181,12 +211,15 @@ const KillDetailModal = ({ visible, onCancel, killData, onUpdate, token, initial
                         >
                             <Descriptions column={1} bordered size="small">
                                 <Descriptions.Item label={<span><GiftOutlined style={{ marginRight: 4 }} />物品名稱</span>}>
-                                    <span style={{ color: colorMapping[item.level?.color] || colorMapping['白色'] }}>
+                                    <span style={{ color: colorMapping[item.level?.color] || '#000' }}>
                                         {item.name || '未知物品'}
                                     </span>
                                 </Descriptions.Item>
                                 <Descriptions.Item label={<span><TagOutlined style={{ marginRight: 4 }} />等級</span>}>
-                                    {item.level?.level || 'N/A'}
+                                    {item.level?.level || '未知'}
+                                </Descriptions.Item>
+                                <Descriptions.Item label={<span><UserOutlined style={{ marginRight: 4 }} />最終分配者</span>}>
+                                    {item.final_recipient || '未分配'}
                                 </Descriptions.Item>
                                 <Descriptions.Item label={<span><TagOutlined style={{ marginRight: 4 }} />申請狀態</span>}>
                                     <Tag
@@ -208,7 +241,7 @@ const KillDetailModal = ({ visible, onCancel, killData, onUpdate, token, initial
                     <p style={{ margin: 0, fontSize: '11px' }}>無掉落物品</p>
                 )}
 
-                <h3 style={{ fontSize: '14px', margin: '12px 0 8px', color: '#1890ff' }}>擊殺截圖</h3>
+                <h3 style={{ fontSize: '16px', margin: '12px 0 8px', color: '#1890ff' }}>擊殺截圖</h3>
                 {killData.screenshots && killData.screenshots.length > 0 ? (
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
                         {killData.screenshots.map((url, index) => (
@@ -229,7 +262,7 @@ const KillDetailModal = ({ visible, onCancel, killData, onUpdate, token, initial
 
     return (
         <Modal
-            title={<span style={{ fontSize: '16px', fontWeight: 'bold' }}>擊殺詳情</span>}
+            title={<span style={{ fontSize: '18px', fontWeight: 'bold' }}>擊殺詳情</span>}
             open={visible}
             onCancel={onCancel}
             footer={editing ? [
@@ -256,7 +289,7 @@ const KillDetailModal = ({ visible, onCancel, killData, onUpdate, token, initial
                         onFinish={handleSubmit}
                     >
                         <Form.Item
-                            name="boss_name"
+                            name="bossId"
                             label="首領名稱"
                             rules={[{ required: true, message: '請輸入首領名稱' }]}
                         >
@@ -317,12 +350,9 @@ const KillDetailModal = ({ visible, onCancel, killData, onUpdate, token, initial
                                                 rules={[{ required: true, message: '請選擇物品等級' }]}
                                             >
                                                 <Select placeholder="物品等級" style={{ width: 120 }}>
-                                                    <Option value="白色">白色</Option>
-                                                    <Option value="綠色">綠色</Option>
-                                                    <Option value="藍色">藍色</Option>
-                                                    <Option value="紅色">紅色</Option>
-                                                    <Option value="紫色">紫色</Option>
-                                                    <Option value="金色">金色</Option>
+                                                    {Object.keys(colorMapping).map(color => (
+                                                        <Option key={color} value={color}>{color}</Option>
+                                                    ))}
                                                 </Select>
                                             </Form.Item>
                                             <Button
@@ -346,7 +376,7 @@ const KillDetailModal = ({ visible, onCancel, killData, onUpdate, token, initial
                                 fileList={fileList}
                                 onRemove={handleDeleteScreenshot}
                                 onChange={handleUploadChange}
-                                beforeUpload={() => false} // 阻止自動上傳
+                                beforeUpload={() => false}
                             >
                                 {fileList.length >= 8 ? null : (
                                     <div>
@@ -364,7 +394,7 @@ const KillDetailModal = ({ visible, onCancel, killData, onUpdate, token, initial
 
             <style jsx global>{`
                 .ant-modal-body {
-                    padding: 16px;
+                    padding: 24px;
                 }
                 .ant-descriptions-item-label {
                     width: 150px;

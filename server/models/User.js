@@ -9,7 +9,7 @@ const UserSchema = new mongoose.Schema({
     diamonds: { type: Number, default: 0 },
     status: { type: String, enum: ['pending', 'active'], default: 'pending' },
     screenshot: { type: String, default: null },
-    role: { type: String, enum: ['user', 'moderator', 'admin'], default: 'user' },
+    role: { type: String, enum: ['user', 'moderator', 'admin', 'guild'], default: 'user' },
     password: { type: String, required: true },
     guildId: { type: mongoose.Schema.Types.ObjectId, ref: 'Guild', default: null }, // 添加旅團 ID
     mustChangePassword: { type: Boolean, default: false }, // 新增字段，表示是否需更改密碼

@@ -1,6 +1,7 @@
+// pages/KillHistory.js
 import React, { useState, useEffect } from 'react';
-import { Row, Col, Button, DatePicker, Input, message, Image, Card, Spin, Alert, Tag, Tooltip, Popconfirm, Dropdown, Menu, Select } from 'antd';
-import { SearchOutlined, EditOutlined, PlusOutlined, CheckOutlined, MoreOutlined, InfoCircleOutlined, DeleteOutlined, UserOutlined } from '@ant-design/icons';
+import { Row, Col, Button, DatePicker, message, Image, Card, Spin, Alert, Tag, Tooltip, Popconfirm, Dropdown, Menu, Select, Table, Radio, Pagination, Checkbox, Space } from 'antd';
+import { SearchOutlined, EditOutlined, PlusOutlined, CheckOutlined, MoreOutlined, InfoCircleOutlined, DeleteOutlined, UserOutlined, AppstoreOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import axios from 'axios';
 import moment from 'moment';
 import KillDetailModal from './KillDetailModal';
@@ -24,7 +25,8 @@ const colorMapping = {
 
 const KillHistory = () => {
     const [history, setHistory] = useState([]);
-    const [filters, setFilters] = useState({ boss_name: '', start_time: null, end_time: null, status: 'pending' }); // 預設篩選條件為待分配
+    const [pagination, setPagination] = useState({ current: 1, pageSize: 10, total: 0 });
+    const [filters, setFilters] = useState({ bossId: '', start_time: null, end_time: null, status: 'pending' });
     const [role, setRole] = useState(null);
     const [currentUser, setCurrentUser] = useState(null);
     const [loading, setLoading] = useState(false);
@@ -40,6 +42,10 @@ const KillHistory = () => {
     const [addVisible, setAddVisible] = useState(false);
     const [addKillId, setAddKillId] = useState(null);
     const [applyDeadlineHours, setApplyDeadlineHours] = useState(48);
+    const [bosses, setBosses] = useState([]);
+    const [displayMode, setDisplayMode] = useState('grid');
+    const [selectedRowKeys, setSelectedRowKeys] = useState([]); // 批量選擇的記錄
+    const [selectedItems, setSelectedItems] = useState([]); // 批量選擇的物品
 
     useEffect(() => {
         if (!token) {
@@ -48,14 +54,15 @@ const KillHistory = () => {
         }
         fetchUserInfo();
         fetchGuildSettings();
+        fetchBosses();
     }, [token]);
 
     useEffect(() => {
         if (currentUser !== null) {
-            fetchHistory();
+            fetchHistory(pagination.current, pagination.pageSize);
             fetchUserApplications();
         }
-    }, [currentUser, filters]);
+    }, [currentUser, filters, pagination.current, pagination.pageSize]);
 
     const fetchUserInfo = async () => {
         try {
@@ -84,6 +91,19 @@ const KillHistory = () => {
         } catch (err) {
             console.error('Fetch guild settings error:', err);
             message.warning('載入旅團設定失敗，使用預設 48 小時補登期限');
+        }
+    };
+
+    const fetchBosses = async () => {
+        try {
+            const res = await axios.get(`${BASE_URL}/api/bosses`, {
+                headers: { 'x-auth-token': token },
+            });
+            console.log('Fetched bosses:', res.data);
+            setBosses(res.data);
+        } catch (err) {
+            console.error('Fetch bosses error:', err);
+            message.error('載入首領列表失敗');
         }
     };
 
@@ -149,28 +169,40 @@ const KillHistory = () => {
         }
     };
 
-    const fetchHistory = async () => {
+    const fetchHistory = async (page = 1, pageSize = 10) => {
         try {
             setLoading(true);
             const params = {
-                boss_name: filters.boss_name || undefined,
+                bossId: filters.bossId || undefined,
                 start_time: filters.start_time ? filters.start_time.format('YYYY-MM-DD') : undefined,
                 end_time: filters.end_time ? filters.end_time.format('YYYY-MM-DD') : undefined,
                 status: filters.status || undefined,
+                page,
+                pageSize,
             };
             const res = await axios.get(`${BASE_URL}/api/boss-kills`, {
                 headers: { 'x-auth-token': token },
                 params,
             });
             console.log('Fetched kill history raw:', res.data);
-            if (!res.data || res.data.length === 0) {
+            if (!res.data.data || res.data.data.length === 0) {
                 console.warn('No boss kills data returned from API.');
                 setHistory([]);
+                setPagination({ current: page, pageSize, total: 0 });
                 setLoading(false);
                 return;
             }
 
-            const updatedHistory = res.data.map(record => {
+            // 檢查是否有 bossId 缺失的記錄
+            res.data.data.forEach(record => {
+                if (!record.bossId) {
+                    console.warn(`BossKill record missing bossId: ${record._id}`);
+                } else if (!record.bossId.name) {
+                    console.warn(`Boss record missing name for bossId: ${record.bossId._id}`);
+                }
+            });
+
+            const updatedHistory = res.data.data.map(record => {
                 const applyingItems = record.dropped_items
                     ?.filter(item => {
                         const itemId = item._id || item.id;
@@ -221,7 +253,13 @@ const KillHistory = () => {
                     remainingHours,
                 };
             });
+
             setHistory(finalHistory);
+            setPagination({
+                current: res.data.pagination.current,
+                pageSize: res.data.pagination.pageSize,
+                total: res.data.pagination.total,
+            });
         } catch (err) {
             console.error('Fetch kill history error:', err);
             message.error(`載入擊殺歷史失敗: ${err.response?.data?.msg || err.message}`);
@@ -232,10 +270,17 @@ const KillHistory = () => {
 
     const handleFilterChange = (field, value) => {
         setFilters(prev => ({ ...prev, [field]: value }));
+        setPagination(prev => ({ ...prev, current: 1 })); // 重置到第一頁
     };
 
-    const handleSearch = () => {
-        fetchHistory();
+    const handleTableChange = (pagination) => {
+        setPagination(pagination);
+        fetchHistory(pagination.current, pagination.pageSize);
+    };
+
+    const handlePaginationChange = (page, pageSize) => {
+        setPagination(prev => ({ ...prev, current: page, pageSize }));
+        fetchHistory(page, pageSize);
     };
 
     const getApplicationDetails = (killId, itemId) => {
@@ -289,7 +334,7 @@ const KillHistory = () => {
             console.log('Quick apply response:', res.data);
             message.success(res.data.msg || '申請提交成功！');
             await fetchUserApplications();
-            fetchHistory();
+            fetchHistory(pagination.current, pagination.pageSize);
         } catch (err) {
             console.error('Quick apply error:', err.response?.data || err);
             message.error(`申請失敗: ${err.response?.data?.msg || err.message}`);
@@ -311,7 +356,7 @@ const KillHistory = () => {
     };
 
     const handleUpdate = () => {
-        fetchHistory();
+        fetchHistory(pagination.current, pagination.pageSize);
         handleCloseModal();
     };
 
@@ -326,13 +371,44 @@ const KillHistory = () => {
     };
 
     const handleAddSubmit = () => {
-        fetchHistory();
+        fetchHistory(pagination.current, pagination.pageSize);
         handleCloseAddModal();
     };
 
-    const handleDelete = (killId) => {
-        console.log(`Delete ${killId}`);
-        // 這裡可以添加後端刪除邏輯
+    const handleDelete = async (killId) => {
+        try {
+            await axios.delete(`${BASE_URL}/api/boss-kills/${killId}`, {
+                headers: { 'x-auth-token': token },
+            });
+            message.success('擊殺記錄刪除成功');
+            fetchHistory(pagination.current, pagination.pageSize);
+        } catch (err) {
+            console.error('Delete boss kill error:', err);
+            message.error(`刪除擊殺記錄失敗: ${err.response?.data?.msg || err.message}`);
+        }
+    };
+
+    const handleBatchDelete = async () => {
+        if (selectedRowKeys.length === 0) {
+            message.warning('請選擇要刪除的擊殺記錄');
+            return;
+        }
+        try {
+            setLoading(true);
+            const res = await axios.post(
+                `${BASE_URL}/api/boss-kills/batch-delete`,
+                { killIds: selectedRowKeys },
+                { headers: { 'x-auth-token': token } }
+            );
+            message.success(`成功刪除 ${res.data.deletedCount} 條擊殺記錄`);
+            setSelectedRowKeys([]);
+            fetchHistory(pagination.current, pagination.pageSize);
+        } catch (err) {
+            console.error('Batch delete error:', err);
+            message.error(`批量刪除失敗: ${err.response?.data?.msg || err.message}`);
+        } finally {
+            setLoading(false);
+        }
     };
 
     const handleSetItemExpired = async (killId, itemId) => {
@@ -350,10 +426,33 @@ const KillHistory = () => {
                 { headers: { 'x-auth-token': token } }
             );
             message.success(res.data.msg || '物品狀態已設為已過期，可發起競標！');
-            fetchHistory();
+            fetchHistory(pagination.current, pagination.pageSize);
         } catch (err) {
             console.error('Set item expired error:', err);
             message.error(`設置物品狀態失敗: ${err.response?.data?.msg || err.message}`);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleBatchSetExpired = async () => {
+        if (selectedItems.length === 0) {
+            message.warning('請選擇要設為已過期的物品');
+            return;
+        }
+        try {
+            setLoading(true);
+            const res = await axios.post(
+                `${BASE_URL}/api/boss-kills/batch-set-expired`,
+                { items: selectedItems },
+                { headers: { 'x-auth-token': token } }
+            );
+            message.success(`成功設置 ${res.data.updatedItems.length} 個物品為已過期`);
+            setSelectedItems([]);
+            fetchHistory(pagination.current, pagination.pageSize);
+        } catch (err) {
+            console.error('Batch set expired error:', err);
+            message.error(`批量設置物品狀態失敗: ${err.response?.data?.msg || err.message}`);
         } finally {
             setLoading(false);
         }
@@ -365,20 +464,18 @@ const KillHistory = () => {
         const relativeTime = moment(record.kill_time).fromNow();
         const item = record.dropped_items && record.dropped_items.length > 0 ? record.dropped_items[0] : null;
         const itemName = item ? item.name : '無';
-        const bossName = record.boss_name || '未知首領';
+        const bossName = record.bossId?.name || '未知首領';
         const isAttendee = record.attendees?.includes(currentUser);
         const canAddAttendee = record.status === 'pending' && !isAttendee && record.isWithinDeadline;
         const remainingTime = record.remainingHours > 0 ? `${Math.max(0, Math.ceil(record.remainingHours))}小時內可補登` : '補登結束';
 
         const itemColor = item?.level ? colorMapping[item.level.color] || '#ffffff' : '#ffffff';
 
-        // 檢查是否有任何物品狀態為 PENDING
         const hasPendingItems = record.dropped_items.some(item => {
             const effectiveStatus = item.status ? item.status.toLowerCase() : 'pending';
             return effectiveStatus === 'pending';
         });
 
-        // 動態生成下拉選單
         const moreMenu = (
             <Menu>
                 {role !== 'admin' && canAddAttendee && remainingTime !== '補登結束' && (
@@ -434,21 +531,35 @@ const KillHistory = () => {
                         {record.dropped_items.map((item, index) => {
                             const effectiveStatus = item.status ? item.status.toLowerCase() : 'pending';
                             if (effectiveStatus !== 'pending') return null;
+                            const itemId = item._id || item.id;
+                            const isSelected = selectedItems.some(si => si.killId === record._id && si.itemId === itemId);
                             return (
-                                <Menu.Item key={`setExpired-${record._id}-${item._id || item.id}`}>
-                                    <Popconfirm
-                                        title={`確認將 "${item.name}" 設為已過期？`}
-                                        onConfirm={() => handleSetItemExpired(record._id, item._id || item.id)}
-                                        okText="是"
-                                        cancelText="否"
+                                <Menu.Item key={`setExpired-${record._id}-${itemId}`}>
+                                    <Checkbox
+                                        checked={isSelected}
+                                        onChange={(e) => {
+                                            if (e.target.checked) {
+                                                setSelectedItems(prev => [...prev, { killId: record._id, itemId }]);
+                                            } else {
+                                                setSelectedItems(prev => prev.filter(si => !(si.killId === record._id && si.itemId === itemId)));
+                                            }
+                                        }}
                                     >
-                                        <Button type="link" style={{ padding: 0 }}>
-                                            {item.name} 設為已過期
-                                        </Button>
-                                    </Popconfirm>
+                                        {item.name}
+                                    </Checkbox>
                                 </Menu.Item>
                             );
                         })}
+                        <Menu.Item key="batchSetExpired">
+                            <Button
+                                type="link"
+                                onClick={handleBatchSetExpired}
+                                style={{ padding: 0 }}
+                                disabled={selectedItems.length === 0}
+                            >
+                                批量設為已過期
+                            </Button>
+                        </Menu.Item>
                     </Menu.SubMenu>
                 )}
             </Menu>
@@ -456,6 +567,20 @@ const KillHistory = () => {
 
         return (
             <Col xs={24} sm={12} md={8} lg={4} key={record._id} style={{ marginBottom: '8px', position: 'relative' }}>
+                {role === 'admin' && (
+                    <Checkbox
+                        style={{ position: 'absolute', top: '8px', right: '8px', zIndex: 1 }}
+                        checked={selectedRowKeys.includes(record._id)}
+                        onChange={(e) => {
+                            if (e.target.checked) {
+                                setSelectedRowKeys(prev => [...prev, record._id]);
+                            } else {
+                                setSelectedRowKeys(prev => prev.filter(id => id !== record._id));
+                                setSelectedItems(prev => prev.filter(item => item.killId !== record._id));
+                            }
+                        }}
+                    />
+                )}
                 {isAttendee && (
                     <div
                         style={{
@@ -577,7 +702,7 @@ const KillHistory = () => {
                             <>
                                 <span style={{ fontSize: '12px', color: '#888' }}>{relativeTime}</span>
                                 <br />
-                                <span>{record.boss_name || '未知首領'}</span>
+                                <span>{bossName}</span>
                             </>
                         }
                         description={
@@ -596,20 +721,270 @@ const KillHistory = () => {
         );
     };
 
+    const columns = [
+        {
+            title: role === 'admin' ? (
+                <Checkbox
+                    onChange={(e) => {
+                        if (e.target.checked) {
+                            setSelectedRowKeys(history.map(record => record._id));
+                        } else {
+                            setSelectedRowKeys([]);
+                            setSelectedItems([]);
+                        }
+                    }}
+                    checked={selectedRowKeys.length === history.length && history.length > 0}
+                />
+            ) : null,
+            dataIndex: 'select',
+            key: 'select',
+            width: 50,
+            render: (_, record) => role === 'admin' ? (
+                <Checkbox
+                    checked={selectedRowKeys.includes(record._id)}
+                    onChange={(e) => {
+                        if (e.target.checked) {
+                            setSelectedRowKeys(prev => [...prev, record._id]);
+                        } else {
+                            setSelectedRowKeys(prev => prev.filter(id => id !== record._id));
+                            setSelectedItems(prev => prev.filter(item => item.killId !== record._id));
+                        }
+                    }}
+                />
+            ) : null,
+        },
+        {
+            title: '擊殺時間',
+            dataIndex: 'kill_time',
+            key: 'kill_time',
+            sorter: (a, b) => moment(a.kill_time).unix() - moment(b.kill_time).unix(),
+            render: (time) => moment(time).format('MM-DD HH:mm'),
+        },
+        {
+            title: '相對時間',
+            dataIndex: 'kill_time',
+            key: 'relative_time',
+            render: (time) => moment(time).fromNow(),
+        },
+        {
+            title: '首領名稱',
+            dataIndex: 'bossId',
+            key: 'boss_name',
+            render: (bossId) => bossId?.name || '未知首領',
+        },
+        {
+            title: '狀態',
+            dataIndex: 'status',
+            key: 'status',
+            render: (status) => statusTag(status),
+        },
+        {
+            title: '掉落物品',
+            dataIndex: 'dropped_items',
+            key: 'dropped_items',
+            render: (items) => items.map(item => item.name).join(', ') || '無',
+        },
+        {
+            title: '物品持有人',
+            dataIndex: 'itemHolder',
+            key: 'itemHolder',
+            render: (itemHolder) => (
+                <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <UserOutlined style={{ color: '#000', fontSize: '16px' }} />
+                    {itemHolder || '未分配'}
+                </span>
+            ),
+        },
+        {
+            title: '操作',
+            key: 'actions',
+            render: (_, record) => {
+                const isAttendee = record.attendees?.includes(currentUser);
+                const canAddAttendee = record.status === 'pending' && !isAttendee && record.isWithinDeadline;
+                const remainingTime = record.remainingHours > 0 ? `${Math.max(0, Math.ceil(record.remainingHours))}小時內可補登` : '補登結束';
+                const hasPendingItems = record.dropped_items.some(item => {
+                    const effectiveStatus = item.status ? item.status.toLowerCase() : 'pending';
+                    return effectiveStatus === 'pending';
+                });
+
+                const moreMenu = (
+                    <Menu>
+                        {role !== 'admin' && canAddAttendee && remainingTime !== '補登結束' && (
+                            <Menu.Item key="addAttendee">
+                                <Button
+                                    type="link"
+                                    onClick={() => handleShowAddModal(record._id)}
+                                    style={{ padding: 0 }}
+                                >
+                                    補登
+                                </Button>
+                            </Menu.Item>
+                        )}
+                        {role !== 'admin' && canAddAttendee && remainingTime === '補登結束' && (
+                            <Menu.Item key="addAttendeeDisabled">
+                                <Button
+                                    type="link"
+                                    onClick={() => handleShowAddModal(record._id)}
+                                    disabled
+                                    style={{ padding: 0 }}
+                                >
+                                    補登
+                                </Button>
+                            </Menu.Item>
+                        )}
+                        {role === 'admin' && record.status === 'pending' && (
+                            <Menu.Item key="edit">
+                                <Button
+                                    type="link"
+                                    onClick={() => handleShowDetail(record._id, true)}
+                                    style={{ padding: 0 }}
+                                >
+                                    編輯
+                                </Button>
+                            </Menu.Item>
+                        )}
+                        {role === 'admin' && record.status === 'pending' && (
+                            <Menu.Item key="delete">
+                                <Popconfirm
+                                    title="確認刪除此記錄？"
+                                    onConfirm={() => handleDelete(record._id)}
+                                    okText="是"
+                                    cancelText="否"
+                                >
+                                    <Button type="link" style={{ padding: 0, color: '#ff4d4f' }}>
+                                        刪除
+                                    </Button>
+                                </Popconfirm>
+                            </Menu.Item>
+                        )}
+                        {role === 'admin' && hasPendingItems && (
+                            <Menu.SubMenu title="設置物品狀態" key="setItemStatus">
+                                {record.dropped_items.map((item, index) => {
+                                    const effectiveStatus = item.status ? item.status.toLowerCase() : 'pending';
+                                    if (effectiveStatus !== 'pending') return null;
+                                    const itemId = item._id || item.id;
+                                    const isSelected = selectedItems.some(si => si.killId === record._id && si.itemId === itemId);
+                                    return (
+                                        <Menu.Item key={`setExpired-${record._id}-${itemId}`}>
+                                            <Checkbox
+                                                checked={isSelected}
+                                                onChange={(e) => {
+                                                    if (e.target.checked) {
+                                                        setSelectedItems(prev => [...prev, { killId: record._id, itemId }]);
+                                                    } else {
+                                                        setSelectedItems(prev => prev.filter(si => !(si.killId === record._id && si.itemId === itemId)));
+                                                    }
+                                                }}
+                                            >
+                                                {item.name}
+                                            </Checkbox>
+                                        </Menu.Item>
+                                    );
+                                })}
+                                <Menu.Item key="batchSetExpired">
+                                    <Button
+                                        type="link"
+                                        onClick={handleBatchSetExpired}
+                                        style={{ padding: 0 }}
+                                        disabled={selectedItems.length === 0}
+                                    >
+                                        批量設為已過期
+                                    </Button>
+                                </Menu.Item>
+                            </Menu.SubMenu>
+                        )}
+                    </Menu>
+                );
+
+                return (
+                    <Space size="small">
+                        <Tooltip title="查看詳情">
+                            <Button
+                                type="link"
+                                icon={<InfoCircleOutlined />}
+                                onClick={() => handleShowDetail(record._id, false)}
+                            />
+                        </Tooltip>
+                        {role !== 'admin' && isAttendee && record.status === 'pending' && record.dropped_items.some(item => {
+                            const itemId = item._id || item.id;
+                            const appDetails = getApplicationDetails(record._id, itemId);
+                            const effectiveStatus = item.status ? item.status.toLowerCase() : 'pending';
+                            return !appDetails && effectiveStatus === 'pending';
+                        }) && (
+                                <Popconfirm
+                                    title="確認申請此物品？"
+                                    onConfirm={() => handleQuickApply(record._id, record.dropped_items[0]._id || record.dropped_items[0].id, record.dropped_items[0].name)}
+                                    okText="是"
+                                    cancelText="否"
+                                >
+                                    <Button
+                                        type="link"
+                                        icon={<PlusOutlined />}
+                                        loading={applying}
+                                        disabled={applying}
+                                    />
+                                </Popconfirm>
+                            )}
+                        {record.status === 'pending' && (
+                            <Dropdown overlay={moreMenu} trigger={['click']}>
+                                <Button type="link" icon={<MoreOutlined />} />
+                            </Dropdown>
+                        )}
+                    </Space>
+                );
+            },
+        },
+    ];
+
     return (
         <div style={{ padding: '20px', backgroundColor: '#f0f2f5' }}>
             <Card
                 title={<h2 style={{ margin: 0, fontSize: '24px', color: '#1890ff' }}>{role === 'admin' ? '管理員 - 所有擊殺歷史記錄' : '擊殺歷史記錄'}</h2>}
                 bordered={false}
                 style={{ boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)', borderRadius: '8px' }}
+                extra={
+                    <Space>
+                        {role === 'admin' && (
+                            <Popconfirm
+                                title="確認刪除選中的擊殺記錄？"
+                                onConfirm={handleBatchDelete}
+                                okText="是"
+                                cancelText="否"
+                            >
+                                <Button
+                                    type="primary"
+                                    danger
+                                    disabled={selectedRowKeys.length === 0}
+                                >
+                                    批量刪除
+                                </Button>
+                            </Popconfirm>
+                        )}
+                        <Radio.Group
+                            value={displayMode}
+                            onChange={(e) => setDisplayMode(e.target.value)}
+                            buttonStyle="solid"
+                        >
+                            <Radio.Button value="grid"><AppstoreOutlined /> 網格</Radio.Button>
+                            <Radio.Button value="list"><UnorderedListOutlined /> 列表</Radio.Button>
+                        </Radio.Group>
+                    </Space>
+                }
             >
                 <div style={{ display: 'flex', alignItems: 'center', marginBottom: '16px', gap: '16px', flexWrap: 'wrap' }}>
-                    <Input
-                        placeholder="輸入首領名稱"
-                        value={filters.boss_name}
-                        onChange={(e) => handleFilterChange('boss_name', e.target.value)}
+                    <Select
+                        placeholder="選擇首領"
+                        value={filters.bossId}
+                        onChange={(value) => handleFilterChange('bossId', value)}
                         style={{ width: 200 }}
-                    />
+                        allowClear
+                    >
+                        {bosses.map(boss => (
+                            <Option key={boss._id} value={boss._id}>
+                                {boss.name}
+                            </Option>
+                        ))}
+                    </Select>
                     <RangePicker
                         value={[filters.start_time, filters.end_time]}
                         onChange={(dates) => {
@@ -629,9 +1004,6 @@ const KillHistory = () => {
                         <Option value="assigned">已分配</Option>
                         <Option value="expired">已過期</Option>
                     </Select>
-                    <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch}>
-                        搜索
-                    </Button>
                 </div>
                 <Spin spinning={loading || applying} size="large">
                     {history.length === 0 && !loading ? (
@@ -642,10 +1014,43 @@ const KillHistory = () => {
                             showIcon
                             style={{ marginBottom: '16px' }}
                         />
+                    ) : displayMode === 'grid' ? (
+                        <>
+                            <Row gutter={[8, 8]}>
+                                {history.map(record => renderGridItem(record))}
+                            </Row>
+                            <div style={{ marginTop: '16px', textAlign: 'right' }}>
+                                <Pagination
+                                    current={pagination.current}
+                                    pageSize={pagination.pageSize}
+                                    total={pagination.total}
+                                    showSizeChanger
+                                    pageSizeOptions={['10', '20', '50']}
+                                    showTotal={(total) => `共 ${total} 條記錄`}
+                                    onChange={handlePaginationChange}
+                                    onShowSizeChange={handlePaginationChange}
+                                />
+                            </div>
+                        </>
                     ) : (
-                        <Row gutter={[8, 8]}>
-                            {history.map(record => renderGridItem(record))}
-                        </Row>
+                        <Table
+                            columns={columns}
+                            dataSource={history}
+                            rowKey="_id"
+                            pagination={{
+                                current: pagination.current,
+                                pageSize: pagination.pageSize,
+                                total: pagination.total,
+                                showSizeChanger: true,
+                                pageSizeOptions: ['10', '20', '50'],
+                                showTotal: (total) => `共 ${total} 條記錄`,
+                            }}
+                            onChange={handleTableChange}
+                            expandable={{
+                                expandedRowRender: (record) => renderGridItem(record),
+                                expandRowByClick: true,
+                            }}
+                        />
                     )}
                 </Spin>
             </Card>

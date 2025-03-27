@@ -1,3 +1,4 @@
+// routes/applications.js
 const express = require('express');
 const router = express.Router();
 const Application = require('../models/Application');
@@ -24,8 +25,6 @@ router.post('/', auth, async (req, res) => {
     const user = req.user;
 
     try {
-        //console.log('Received request body:', req.body);
-
         if (!user || !user.character_name) {
             return res.status(401).json({
                 code: 401,
@@ -44,7 +43,7 @@ router.post('/', auth, async (req, res) => {
             });
         }
 
-        const kill = await BossKill.findById(kill_id);
+        const kill = await BossKill.findById(kill_id).populate('bossId', 'name');
         if (!kill) {
             return res.status(404).json({
                 code: 404,
@@ -59,7 +58,7 @@ router.post('/', auth, async (req, res) => {
             return res.status(400).json({
                 code: 400,
                 msg: '該物品未在此次擊殺中掉落或 item_id 無效',
-                detail: `${item_name} 的 item_id (${item_id}) 不在 ${kill.boss_name} 的掉落列表中。`,
+                detail: `${item_name} 的 item_id (${item_id}) 不在 ${kill.bossId?.name || '未知首領'} 的掉落列表中。`,
                 suggestion: '請選擇正確的掉落物品或檢查數據。',
             });
         }
@@ -88,7 +87,7 @@ router.post('/', auth, async (req, res) => {
             return res.status(403).json({
                 code: 403,
                 msg: '無權申請',
-                detail: `用戶 ${user.character_name} 不在 ${kill.boss_name} 的參與者列表中，無法申請物品。`,
+                detail: `用戶 ${user.character_name} 不在 ${kill.bossId?.name || '未知首領'} 的參與者列表中，無法申請物品。`,
                 suggestion: '請確認是否參與了該擊殺，或聯繫管理員補登。',
             });
         }
@@ -161,7 +160,10 @@ router.put('/:id/approve', auth, adminOnly, async (req, res) => {
     try {
         const application = await Application.findById(id)
             .populate('user_id', 'character_name')
-            .populate('kill_id', 'boss_name');
+            .populate({
+                path: 'kill_id',
+                populate: { path: 'bossId', select: 'name' },
+            });
         if (!application) {
             return res.status(404).json({
                 code: 404,
@@ -261,7 +263,11 @@ router.get('/', auth, adminOnly, async (req, res) => {
         }
         const applications = await Application.find(query)
             .populate('user_id', 'character_name')
-            .populate('kill_id', 'boss_name kill_time');
+            .populate({
+                path: 'kill_id',
+                populate: { path: 'bossId', select: 'name' },
+                select: 'bossId kill_time',
+            });
         res.json(applications);
     } catch (err) {
         res.status(500).json({
@@ -278,7 +284,11 @@ router.get('/user', auth, async (req, res) => {
         const applications = await Application.find({ user_id: req.user.id })
             .select('user_id kill_id item_id item_name status created_at')
             .populate('user_id', 'character_name')
-            .populate('kill_id', 'boss_name kill_time');
+            .populate({
+                path: 'kill_id',
+                populate: { path: 'bossId', select: 'name' },
+                select: 'bossId kill_time',
+            });
         console.log('Fetched applications from database:', applications);
         if (!applications || applications.length === 0) {
             console.warn('No applications found for user:', req.user.id);

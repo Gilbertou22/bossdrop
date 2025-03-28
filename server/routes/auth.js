@@ -6,6 +6,17 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
 require('dotenv').config();
 
+// 獲取客戶端 IP 地址
+router.get('/client-ip', (req, res) => {
+    try {
+        // 獲取客戶端 IP 地址
+        const clientIp = req.headers['x-forwarded-for'] || req.ip || '未知 IP';
+        res.status(200).json({ ip: clientIp });
+    } catch (err) {
+        res.status(500).json({ msg: '無法獲取 IP 地址', detail: err.message });
+    }
+});
+
 router.post('/register', async (req, res) => {
     const { world_name, character_name, password } = req.body;
 

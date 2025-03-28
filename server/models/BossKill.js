@@ -4,7 +4,7 @@ const mongoose = require('mongoose');
 const BossKillSchema = new mongoose.Schema({
     bossId: {
         type: mongoose.Schema.Types.ObjectId,
-        ref: 'Boss', // 參考 Boss 表
+        ref: 'Boss',
         required: true,
     },
     kill_time: {
@@ -19,16 +19,16 @@ const BossKillSchema = new mongoose.Schema({
             apply_deadline: { type: Date, required: true },
             level: {
                 type: mongoose.Schema.Types.ObjectId,
-                ref: 'ItemLevel', // 參考 ItemLevel 表
+                ref: 'ItemLevel',
             },
             final_recipient: {
                 type: String,
-                default: null, // 最終分配者
+                default: null,
             },
             status: {
                 type: String,
                 enum: ['pending', 'assigned', 'expired'],
-                default: 'pending', // 物品狀態
+                default: 'pending',
             },
         },
     ],
@@ -45,6 +45,11 @@ const BossKillSchema = new mongoose.Schema({
     screenshots: [{ type: String }],
     final_recipient: { type: String, default: null },
     status: { type: String, enum: ['pending', 'assigned', 'expired'], default: 'pending' },
+    auction_status: { // 新增 auction_status 字段
+        type: String,
+        enum: ['pending', 'active', 'completed'],
+        default: 'pending',
+    },
     created_at: { type: Date, default: Date.now },
     userId: {
         type: mongoose.Schema.Types.ObjectId,
@@ -54,10 +59,10 @@ const BossKillSchema = new mongoose.Schema({
     itemHolder: { type: String },
     dkpDistributed: {
         type: Boolean,
-        default: false, // 是否已分配 DKP 點數
+        default: false,
     },
 }, {
-    strictPopulate: false, // 臨時禁用嚴格填充檢查
+    strictPopulate: false,
 });
 
 BossKillSchema.pre('save', function (next) {

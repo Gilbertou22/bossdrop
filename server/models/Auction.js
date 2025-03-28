@@ -1,3 +1,4 @@
+// models/Auction.js
 const mongoose = require('mongoose');
 
 const AuctionSchema = new mongoose.Schema({
@@ -5,6 +6,11 @@ const AuctionSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId,
         required: true,
         ref: 'BossKill',
+    },
+    auctionType: {
+        type: String,
+        enum: ['open', 'blind', 'lottery'],
+        default: 'open',
     },
     startingPrice: {
         type: Number,
@@ -16,7 +22,6 @@ const AuctionSchema = new mongoose.Schema({
     },
     buyoutPrice: {
         type: Number,
-        default: null,
     },
     endTime: {
         type: Date,
@@ -27,19 +32,44 @@ const AuctionSchema = new mongoose.Schema({
         ref: 'User',
         required: true,
     },
-    highestBidder: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'User',
-        default: null,
-    },
     itemHolder: {
         type: String,
-        required: true, // 確保物品持有人字段必須存在
+        required: true,
     },
     status: {
         type: String,
         enum: ['active', 'pending', 'completed', 'cancelled', 'settled'],
         default: 'active',
+    },
+    highestBidder: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+    },
+    restrictions: {
+        sameWorld: {
+            type: Boolean,
+            default: false,
+        },
+        hasAttended: {
+            type: Boolean,
+            default: false,
+        },
+        dkpThreshold: {
+            type: Number,
+            default: 0,
+        },
+        sameGuild: {
+            type: Boolean,
+            default: false,
+        },
+    },
+    itemName: {
+        type: String,
+        required: true, // 保存所選物品的名稱
+    },
+    imageUrl: {
+        type: String,
+        default: '', // 保存所選物品的圖片 URL（如果有）
     },
     createdAt: {
         type: Date,

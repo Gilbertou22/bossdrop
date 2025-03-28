@@ -173,18 +173,18 @@ const KillDetailModal = ({ visible, onCancel, killData, onUpdate, token, initial
                                     key={index}
                                     icon={
                                         isCurrentUser ? (
-                                            <CheckOutlined style={{ marginRight: 4, color: '#C90B0B' }} />
+                                            <CheckOutlined style={{ marginRight: 4, color: '#669126' }} />  //  文字顏色
                                         ) : (
                                             <TeamOutlined style={{ marginRight: 4, color: isCurrentUser ? '#fff' : '#1890ff' }} />
                                         )
                                     }
-                                    color={isCurrentUser ? 'red' : 'blue'} // 當前用戶使用橙色，其他用戶使用藍色
+                                    color={isCurrentUser ? '#ebf5dc' : 'blue'} // TAG 背景顏色
                                     style={{
                                         margin: '2px',
                                         padding: '2px 6px',
                                         fontSize: '11px',
                                         borderRadius: '4px',
-                                        color: isCurrentUser ? '#C90B0B' : undefined, // 當前用戶使用白色文字
+                                        color: isCurrentUser ? '#669126' : undefined, // 當前用戶使用白色文字
                                     }}
                                 >
                                     {attendee}

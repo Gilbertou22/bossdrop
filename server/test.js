@@ -1,15 +1,22 @@
-const bcrypt = require('bcrypt');
+// 腳本：為現有 BossKill 記錄添加 auction_status 字段
+const mongoose = require('mongoose');
+const BossKill = require('./models/BossKill');
+const Boss = require('./models/Boss');
+const ItemLevel = require('./models/ItemLevel');
 
-(async () => {
-    try {
-        const password = '111';
-        const salt = await bcrypt.genSalt(10);
-        const hashedPassword = await bcrypt.hash(password, salt);
-        console.log('Hashed password:', hashedPassword);
+mongoose.connect('mongodb://localhost:27017/boss_tracker', {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+});
 
-        const isMatch = await bcrypt.compare(password, '$2b$10$3wCy/3SZMnnM9TXyvpEruOWlQU.mcNG7g1it6YyM32HZy4BfGyUhW');
-        console.log('Password match:', isMatch); // 應為 true
-    } catch (err) {
-        console.error('Bcrypt test error:', err);
-    }
-})();
+
+
+const checkItemLevel = async () => {
+    const itemLevel = await BossKill.find({ auction_status: 'pending' })
+        .populate('bossId', 'name')
+        .populate('dropped_items.level', 'color')
+        .lean();
+    console.log('ItemLevel for 67d3e127a21a9b8dc9ced578:', itemLevel.dropped_items);
+};
+
+checkItemLevel();

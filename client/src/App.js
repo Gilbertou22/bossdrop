@@ -22,32 +22,33 @@ import Guilds from './pages/GuildSettings';
 import ApproveAttendRequest from './pages/ManageSupplementRequests';
 import React, { useState } from 'react';
 import { NotificationProvider } from './components/NotificationContext';
-import { Layout, Spin } from 'antd';
+import { Layout, Spin, Typography } from 'antd';
 import ChangePassword from './components/ChangePassword';
 import LogViewer from './pages/LogViewer';
 import Wallet from './pages/Wallet';
 import DKPSettings from './pages/DKPSettings';
 import DKPHistory from './pages/DKPHistory';
 
-
-const { Content } = Layout;
+const { Content, Footer } = Layout;
+const { Text } = Typography;
 
 function App() {
-    const [profileVisible, setProfileVisible] = useState(false);   
+    const [profileVisible, setProfileVisible] = useState(false);
 
     return (
         <NotificationProvider>
             <Router>
                 <Layout style={{ minHeight: '100vh' }}>
                     <Navbar />
-                    <Layout style={{ marginTop: '64px' }}> {/* 確保與 Navbar 高度一致 */}
+                    <Layout style={{ marginTop: '64px' }}>
                         <Content
                             style={{
                                 padding: '20px',
-                                minHeight: 'calc(100vh - 64px)', // 減去 Navbar 高度
+                                minHeight: 'calc(100vh - 64px - 64px)', // 減去 Navbar 和 Footer 高度
                                 overflowX: 'hidden',
                                 overflowY: 'auto',
                                 background: '#fff',
+                                flex: '1 0 auto', // 確保 Content 佔據剩餘空間
                             }}
                         >
                             <Spin spinning={false} size="large">
@@ -219,6 +220,12 @@ function App() {
                                 </Routes>
                             </Spin>
                         </Content>
+                        {/* 添加 Footer */}
+                        <Footer style={{ textAlign: 'center', padding: '4px 0', flexShrink: 0 }}>
+                            <Text type="secondary">
+                                Copyright 邊緣香菇 © 2025 Ver.2025.1.0.0
+                            </Text>
+                        </Footer>
                     </Layout>
                     <UserProfile visible={profileVisible} onCancel={() => setProfileVisible(false)} />
                 </Layout>

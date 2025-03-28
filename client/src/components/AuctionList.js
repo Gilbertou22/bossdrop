@@ -1,5 +1,6 @@
+// components/AuctionList.js
 import React, { useState, useEffect } from 'react';
-import { Card, Button, Modal, Input, Tag, Image, Tooltip, Popconfirm, message, Table, Alert } from 'antd';
+import { Card, Button, Modal, Input, Tag, Image, Tooltip, Popconfirm, Table } from 'antd';
 import {
   InfoCircleOutlined,
   SketchOutlined,
@@ -15,7 +16,11 @@ import {
   CloseCircleOutlined,
   SyncOutlined,
   DollarCircleOutlined,
-  AuditOutlined // 核實圖示
+  AuditOutlined,
+  UserOutlined,
+  ExclamationCircleOutlined,
+  EyeOutlined,
+  EyeInvisibleOutlined,
 } from '@ant-design/icons';
 import axios from 'axios';
 import moment from 'moment';
@@ -54,7 +59,11 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
   const [characterName, setCharacterName] = useState(null);
   const [historyModalVisible, setHistoryModalVisible] = useState(false);
   const [selectedAuctionId, setSelectedAuctionId] = useState(null);
-  const [localUserRole, setLocalUserRole] = useState(null); // 本地狀態存儲 userRole
+  const [localUserRole, setLocalUserRole] = useState(null);
+  const [errorModalVisible, setErrorModalVisible] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
+  const [successModalVisible, setSuccessModalVisible] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
   const navigate = useNavigate();
   const token = localStorage.getItem('token');
 
@@ -69,11 +78,12 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
       });
       setUserDiamonds(res.data.diamonds || 0);
       setCharacterName(res.data.character_name);
-      setLocalUserRole(res.data.role || 'user'); // 設置本地 userRole
+      setLocalUserRole(res.data.role || 'user');
       logger.info('Fetched user info in AuctionList', { userId: res.data.id, character_name: res.data.character_name, role: res.data.role });
     } catch (err) {
       logger.error('Fetch user info error in AuctionList', { error: err.message, stack: err.stack });
-      message.error('無法獲取用戶信息，請重新登錄');
+      setErrorMessage('無法獲取用戶信息，請重新登錄');
+      setErrorModalVisible(true);
       navigate('/login');
     }
   };
@@ -87,7 +97,8 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
       setBids(prev => ({ ...prev, [auctionId]: res.data }));
     } catch (err) {
       logger.error(`Error fetching bids for auction ${auctionId}`, { error: err.response?.data || err.message, stack: err.stack });
-      message.error('無法獲取下標歷史，請刷新頁面後重試！');
+      setErrorMessage('無法獲取下標歷史，請刷新頁面後重試！');
+      setErrorModalVisible(true);
       setBids(prev => ({ ...prev, [auctionId]: [] }));
     }
   };
@@ -108,7 +119,8 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
       logger.info('System notification sent', { userId: userIdToNotify, auctionId });
     } catch (err) {
       logger.error('Send system notification error', { error: err.response?.data || err.message, stack: err.stack });
-      message.warning('系統消息發送失敗，但競標操作已完成');
+      setErrorMessage('系統消息發送失敗，但競標操作已完成');
+      setErrorModalVisible(true);
     }
   };
 
@@ -154,18 +166,50 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
     );
   };
 
+  const getAuctionTypeIcon = (auctionType) => {
+    switch (auctionType) {
+      case 'open':
+        return <EyeOutlined style={{ color: '#1890ff', fontSize: '18px' }} />;
+      case 'blind':
+        return <EyeInvisibleOutlined style={{ color: '#1890ff', fontSize: '18px' }} />;
+      case 'lottery':
+        return <GiftOutlined style={{ color: '#1890ff', fontSize: '18px' }} />;
+      default:
+        return null;
+    }
+  };
+
+  const getRestrictionTags = (restrictions) => {
+    const tags = [];
+    if (restrictions.sameWorld) {
+      tags.push('同世界');
+    }
+    if (restrictions.hasAttended) {
+      tags.push('有出席');
+    }
+    if (restrictions.dkpThreshold > 0) {
+      tags.push(`DKP>${restrictions.dkpThreshold}`);
+    }
+    if (restrictions.sameGuild) {
+      tags.push('同旅團');
+    }
+    return tags;
+  };
+
   const handleCancelAuction = async (auctionId) => {
     try {
       logger.info('User clicked cancel auction button', { auctionId, userId });
       const res = await axios.put(`${BASE_URL}/api/auctions/${auctionId}/cancel`, {}, {
         headers: { 'x-auth-token': token },
       });
-      message.success(res.data.msg);
+      setSuccessMessage(res.data.msg);
+      setSuccessModalVisible(true);
       logger.info('Auction cancelled successfully', { auctionId, userId, response: res.data });
       fetchAuctions();
     } catch (err) {
       logger.error('Cancel auction error', { auctionId, userId, error: err.response?.data || err.message, stack: err.stack });
-      message.error(`取消拍賣失敗: ${err.response?.data?.msg || err.message}`);
+      setErrorMessage(`取消拍賣失敗: ${err.response?.data?.msg || err.message}`);
+      setErrorModalVisible(true);
     }
   };
 
@@ -175,12 +219,14 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
       const res = await axios.put(`${BASE_URL}/api/auctions/${auctionId}/reassign`, {}, {
         headers: { 'x-auth-token': token },
       });
-      message.success(res.data.msg);
+      setSuccessMessage(res.data.msg);
+      setSuccessModalVisible(true);
       logger.info('Auction reassigned successfully', { auctionId, userId, response: res.data });
       fetchAuctions();
     } catch (err) {
       logger.error('Reassign auction error', { auctionId, userId, error: err.response?.data || err.message, stack: err.stack });
-      message.error(`重新分配拍賣失敗: ${err.response?.data?.msg || err.message}`);
+      setErrorMessage(`重新分配拍賣失敗: ${err.response?.data?.msg || err.message}`);
+      setErrorModalVisible(true);
     }
   };
 
@@ -190,19 +236,33 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
       const res = await axios.put(`${BASE_URL}/api/auctions/${auctionId}/complete-transaction`, {}, {
         headers: { 'x-auth-token': token },
       });
-      message.success(res.data.msg);
+      setSuccessMessage(res.data.msg);
+      setSuccessModalVisible(true);
       logger.info('Transaction completed successfully', { auctionId, userId, characterName, response: res.data });
       fetchAuctions();
     } catch (err) {
       logger.error('Complete transaction error', { auctionId, userId, characterName, error: err.response?.data || err.message, stack: err.stack });
-      message.error(`回報交易完成失敗: ${err.response?.data?.msg || err.message}`);
+      setErrorMessage(`回報交易完成失敗: ${err.response?.data?.msg || err.message}`);
+      setErrorModalVisible(true);
     }
   };
 
   const handleBidClick = (auction) => {
     logger.info('User clicked bid button', { auctionId: auction._id, userId });
     if (!auction || !auction._id) {
-      message.error('無法找到拍賣信息，請刷新頁面！');
+      setErrorMessage('無法找到拍賣信息，請刷新頁面！');
+      setErrorModalVisible(true);
+      return;
+    }
+    setSelectedAuction(auction);
+    setIsModalVisible(true);
+  };
+
+  const handleRegisterClick = (auction) => {
+    logger.info('User clicked register button for lottery', { auctionId: auction._id, userId });
+    if (!auction || !auction._id) {
+      setErrorMessage('無法找到拍賣信息，請刷新頁面！');
+      setErrorModalVisible(true);
       return;
     }
     setSelectedAuction(auction);
@@ -222,108 +282,145 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
   };
 
   const handleBidSubmit = async () => {
-    if (!bidAmount) {
-      message.error('請輸入下標金額！');
-      return;
-    }
-    if (isNaN(bidAmount) || parseInt(bidAmount) <= 0) {
-      message.error('下標金額必須為正整數！');
-      return;
-    }
-
-    const bidValue = parseInt(bidAmount);
-    const currentPrice = selectedAuction?.currentPrice || 0;
-
-    if (bidValue === currentPrice) {
-      message.error(`下標金額不能等於當前價格 {formatNumber(currentPrice)} 💎，請輸入更高的金額！`);
-      return;
-    }
-    if (bidValue < currentPrice) {
-      message.error(`下標金額必須大於當前價格 {formatNumber(currentPrice)} 💎！`);
-      return;
-    }
-
     try {
-      logger.info('Checking auction status before bidding', { auctionId: selectedAuction._id, userId });
-      const resCheck = await axios.get(`${BASE_URL}/api/auctions/${selectedAuction._id}`, {
-        headers: { 'x-auth-token': token },
-      });
-      const latestAuction = resCheck.data;
-      if (!latestAuction) {
-        throw new Error('拍賣不存在');
-      }
-      if (latestAuction.status !== 'active') {
-        message.error(`拍賣已結束或被取消，當前狀態為 ${statusMap[latestAuction.status] || latestAuction.status}，無法下標。請刷新頁面後重試。`);
-        return;
-      }
-
-      logger.info('Sending bid request', { auctionId: selectedAuction._id, amount: bidValue, userId });
-
-      const res = await axios.post(
-        `${BASE_URL}/api/auctions/${selectedAuction._id}/bid`,
-        { amount: bidValue },
-        { headers: { 'x-auth-token': token } }
-      );
-
-      const finalPrice = res.data.finalPrice || bidValue;
-      const isBuyout = res.data.msg.includes('已直接得標');
-
-      if (isBuyout) {
-        message.success('下標成功，已直接得標！競標已結束。');
-        await sendSystemNotification(userId, selectedAuction._id, selectedAuction.itemName, finalPrice);
+      if (selectedAuction.auctionType === 'lottery') {
+        // 抽籤：直接報名
+        logger.info('Sending registration request for lottery', { auctionId: selectedAuction._id, userId });
+        const res = await axios.post(
+          `${BASE_URL}/api/auctions/${selectedAuction._id}/bid`,
+          { amount: 0 },
+          { headers: { 'x-auth-token': token } }
+        );
+        setSuccessMessage(res.data.msg || '報名成功！');
+        setSuccessModalVisible(true);
+        logger.info('Registration successful', { auctionId: selectedAuction._id, userId });
+        setIsModalVisible(false);
+        fetchAuctions();
       } else {
-        message.success(`下標成功！您已下標 {formatNumber(finalPrice)} 💎，請確保結算前餘額足夠（當前餘額：{formatNumber(userDiamonds)} 💎）。`);
+        // 明標或暗標：處理出價
+        if (!bidAmount) {
+          throw new Error('請輸入下標金額！');
+        }
+        if (isNaN(bidAmount) || parseInt(bidAmount) <= 0) {
+          throw new Error('下標金額必須為正整數！');
+        }
+
+        const bidValue = parseInt(bidAmount);
+        const currentPrice = selectedAuction?.currentPrice || 0;
+
+        if (selectedAuction.auctionType === 'open') {
+          if (bidValue === currentPrice) {
+            throw new Error(`下標金額不能等於當前價格 ${formatNumber(currentPrice)} 💎，請輸入更高的金額！`);
+          }
+          if (bidValue < currentPrice) {
+            throw new Error(`下標金額必須大於當前價格 ${formatNumber(currentPrice)} 💎！`);
+          }
+        }
+
+        logger.info('Checking auction status before bidding', { auctionId: selectedAuction._id, userId });
+        const resCheck = await axios.get(`${BASE_URL}/api/auctions/${selectedAuction._id}`, {
+          headers: { 'x-auth-token': token },
+        });
+        const latestAuction = resCheck.data;
+        if (!latestAuction) {
+          throw new Error('拍賣不存在');
+        }
+        if (latestAuction.status !== 'active') {
+          throw new Error(`拍賣已結束或被取消，當前狀態為 ${statusMap[latestAuction.status] || latestAuction.status}，無法下標。請刷新頁面後重試。`);
+        }
+
+        logger.info('Sending bid request', { auctionId: selectedAuction._id, amount: bidValue, userId });
+
+        const res = await axios.post(
+          `${BASE_URL}/api/auctions/${selectedAuction._id}/bid`,
+          { amount: bidValue },
+          { headers: { 'x-auth-token': token } }
+        );
+
+        const finalPrice = res.data.finalPrice || bidValue;
+        const isBuyout = res.data.msg.includes('已直接得標');
+
+        if (isBuyout) {
+          setSuccessMessage('下標成功，已直接得標！競標已結束。');
+          setSuccessModalVisible(true);
+          await sendSystemNotification(userId, selectedAuction._id, selectedAuction.itemName, finalPrice);
+        } else {
+          setSuccessMessage(`下標成功！您已下標 ${formatNumber(finalPrice)} 💎，請確保結算前餘額足夠（當前餘額：${formatNumber(userDiamonds)} 💎）。`);
+          setSuccessModalVisible(true);
+        }
+
+        await fetchAuctions();
+        await fetchBids(selectedAuction._id);
+
+        if (historyModalVisible && selectedAuctionId === selectedAuction._id) {
+          setHistoryModalVisible(false);
+          setTimeout(() => {
+            setHistoryModalVisible(true);
+          }, 0);
+        }
+
+        setIsModalVisible(false);
+        setBidAmount('');
       }
-
-      await fetchAuctions();
-      await fetchBids(selectedAuction._id);
-
-      if (historyModalVisible && selectedAuctionId === selectedAuction._id) {
-        setHistoryModalVisible(false);
-        setTimeout(() => {
-          setHistoryModalVisible(true);
-        }, 0);
-      }
-
-      setIsModalVisible(false);
-      setBidAmount('');
     } catch (err) {
-      logger.error('Bid error', { auctionId: selectedAuction?._id, userId, error: err.response?.data || err.message, stack: err.stack });
+      logger.error('Bid error', {
+        auctionId: selectedAuction?._id,
+        userId,
+        error: err.response?.data || err.message,
+        stack: err.stack,
+        response: err.response ? {
+          status: err.response.status,
+          data: err.response.data,
+          headers: err.response.headers,
+        } : null,
+      });
+
+      let errorMsg = '操作失敗';
+      let errorDetail = '';
 
       if (err.response) {
         const status = err.response.status;
-        const errorMsg = err.response.data?.msg || '未知錯誤';
-        const detail = err.response.data?.detail || '';
+        errorMsg = err.response.data?.msg || '未知錯誤';
+        errorDetail = err.response.data?.detail || '';
 
         switch (status) {
           case 400:
-            message.error(`${errorMsg}${detail ? `：${detail}` : ''}`);
+            errorMsg = `${errorMsg}${errorDetail ? `：${errorDetail}` : ''}`;
             break;
           case 401:
-            message.error('認證失敗，請重新登錄！');
+            errorMsg = '認證失敗，請重新登錄！';
             setTimeout(() => {
               navigate('/login');
             }, 2000);
             break;
           case 403:
-            message.error('您無權進行此操作！');
+            errorMsg = '您無權進行此操作！';
             break;
           case 404:
-            message.error(`拍賣不存在，請刷新頁面後重試！${detail ? `（${detail}）` : ''}`);
+            errorMsg = `拍賣不存在，請刷新頁面後重試！${errorDetail ? `（${errorDetail}）` : ''}`;
             fetchAuctions();
             break;
           case 500:
-            message.error('伺服器錯誤，請稍後重試！');
+            errorMsg = '伺服器錯誤，請稍後重試！';
             break;
           default:
-            message.error(`下標失敗：${errorMsg}${detail ? `（${detail}）` : ''}`);
+            errorMsg = `操作失敗：${errorMsg}${errorDetail ? `（${errorDetail}）` : ''}`;
             break;
         }
       } else if (err.request) {
-        message.error('網絡錯誤，請檢查您的網絡連線！');
+        errorMsg = '網絡錯誤，請檢查您的網絡連線！';
       } else {
-        message.error(`下標失敗：${err.message}`);
+        errorMsg = err.message || '未知錯誤';
       }
+
+      logger.info('Displaying error message', { message: errorMsg });
+      setErrorMessage(errorMsg);
+      setErrorModalVisible(true);
+
+      setTimeout(() => {
+        setIsModalVisible(false);
+        setBidAmount('');
+      }, 1000);
     }
   };
 
@@ -345,7 +442,7 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
         const isHighestBid = index === 0;
         return (
           <span style={{ color: isHighestBid ? '#52c41a' : '#000', fontWeight: isHighestBid ? 'bold' : 'normal' }}>
-            {formatNumber(amount)} 💎
+            {amount === 0 ? '報名' : `${formatNumber(amount)} 💎`}
           </span>
         );
       },
@@ -395,26 +492,10 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
                 : `${Math.floor(moment.duration(moment(auction.endTime).diff(moment())).asHours())}小時${moment.duration(moment(auction.endTime).diff(moment())).minutes()}分`
               : '無截止時間';
             const isItemHolder = auction.itemHolder === characterName;
+            const auctionType = auction.auctionType || 'open';
+            const restrictionTags = getRestrictionTags(auction.restrictions || {});
 
-            // 調試日誌
-            //logger.debug('Auction itemHolder check', { auctionId: auction._id, itemHolder: auction.itemHolder, characterName });
-            //logger.debug('Auction status check', { auctionId: auction._id, status: auction.status, isItemHolder, shouldShowCompleteButton: isItemHolder && auction.status === 'completed', userRole: localUserRole });
-            //logger.debug('Settle button check', { auctionId: auction._id, status: auction.status, userRole: localUserRole, shouldShowSettleButton: localUserRole === 'admin' && auction.status === 'pending' });
-
-            // 如果按鈕未顯示，添加警告日誌
-            if (isWonTab && !isItemHolder) {
-              logger.warn('Complete transaction button not shown: user is not item holder', { auctionId: auction._id, itemHolder: auction.itemHolder, characterName });
-            }
-            if (isWonTab && auction.status !== 'completed') {
-              logger.warn('Complete transaction button not shown: auction status is not completed', { auctionId: auction._id, status: auction.status });
-            }
-            if (isWonTab && localUserRole === 'admin' && auction.status !== 'pending') {
-              logger.warn('Settle button not shown: auction status is not pending', { auctionId: auction._id, status: auction.status });
-            }
-
-            // 核實按鈕是否應該顯示
             const shouldShowSettleButton = localUserRole === 'admin' && auction.status === 'pending';
-            //logger.debug('Rendering settle button', { auctionId: auction._id, shouldShowSettleButton });
 
             return (
               <Card
@@ -440,7 +521,8 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
                       }}
                       onError={(e) => {
                         logger.error('Image load error', { imageUrl: auction.imageUrl, error: e.message });
-                        message.warning('圖片加載失敗，使用占位圖');
+                        setErrorMessage('圖片加載失敗，使用占位圖');
+                        setErrorModalVisible(true);
                       }}
                     />
                     {auction.status === 'active' && (
@@ -503,7 +585,6 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
                             shape="circle"
                             icon={<AuditOutlined />}
                             size="small"
-                          // 移除可能的 disabled 屬性，確保按鈕可點擊
                           />
                         </Tooltip>
                       </Popconfirm>
@@ -527,16 +608,29 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
                       </Popconfirm>
                     ),
                   ].filter(Boolean) : [
-                    <Tooltip key="bid" title="下標">
-                      <Button
-                        type="primary"
-                        shape="circle"
-                        icon={<DollarCircleOutlined />}
-                        size="small"
-                        onClick={() => handleBidClick(auction)}
-                        disabled={auction.status !== 'active'}
-                      />
-                    </Tooltip>,
+                    auctionType !== 'lottery' ? (
+                      <Tooltip key="bid" title="下標">
+                        <Button
+                          type="primary"
+                          shape="circle"
+                          icon={<DollarCircleOutlined />}
+                          size="small"
+                          onClick={() => handleBidClick(auction)}
+                          disabled={auction.status !== 'active'}
+                        />
+                      </Tooltip>
+                    ) : (
+                      <Tooltip key="register" title="報名">
+                        <Button
+                          type="primary"
+                          shape="circle"
+                          icon={<UserOutlined />}
+                          size="small"
+                          onClick={() => handleRegisterClick(auction)}
+                          disabled={auction.status !== 'active'}
+                        />
+                      </Tooltip>
+                    ),
                     <Tooltip key="history" title="詳細">
                       <Button
                         type="default"
@@ -611,7 +705,7 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
               >
                 <Card.Meta
                   description={
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                       {isWonTab ? (
                         <>
                           {/* 得標金額 */}
@@ -644,44 +738,49 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
                             <InfoCircleOutlined style={{ color: '#000', fontSize: '16px' }} />
                             {getStatusTag(auction.status)}
                           </div>
-                          {/* 提示信息 */}
+                          {/* 移除 Ant Design 的 Alert 提示 */}
                           {isItemHolder && auction.status === 'pending' && localUserRole !== 'admin' && (
-                            <Alert
-                              message="等待管理員核實"
-                              description="此拍賣正在等待管理員核實交易，核實完成後您可以回報交易完成。"
-                              type="info"
-                              showIcon
-                              style={{ marginTop: '8px' }}
-                            />
+                            <div style={{ marginTop: '8px', color: '#1890ff' }}>
+                              <p>等待管理員核實</p>
+                              <p>此拍賣正在等待管理員核實交易，核實完成後您可以回報交易完成。</p>
+                            </div>
                           )}
                         </>
                       ) : (
                         <>
-                          {/* 起標 */}
+                          {/* 起標 {價格} 競標類型圖示 {拍賣類型} */}
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <SketchOutlined style={{ color: '#1890ff', fontSize: '16px' }} />
-                            <span style={{ color: '#1890ff', fontSize: '16px' }}>{formatNumber(auction.startingPrice) || 0}</span>
+                            <span style={{ color: '#1890ff', fontSize: '18px', fontWeight: 'bold' }}>
+                              起標 {formatNumber(auction.startingPrice) || 0}
+                            </span>
+                            {getAuctionTypeIcon(auctionType)}
+                            <span style={{ color: '#1890ff', fontSize: '18px', fontWeight: 'bold' }}>
+                              {auctionType === 'open' ? '明標' : auctionType === 'blind' ? '暗標' : '抽籤'}
+                            </span>
                           </div>
-                          {/* 當前價格 */}
+                          {/* 物品持有人 */}
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <RiseOutlined style={{ color: '#1890ff', fontSize: '16px' }} />
-                            <span style={{ color: '#1890ff', fontSize: '16px' }}>{formatNumber(auction.currentPrice) || 0}</span>
+                            <GiftOutlined style={{ color: '#000', fontSize: '16px' }} />
+                            <span style={{ fontSize: '16px' }}>{auction.itemHolder || auction.createdBy.character_name}</span>
                           </div>
-                          {/* 直接得標價 */}
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <ShoppingCartOutlined style={{ color: '#000', fontSize: '16px' }} />
-                            <span>{auction.buyoutPrice ? formatNumber(auction.buyoutPrice) : '無'}</span>
+                          {/* 分隔線 */}
+                          <hr style={{ border: 'none', borderTop: '1px dashed #e8e8e8', margin: '8px 0' }} />
+                          {/* 競標限制標籤 */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                            {restrictionTags.length > 0 ? (
+                              restrictionTags.map((tag, index) => (
+                                <Tag key={index} color="blue" style={{ fontSize: '14px', padding: '2px 8px' }}>
+                                  {tag}
+                                </Tag>
+                              ))
+                            ) : (
+                              <span style={{ color: '#000', fontSize: '16px' }}>
+                                無競標限制
+                              </span>
+                            )}
                           </div>
-                          {/* 最高下標者 */}
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <UserAddOutlined style={{ color: '#000', fontSize: '16px' }} />
-                            <span>{auction.highestBidder?.character_name || '無'}</span>
-                          </div>
-                          {/* 狀態 */}
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <InfoCircleOutlined style={{ color: '#000', fontSize: '16px' }} />
-                            {getStatusTag(auction.status)}
-                          </div>
+                          {/* 分隔線 */}
+                          <hr style={{ border: 'none', borderTop: '1px dashed #e8e8e8', margin: '8px 0' }} />
                         </>
                       )}
                     </div>
@@ -693,36 +792,44 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
         </div>
       )}
 
-      {/* 出價 Modal */}
+      {/* 出價/報名 Modal */}
       <Modal
-        title={`為 ${selectedAuction?.itemName || '未知物品'} 下標`}
+        title={selectedAuction?.auctionType === 'lottery' ? `報名參與 ${selectedAuction?.itemName || '未知物品'} 抽籤` : `為 ${selectedAuction?.itemName || '未知物品'} 下標`}
         open={isModalVisible}
         onOk={handleBidSubmit}
         onCancel={() => {
           setIsModalVisible(false);
           setBidAmount('');
         }}
-        okText="下標"
+        okText={selectedAuction?.auctionType === 'lottery' ? '報名' : '下標'}
         cancelText="取消"
       >
-        <p>當前價格: {formatNumber(selectedAuction?.currentPrice) || 0} 💎</p>
-        {selectedAuction?.buyoutPrice && (
-          <p>直接得標價: {formatNumber(selectedAuction.buyoutPrice)} 💎</p>
+        {selectedAuction?.auctionType === 'lottery' ? (
+          <p>您確定要報名參與此抽籤拍賣嗎？得標後需支付 {formatNumber(selectedAuction.startingPrice)} 💎。</p>
+        ) : (
+          <>
+            {selectedAuction?.auctionType === 'open' && (
+              <p>當前價格: {formatNumber(selectedAuction.currentPrice) || 0} 💎</p>
+            )}
+            {selectedAuction?.buyoutPrice && (
+              <p>直接得標價: {formatNumber(selectedAuction.buyoutPrice)} 💎</p>
+            )}
+            <Input
+              type="number"
+              value={bidAmount}
+              onChange={(e) => setBidAmount(e.target.value)}
+              placeholder="輸入下標金額"
+              min={(selectedAuction?.currentPrice || 0) + 1}
+              style={{ margin: '10px 0' }}
+            />
+            {bidAmount && parseInt(bidAmount) > userDiamonds && (
+              <p style={{ color: 'red' }}>
+                警告：您的餘額（{formatNumber(userDiamonds)} 💎）低於下標金額（{formatNumber(bidAmount)} 💎），請確保結算前充值！
+              </p>
+            )}
+            <p>注意：下標後，💎將在結算時扣除。您的餘額：{formatNumber(userDiamonds)} 💎</p>
+          </>
         )}
-        <Input
-          type="number"
-          value={bidAmount}
-          onChange={(e) => setBidAmount(e.target.value)}
-          placeholder="輸入下標金額"
-          min={(selectedAuction?.currentPrice || 0) + 1}
-          style={{ margin: '10px 0' }}
-        />
-        {bidAmount && parseInt(bidAmount) > userDiamonds && (
-          <p style={{ color: 'red' }}>
-            警告：您的餘額（{formatNumber(userDiamonds)} 💎）低於下標金額（{formatNumber(bidAmount)} 💎），請確保結算前充值！
-          </p>
-        )}
-        <p>注意：下標後，💎將在結算時扣除。您的餘額：{formatNumber(userDiamonds)} 💎</p>
       </Modal>
 
       {/* 出價歷史 Modal */}
@@ -758,63 +865,104 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
         />
       </Modal>
 
+      {/* 自定義錯誤提示模態框 */}
+      <Modal
+        title={
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <ExclamationCircleOutlined style={{ color: '#ff4d4f', fontSize: '24px' }} />
+            <span>錯誤提示</span>
+          </div>
+        }
+        open={errorModalVisible}
+        onOk={() => setErrorModalVisible(false)}
+        onCancel={() => setErrorModalVisible(false)}
+        okText="確認"
+        cancelText="關閉"
+        width={400}
+        style={{ top: '20%' }}
+      >
+        <div style={{ padding: '10px 0', color: '#ff4d4f', fontSize: '16px' }}>
+          {errorMessage}
+        </div>
+      </Modal>
+
+      {/* 自定義成功提示模態框 */}
+      <Modal
+        title={
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <CheckCircleOutlined style={{ color: '#52c41a', fontSize: '24px' }} />
+            <span>操作成功</span>
+          </div>
+        }
+        open={successModalVisible}
+        onOk={() => setSuccessModalVisible(false)}
+        onCancel={() => setSuccessModalVisible(false)}
+        okText="確認"
+        cancelText="關閉"
+        width={400}
+        style={{ top: '20%' }}
+      >
+        <div style={{ padding: '10px 0', color: '#52c41a', fontSize: '16px' }}>
+          {successMessage}
+        </div>
+      </Modal>
+
       <style jsx global>{`
-                .highest-bid-row {
-                    background-color: #e6f7e5 !important;
-                }
-                .highest-bid-row td {
-                    border-bottom: 1px solid #d9d9d9 !important;
-                }
-                .ant-table-expanded-row .ant-table {
-                    margin: 0 !important;
-                }
-                .ant-table-expanded-row .ant-table-thead > tr > th {
-                    background: #e8e8e8 !important;
-                    fontWeight: bold;
-                }
-                .ant-table-expanded-row .ant-table-tbody > tr:hover > td {
-                    background: #fafafa !important;
-                }
-                .ant-image {
-                    position: static !important;
-                }
-                .ant-image .ant-image-mask {
-                    position: static !important;
-                }
-                .ant-card-actions {
-                    display: flex !important;
-                    justify-content: center !important;
-                    gap: 8px !important;
-                    padding: 8px 0 !important;
-                }
-                .ant-card-actions > li {
-                    margin: 0 !important;
-                    width: auto !important;
-                    text-align: center !important;
-                }
-                .ant-card-actions .ant-btn {
-                    padding: 4px !important;
-                    width: 32px !important;
-                    height: 32px !important;
-                    display: flex !important;
-                    align-items: center !important;
-                    justify-content: center !important;
-                }
-                @media (max-width: 768px) {
-                    .ant-card-actions {
-                        gap: 4px !important;
-                    }
-                    .ant-card-actions .ant-btn {
-                        width: 28px !important;
-                        height: 28px !important;
-                    }
-                }
-                /* 確保核實按鈕可點擊 */
-                .ant-btn-circle {
-                    pointer-events: auto !important;
-                    opacity: 1 !important;
-                }
-            `}</style>
+        .highest-bid-row {
+          background-color: #e6f7e5 !important;
+        }
+        .highest-bid-row td {
+          border-bottom: 1px solid #d9d9d9 !important;
+        }
+        .ant-table-expanded-row .ant-table {
+          margin: 0 !important;
+        }
+        .ant-table-expanded-row .ant-table-thead > tr > th {
+          background: #e8e8e8 !important;
+          fontWeight: bold;
+        }
+        .ant-table-expanded-row .ant-table-tbody > tr:hover > td {
+          background: #fafafa !important;
+        }
+        .ant-image {
+          position: static !important;
+        }
+        .ant-image .ant-image-mask {
+          position: static !important;
+        }
+        .ant-card-actions {
+          display: flex !important;
+          justify-content: center !important;
+          gap: 8px !important;
+          padding: 8px 0 !important;
+        }
+        .ant-card-actions > li {
+          margin: 0 !important;
+          width: auto !important;
+          text-align: center !important;
+        }
+        .ant-card-actions .ant-btn {
+          padding: 4px !important;
+          width: 32px !important;
+          height: 32px !important;
+          display: flex !important;
+          align-items: center !important;
+          justify-content: center !important;
+        }
+        @media (max-width: 768px) {
+          .ant-card-actions {
+            gap: 4px !important;
+          }
+          .ant-card-actions .ant-btn {
+            width: 28px !important;
+            height: 28px !important;
+          }
+        }
+        .ant-btn-circle {
+          pointer-events: auto !important;
+          opacity: 1 !important;
+        }
+      `}</style>
     </div>
   );
 };

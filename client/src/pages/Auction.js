@@ -1,3 +1,4 @@
+// pages/Auction.js
 import React, { useState, useEffect, useCallback } from 'react';
 import { Tabs, Spin, message, Alert, Select, Button, Card } from 'antd';
 import AuctionList from '../components/AuctionList';

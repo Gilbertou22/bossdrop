@@ -16,6 +16,8 @@ import logger from '../utils/logger'; // 引入前端日誌工具
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend, ArcElement);
 
+const BASE_URL = process.env.REACT_APP_API_URL || '';
+
 const Stats = () => {
     const [stats, setStats] = useState({
         totalBossKills: 0,
@@ -44,7 +46,7 @@ const Stats = () => {
                 window.location.href = '/login';
                 return;
             }
-            const res = await axios.get('http://localhost:5000/api/stats/summary', {
+            const res = await axios.get(`${BASE_URL}/api/stats/summary`, {
                 headers: { 'x-auth-token': token },
                 params: { ...params },
             });

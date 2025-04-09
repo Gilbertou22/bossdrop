@@ -1,4 +1,3 @@
-// routes/wallet.js
 const express = require('express');
 const router = express.Router();
 const WalletTransaction = require('../models/WalletTransaction');
@@ -37,18 +36,13 @@ router.get('/transactions', auth, async (req, res) => {
             }
         }
 
-        // 查詢 WalletTransaction
+        // 查詢 WalletTransaction 和 DKPRecord，不進行分頁
         const walletTransactions = await WalletTransaction.find(walletQuery)
             .sort({ [sortBy]: sortOrder === 'desc' ? -1 : 1 })
-            .skip((page - 1) * pageSize)
-            .limit(parseInt(pageSize))
             .lean();
 
-        // 查詢 DKPRecord
         const dkpRecords = source && source !== 'dkp' ? [] : await DKPRecord.find(dkpQuery)
             .sort({ [sortBy]: sortOrder === 'desc' ? -1 : 1 })
-            .skip((page - 1) * pageSize)
-            .limit(parseInt(pageSize))
             .lean();
 
         // 將 DKP 記錄轉換為錢包交易格式
@@ -62,7 +56,7 @@ router.get('/transactions', auth, async (req, res) => {
             timestamp: record.createdAt,
         }));
 
-        // 合併交易記錄
+        // 合併交易記錄並排序
         const allTransactions = [...walletTransactions, ...dkpTransactions]
             .sort((a, b) => {
                 const dateA = new Date(a.timestamp);
@@ -70,8 +64,10 @@ router.get('/transactions', auth, async (req, res) => {
                 return sortOrder === 'desc' ? dateB - dateA : dateA - dateB;
             });
 
+        // 計算總記錄數
+        const total = allTransactions.length;
+
         // 分頁處理
-        const total = await WalletTransaction.countDocuments(walletQuery) + await DKPRecord.countDocuments(dkpQuery);
         const paginatedTransactions = allTransactions.slice((page - 1) * pageSize, page * pageSize);
 
         res.json({

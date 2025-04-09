@@ -1,4 +1,3 @@
-// routes/boss-kills.js
 const express = require('express');
 const mongoose = require('mongoose');
 const router = express.Router();
@@ -25,87 +24,34 @@ const upload = multer({
     limits: { fileSize: 600 * 1024 },
 });
 
+// 獲取擊殺記錄列表
 router.get('/', auth, async (req, res) => {
     try {
-        const { bossId, start_time, end_time, status, page = 1, pageSize = 10 } = req.query;
-        let query = {};
+        const { page = 1, pageSize = 10, sortBy = 'kill_time', sortOrder = 'desc', bossId, start_time, end_time, status, keyword } = req.query;
 
+        const query = {};
         if (bossId) query.bossId = bossId;
-        if (start_time || end_time) {
-            query.kill_time = {};
-            if (start_time) query.kill_time.$gte = new Date(start_time);
-            if (end_time) query.kill_time.$lte = new Date(end_time);
-        }
+        if (start_time) query.kill_time = { $gte: new Date(start_time) };
+        if (end_time) query.kill_time = { ...query.kill_time, $lte: new Date(end_time) };
         if (status) query.status = status;
+        if (keyword) {
+            query.$or = [
+                { 'dropped_items.name': { $regex: keyword, $options: 'i' } },
+                { itemHolder: { $regex: keyword, $options: 'i' } },
+                { attendees: { $regex: keyword, $options: 'i' } },
+            ];
+        }
 
-        console.log('Querying boss kills with:', query);
-
-        // 計算總記錄數
         const total = await BossKill.countDocuments(query);
-
-        // 分頁查詢
         const bossKills = await BossKill.find(query)
-            .populate('bossId', 'name description difficulty')
-            .sort({ kill_time: -1 })
+            .populate('bossId')
+            .populate('dropped_items.level')
+            .sort({ [sortBy]: sortOrder === 'desc' ? -1 : 1 })
             .skip((page - 1) * pageSize)
-            .limit(parseInt(pageSize))
-            .lean();
+            .limit(parseInt(pageSize));
 
-        console.log('Fetched boss kills count:', bossKills.length);
-
-        // 檢查是否有 bossId 缺失的記錄
-        bossKills.forEach(kill => {
-            if (!kill.bossId) {
-                console.warn(`BossKill record missing bossId: ${kill._id}`);
-            } else if (!kill.bossId.name) {
-                console.warn(`Boss record missing name for bossId: ${kill.bossId._id}`);
-            }
-        });
-
-        const guild = await Guild.findOne({ createdBy: req.user.id }).lean();
-        const applyDeadlineHours = guild?.settings?.applyDeadlineHours || 48;
-        const currentDate = new Date();
-
-        const enrichedKills = await Promise.all(bossKills.map(async kill => {
-            const updatedItems = await Promise.all(kill.dropped_items.map(async item => {
-                const approvedApplication = await Application.findOne({
-                    kill_id: kill._id,
-                    item_id: item._id,
-                    status: 'approved',
-                }).lean();
-
-                const itemDoc = await Item.findOne({ name: item.name }).populate('level', 'level color').lean();
-                let level = itemDoc?.level || null;
-
-                if (!itemDoc || !level) {
-                    console.warn(`Item "${item.name}" (ID: ${item._id}) has no associated Item record or level. Using default level.`);
-                    level = { level: '一般', color: '白色' };
-                }
-
-                return {
-                    ...item,
-                    final_recipient: approvedApplication ? approvedApplication.user_id.character_name : item.final_recipient,
-                    level,
-                };
-            }));
-
-            const killTime = new Date(kill.kill_time);
-            const timeDiff = (currentDate - killTime) / (1000 * 60 * 60);
-            const canSupplement = timeDiff <= applyDeadlineHours;
-            const remainingHours = canSupplement ? Math.ceil(applyDeadlineHours - timeDiff) : 0;
-
-            return {
-                ...kill,
-                dropped_items: updatedItems,
-                canSupplement,
-                remainingSupplementHours: remainingHours,
-                itemHolder: kill.itemHolder,
-            };
-        }));
-
-        console.log('Fetched boss kills:', enrichedKills.length);
         res.json({
-            data: enrichedKills,
+            data: bossKills,
             pagination: {
                 current: parseInt(page),
                 pageSize: parseInt(pageSize),
@@ -113,19 +59,38 @@ router.get('/', auth, async (req, res) => {
             },
         });
     } catch (err) {
-        console.error('Error fetching boss kills:', err);
+        res.status(500).json({ msg: '服務器錯誤', detail: err.message });
+    }
+});
+
+// 獲取單個擊殺記錄詳情
+router.get('/:id', auth, async (req, res) => {
+    try {
+        const bossKill = await BossKill.findById(req.params.id)
+            .populate('bossId', 'name')
+            .populate('dropped_items.level')
+            .lean();
+        if (!bossKill) {
+            return res.status(404).json({
+                code: 404,
+                msg: '擊殺記錄不存在',
+                detail: `無法找到 ID 為 ${req.params.id} 的擊殺記錄。`,
+            });
+        }
+        logger.info('Fetched boss kill details', { userId: req.user.id, bossKillId: req.params.id });
+        res.json(bossKill);
+    } catch (err) {
+        logger.error('Error fetching boss kill by ID', { userId: req.user.id, bossKillId: req.params.id, error: err.message, stack: err.stack });
         res.status(500).json({
-            code: 500,
-            msg: '獲取擊殺記錄失敗',
-            detail: err.message || '伺服器處理錯誤',
-            suggestion: '請稍後重試或聯繫管理員。',
+            msg: '獲取擊殺記錄詳情失敗',
+            error: err.message,
         });
     }
 });
 
+// 獲取過期物品
 router.get('/expired-items', auth, async (req, res) => {
     try {
-        // 自動更新 status 為 expired
         const now = new Date();
         const updateResult = await BossKill.updateMany(
             {
@@ -137,13 +102,11 @@ router.get('/expired-items', auth, async (req, res) => {
         logger.info('Updated BossKill records to expired', { modifiedCount: updateResult.modifiedCount });
 
         const expiredItems = await BossKill.aggregate([
-            // 步驟 1：過濾 status 為 'expired' 的記錄
             {
                 $match: {
                     status: 'expired'
                 }
             },
-            // 調試：記錄過濾後的記錄數量
             {
                 $group: {
                     _id: null,
@@ -161,7 +124,6 @@ router.get('/expired-items', auth, async (req, res) => {
             {
                 $unwind: '$records'
             },
-            // 步驟 2：檢查 Auction 表中是否已存在該物品的拍賣（只排除 active 和 pending 狀態）
             {
                 $lookup: {
                     from: 'auctions',
@@ -170,7 +132,6 @@ router.get('/expired-items', auth, async (req, res) => {
                     as: 'records.auctions'
                 }
             },
-            // 步驟 3：過濾掉有 active 或 pending 拍賣的記錄
             {
                 $match: {
                     $or: [
@@ -187,7 +148,6 @@ router.get('/expired-items', auth, async (req, res) => {
                     ]
                 }
             },
-            // 步驟 4：填充 bossId 字段，獲取首領名稱
             {
                 $lookup: {
                     from: 'bosses',
@@ -196,21 +156,18 @@ router.get('/expired-items', auth, async (req, res) => {
                     as: 'records.bossId'
                 }
             },
-            // 步驟 5：解構 bossId 陣列
             {
                 $unwind: {
                     path: '$records.bossId',
                     preserveNullAndEmptyArrays: true
                 }
             },
-            // 步驟 6：解構 dropped_items 陣列
             {
                 $unwind: {
                     path: '$records.dropped_items',
                     preserveNullAndEmptyArrays: true
                 }
             },
-            // 步驟 7：填充 dropped_items.level 字段
             {
                 $lookup: {
                     from: 'itemlevels',
@@ -219,14 +176,12 @@ router.get('/expired-items', auth, async (req, res) => {
                     as: 'records.dropped_items.level'
                 }
             },
-            // 步驟 8：解構 dropped_items.level 陣列
             {
                 $unwind: {
                     path: '$records.dropped_items.level',
                     preserveNullAndEmptyArrays: true
                 }
             },
-            // 步驟 9：格式化輸出結果
             {
                 $project: {
                     kill_id: '$records._id',
@@ -243,10 +198,8 @@ router.get('/expired-items', auth, async (req, res) => {
 
         if (expiredItems.length === 0) {
             logger.info('No expired items found after filtering', { expiredItems });
-            // 調試：檢查 status: 'expired' 的記錄
             const expiredBossKills = await BossKill.find({ status: 'expired' }).lean();
             logger.info('Total expired BossKill records', { count: expiredBossKills.length, records: expiredBossKills });
-            // 調試：檢查 Auction 表中的記錄
             const auctionRecords = await Auction.find({}).lean();
             logger.info('Total Auction records', { count: auctionRecords.length, records: auctionRecords });
         }
@@ -263,71 +216,7 @@ router.get('/expired-items', auth, async (req, res) => {
     }
 });
 
-router.get('/:kill_id', auth, async (req, res) => {
-    const { kill_id } = req.params;
-
-    // 驗證 kill_id 是否為有效的 MongoDB ObjectId
-    if (!kill_id || !mongoose.Types.ObjectId.isValid(kill_id)) {
-        return res.status(400).json({
-            code: 400,
-            msg: '無效的擊殺記錄 ID',
-            detail: `提供的 ID (${kill_id}) 不是有效的 MongoDB ObjectId。`,
-        });
-    }
-
-    try {
-        const bossKill = await BossKill.findById(kill_id);
-        if (!bossKill) {
-            return res.status(404).json({
-                code: 404,
-                msg: '擊殺記錄不存在',
-                detail: `無法找到 ID 為 ${kill_id} 的擊殺記錄。`,
-            });
-        }
-
-        res.status(200).json(bossKill);
-    } catch (err) {
-        logger.error('Get boss kill error', { error: err.message, stack: err.stack });
-        res.status(500).json({
-            code: 500,
-            msg: '獲取擊殺記錄失敗',
-            detail: err.message || '伺服器處理錯誤',
-        });
-    }
-});
-
-// 獲取單個 BossKill 詳情
-router.get('/:id', auth, async (req, res) => {
-    const { id } = req.params;
-    try {
-        if (!mongoose.Types.ObjectId.isValid(id)) {
-            return res.status(400).json({
-                code: 400,
-                msg: '無效的擊殺記錄 ID',
-                detail: `提供的 ID (${id}) 不是有效的 MongoDB ObjectId。`,
-            });
-        }
-        const bossKill = await BossKill.findById(id)
-            .populate('bossId', 'name')
-            .lean();
-        if (!bossKill) {
-            return res.status(404).json({
-                code: 404,
-                msg: '擊殺記錄不存在',
-                detail: `無法找到 ID 為 ${id} 的擊殺記錄。`,
-            });
-        }
-        logger.info('Fetched boss kill details', { userId: req.user.id, bossKillId: id });
-        res.json(bossKill);
-    } catch (err) {
-        logger.error('Error fetching boss kill by ID', { userId: req.user.id, bossKillId: id, error: err.message, stack: err.stack });
-        res.status(500).json({
-            msg: '獲取擊殺記錄詳情失敗',
-            error: err.message,
-        });
-    }
-});
-
+// 獲取所有擊殺記錄（管理員專用）
 router.get('/all', auth, adminOnly, async (req, res) => {
     try {
         const { page = 1, limit = 10 } = req.query;
@@ -394,6 +283,7 @@ router.get('/all', auth, adminOnly, async (req, res) => {
     }
 });
 
+// 更新擊殺記錄
 router.put('/:id', auth, adminOnly, async (req, res) => {
     const { status, final_recipient, attendees, dropped_items, itemHolder } = req.body;
     try {
@@ -435,6 +325,7 @@ router.put('/:id', auth, adminOnly, async (req, res) => {
     }
 });
 
+// 更新物品狀態
 router.put('/:killId/items/:itemId', auth, adminOnly, async (req, res) => {
     try {
         const bossKill = await BossKill.findById(req.params.killId);
@@ -476,13 +367,13 @@ router.put('/:killId/items/:itemId', auth, adminOnly, async (req, res) => {
     }
 });
 
+// 創建擊殺記錄
 router.post('/', auth, adminOnly, upload.array('screenshots', 5), async (req, res) => {
     const { bossId, kill_time, dropped_items, attendees, final_recipient, status, apply_deadline_days, itemHolder } = req.body;
 
     try {
         const screenshots = req.files.map(file => file.path);
 
-        // 確認 bossId 存在
         const boss = await Boss.findById(bossId);
         if (!boss) {
             return res.status(404).json({
@@ -563,6 +454,7 @@ router.post('/', auth, adminOnly, upload.array('screenshots', 5), async (req, re
     }
 });
 
+// 分配 DKP 點數
 router.post('/distribute/:killId', auth, adminOnly, async (req, res) => {
     try {
         const bossKill = await BossKill.findById(req.params.killId).populate('bossId');
@@ -614,18 +506,19 @@ router.post('/distribute/:killId', auth, adminOnly, async (req, res) => {
     }
 });
 
+// 批量刪除擊殺記錄
 router.post('/batch-delete', auth, adminOnly, async (req, res) => {
     try {
-        const { killIds } = req.body;
-        if (!Array.isArray(killIds) || killIds.length === 0) {
+        const { ids } = req.body;
+        if (!Array.isArray(ids) || ids.length === 0) {
             return res.status(400).json({
                 code: 400,
                 msg: '請提供有效的擊殺記錄 ID 陣列',
-                suggestion: '檢查 killIds 格式，例如 ["id1", "id2"]',
+                suggestion: '檢查 ids 格式，例如 ["id1", "id2"]',
             });
         }
 
-        const invalidIds = killIds.filter(id => !mongoose.Types.ObjectId.isValid(id));
+        const invalidIds = ids.filter(id => !mongoose.Types.ObjectId.isValid(id));
         if (invalidIds.length > 0) {
             return res.status(400).json({
                 code: 400,
@@ -635,7 +528,7 @@ router.post('/batch-delete', auth, adminOnly, async (req, res) => {
             });
         }
 
-        const result = await BossKill.deleteMany({ _id: { $in: killIds } });
+        const result = await BossKill.deleteMany({ _id: { $in: ids } });
         res.json({ msg: '批量刪除成功', deletedCount: result.deletedCount });
     } catch (err) {
         console.error('Batch delete boss kills error:', err);
@@ -648,9 +541,10 @@ router.post('/batch-delete', auth, adminOnly, async (req, res) => {
     }
 });
 
+// 批量設為已過期
 router.post('/batch-set-expired', auth, adminOnly, async (req, res) => {
     try {
-        const { items } = req.body; // 格式: [{ killId: "id1", itemId: "item1" }, ...]
+        const { items } = req.body;
         if (!Array.isArray(items) || items.length === 0) {
             return res.status(400).json({
                 code: 400,
@@ -686,6 +580,41 @@ router.post('/batch-set-expired', auth, adminOnly, async (req, res) => {
         res.status(500).json({
             code: 500,
             msg: '批量設置物品狀態失敗',
+            detail: err.message || '伺服器處理錯誤',
+            suggestion: '請稍後重試或聯繫管理員。',
+        });
+    }
+});
+
+// 添加 DELETE /:id 路由，支援單個擊殺記錄的刪除
+router.delete('/:id', auth, adminOnly, async (req, res) => {
+    try {
+        const { id } = req.params;
+        if (!mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({
+                code: 400,
+                msg: '無效的擊殺記錄 ID',
+                detail: `提供的 ID (${id}) 不是有效的 MongoDB ObjectId。`,
+            });
+        }
+
+        const bossKill = await BossKill.findById(id);
+        if (!bossKill) {
+            return res.status(404).json({
+                code: 404,
+                msg: '擊殺記錄不存在',
+                detail: `無法找到 ID 為 ${id} 的擊殺記錄。`,
+            });
+        }
+
+        await BossKill.deleteOne({ _id: id });
+        logger.info('Boss kill deleted successfully', { userId: req.user.id, bossKillId: id });
+        res.json({ msg: '擊殺記錄刪除成功' });
+    } catch (err) {
+        logger.error('Delete boss kill error', { userId: req.user.id, bossKillId: req.params.id, error: err.message, stack: err.stack });
+        res.status(500).json({
+            code: 500,
+            msg: '刪除擊殺記錄失敗',
             detail: err.message || '伺服器處理錯誤',
             suggestion: '請稍後重試或聯繫管理員。',
         });

@@ -30,7 +30,7 @@ import 'moment/locale/zh-tw';
 import logger from '../utils/logger';
 moment.locale('zh-tw');
 
-const BASE_URL = 'http://localhost:5000';
+const BASE_URL = process.env.REACT_APP_API_URL || '';
 
 const statusMap = {
   active: '活躍',
@@ -640,25 +640,25 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
                         onClick={() => handleHistoryClick(auction._id)}
                       />
                     </Tooltip>,
-                    localUserRole === 'admin' && auction.status !== 'completed' && auction.status !== 'cancelled' && (
-                      <Popconfirm
-                        key="settle"
-                        title="確認結算此拍賣？"
-                        onConfirm={() => handleSettleAuction(auction._id)}
-                        okText="是"
-                        cancelText="否"
-                        disabled={auction.status !== 'active' && auction.status !== 'completed'}
-                      >
-                        <Tooltip title="結算">
-                          <Button
-                            type="default"
-                            shape="circle"
-                            icon={<DollarOutlined />}
-                            size="small"
-                            disabled={auction.status !== 'active' && auction.status !== 'completed'}
-                          />
-                        </Tooltip>
-                      </Popconfirm>
+                      localUserRole === 'admin' && auction.status === 'pending' && (
+                        <Popconfirm
+                          key="settle"
+                          title="確認結算此拍賣？"
+                          onConfirm={() => handleSettleAuction(auction._id)}
+                          okText="是"
+                          cancelText="否"
+                          disabled={auction.status !== 'pending'}
+                        >
+                          <Tooltip title="結算">
+                            <Button
+                              type="default"
+                              shape="circle"
+                              icon={<DollarOutlined />}
+                              size="small"
+                              disabled={auction.status !== 'pending'}
+                            />
+                          </Tooltip>
+                        </Popconfirm>
                     ),
                     localUserRole === 'admin' && auction.status !== 'completed' && auction.status !== 'cancelled' && (
                       <Popconfirm

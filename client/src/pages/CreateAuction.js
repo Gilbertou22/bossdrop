@@ -1,6 +1,5 @@
-// pages/CreateAuction.js
 import React, { useState, useEffect, useCallback } from 'react';
-import { Form, Input, Button, Card, Spin, Row, Col, Select, message, DatePicker, Alert, Space, Typography, Divider, Tooltip, Checkbox } from 'antd';
+import { Form, Input, Button, Card, Spin, Row, Col, Select, message, DatePicker, Alert, Space, Typography, Divider, Tooltip } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import moment from 'moment';
 import axios from 'axios';
@@ -12,7 +11,7 @@ import logger from '../utils/logger';
 const { Option } = Select;
 const { Title, Text } = Typography;
 
-const BASE_URL = 'http://localhost:5000';
+const BASE_URL = process.env.REACT_APP_API_URL || '';
 
 // 簡單的 MongoDB ObjectId 格式驗證
 const isValidObjectId = (id) => {
@@ -199,13 +198,28 @@ const CreateAuction = () => {
                 }
             }
 
-            // 收集限制條件
+            // 解析限制條件標籤
             const restrictions = {
-                sameWorld: values.sameWorld || false,
-                hasAttended: values.hasAttended || false,
-                dkpThreshold: values.dkpThreshold ? parseInt(values.dkpThreshold) : 0,
-                sameGuild: values.sameGuild || false,
+                sameWorld: false,
+                hasAttended: false,
+                dkpThreshold: 0,
+                sameGuild: false,
             };
+
+            // 從 restrictionsTags 中解析標籤
+            if (values.restrictionsTags) {
+                values.restrictionsTags.forEach(tag => {
+                    if (tag === '同世界') restrictions.sameWorld = true;
+                    if (tag === '參加戰役') restrictions.hasAttended = true;
+                    if (tag === '同旅團') restrictions.sameGuild = true;
+                    if (tag.startsWith('DKP>')) {
+                        const dkpValue = parseInt(tag.replace('DKP>', ''));
+                        if (!isNaN(dkpValue) && dkpValue >= 0) {
+                            restrictions.dkpThreshold = dkpValue;
+                        }
+                    }
+                });
+            }
 
             logger.info('Submitting auction form', { kill_id, startingPrice, buyoutPrice, endTime, auctionType, restrictions });
             const res = await axios.post(`${BASE_URL}/api/auctions/${kill_id}/start`, {
@@ -304,6 +318,13 @@ const CreateAuction = () => {
         checkExistingAuction(item.kill_id);
     };
 
+    // 預設限制條件選項
+    const restrictionOptions = [
+        { label: '同世界', value: '同世界' },
+        { label: '參加戰役', value: '參加戰役' },
+        { label: '同旅團', value: '同旅團' },
+    ];
+
     return (
         <ErrorBoundary>
             <div style={{ padding: '20px', maxWidth: '800px', margin: '0 auto' }}>
@@ -328,10 +349,7 @@ const CreateAuction = () => {
                             initialValues={{
                                 startingPrice: 100,
                                 endTime: null,
-                                sameWorld: false,
-                                hasAttended: false,
-                                dkpThreshold: 0,
-                                sameGuild: false,
+                                restrictionsTags: [], // 預設為空標籤
                             }}
                             requiredMark={true}
                         >
@@ -583,86 +601,46 @@ const CreateAuction = () => {
                                     <Col xs={24}>
                                         <Divider orientation="left">競標限制條件</Divider>
                                     </Col>
-                                    <Col xs={24} sm={12}>
+                                    <Col xs={24}>
                                         <Form.Item
-                                            name="sameWorld"
-                                            valuePropName="checked"
+                                            name="restrictionsTags"
                                             label={
-                                                <Tooltip title="限制只有同世界的用戶可以參與競標">
+                                                <Tooltip title="輸入競標限制條件，例如：同世界、參加戰役、同旅團、DKP>1000">
                                                     <Text strong>
-                                                        限制同世界用戶 <QuestionCircleOutlined style={{ color: '#1890ff' }} />
-                                                    </Text>
-                                                </Tooltip>
-                                            }
-                                        >
-                                            <Checkbox style={{ transition: 'all 0.3s' }}>
-                                                啟用
-                                            </Checkbox>
-                                        </Form.Item>
-                                    </Col>
-                                    <Col xs={24} sm={12}>
-                                        <Form.Item
-                                            name="hasAttended"
-                                            valuePropName="checked"
-                                            label={
-                                                <Tooltip title="限制只有參加該場戰役的成員可以參與競標">
-                                                    <Text strong>
-                                                        限制參加戰役成員 <QuestionCircleOutlined style={{ color: '#1890ff' }} />
-                                                    </Text>
-                                                </Tooltip>
-                                            }
-                                        >
-                                            <Checkbox style={{ transition: 'all 0.3s' }}>
-                                                啟用
-                                            </Checkbox>
-                                        </Form.Item>
-                                    </Col>
-                                    <Col xs={24} sm={12}>
-                                        <Form.Item
-                                            name="dkpThreshold"
-                                            label={
-                                                <Tooltip title="設置最低 DKP 要求，只有 DKP 大於等於此值的用戶可以參與競標">
-                                                    <Text strong>
-                                                        最低 DKP 要求 <QuestionCircleOutlined style={{ color: '#1890ff' }} />
+                                                        競標限制條件 <QuestionCircleOutlined style={{ color: '#1890ff' }} />
                                                     </Text>
                                                 </Tooltip>
                                             }
                                             rules={[
                                                 {
                                                     validator: (_, value) => {
-                                                        const numValue = parseInt(value);
-                                                        if (value && (isNaN(numValue) || numValue < 0)) {
-                                                            return Promise.reject(new Error('請輸入有效的數字，且必須大於等於 0！'));
+                                                        if (value && value.some(tag => tag.startsWith('DKP>'))) {
+                                                            const dkpTags = value.filter(tag => tag.startsWith('DKP>'));
+                                                            for (const tag of dkpTags) {
+                                                                const dkpValue = parseInt(tag.replace('DKP>', ''));
+                                                                if (isNaN(dkpValue) || dkpValue < 0) {
+                                                                    return Promise.reject(new Error('DKP 限制必須為有效的正數，例如 DKP>1000'));
+                                                                }
+                                                            }
                                                         }
                                                         return Promise.resolve();
                                                     },
                                                 },
                                             ]}
-                                            hasFeedback
                                         >
-                                            <Input
-                                                type="number"
-                                                placeholder="輸入最低 DKP 要求（0 表示無限制）"
-                                                min={0}
-                                                style={{ width: '100%', transition: 'all 0.3s' }}
-                                            />
-                                        </Form.Item>
-                                    </Col>
-                                    <Col xs={24} sm={12}>
-                                        <Form.Item
-                                            name="sameGuild"
-                                            valuePropName="checked"
-                                            label={
-                                                <Tooltip title="限制只有同旅團的用戶可以參與競標">
-                                                    <Text strong>
-                                                        限制同旅團用戶 <QuestionCircleOutlined style={{ color: '#1890ff' }} />
-                                                    </Text>
-                                                </Tooltip>
-                                            }
-                                        >
-                                            <Checkbox style={{ transition: 'all 0.3s' }}>
-                                                啟用
-                                            </Checkbox>
+                                            <Select
+                                                mode="tags"
+                                                placeholder="輸入限制條件（例如：同世界、參加戰役、同旅團、DKP>1000）"
+                                                style={{ width: '100%' }}
+                                                tokenSeparators={[',']}
+                                                dropdownStyle={{ minWidth: '200px' }}
+                                            >
+                                                {restrictionOptions.map(option => (
+                                                    <Option key={option.value} value={option.value}>
+                                                        {option.label}
+                                                    </Option>
+                                                ))}
+                                            </Select>
                                         </Form.Item>
                                     </Col>
                                 </Row>

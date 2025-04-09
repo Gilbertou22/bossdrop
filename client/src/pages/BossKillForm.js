@@ -9,9 +9,8 @@ import logger from '../utils/logger';
 const { Option } = Select;
 const { TextArea } = Input;
 
-const BASE_URL = 'http://localhost:5000';
+const BASE_URL = process.env.REACT_APP_API_URL || '';
 
-// 與 Wallet.js 一致的顏色映射
 const colorMapping = {
     '白色': '#f0f0f0',
     '綠色': '#00cc00',
@@ -27,7 +26,10 @@ const BossKillForm = () => {
     const [bosses, setBosses] = useState([]);
     const [items, setItems] = useState([]);
     const [users, setUsers] = useState([]);
-    const [userOptions, setUserOptions] = useState([]);
+    const [userOptions, setUserOptions] = useState({
+        attendees: [],
+        itemHolder: [],
+    });
     const [date, setDate] = useState(null);
     const [uploading, setUploading] = useState(false);
     const [loading, setLoading] = useState(false);
@@ -92,11 +94,32 @@ const BossKillForm = () => {
                 headers: { 'x-auth-token': token },
             });
             console.log('Fetched users:', res.data);
-            const validUsers = Array.isArray(res.data) ? res.data.map(user => user.character_name) : [];
-            setUsers(validUsers);
-            setUserOptions(validUsers.map(name => ({ value: name, label: name })));
+            if (!Array.isArray(res.data)) {
+                throw new Error('後端返回的用戶數據格式不正確');
+            }
+
+            // 過濾出席成員：排除 role 為 GUILD 和 ADMIN 的用戶
+            const filteredAttendees = res.data
+                .filter(user => user.role !== 'guild' && user.role !== 'admin')
+                .map(user => user.character_name);
+
+            // 過濾物品持有人：只排除 role 為 GUILD 的用戶
+            const filteredItemHolders = res.data
+                .filter(user => user.role !== 'guild')
+                .map(user => user.character_name);
+
+            setUsers(res.data.map(user => user.character_name));
+            setUserOptions({
+                attendees: [
+                    { value: 'all', label: '選擇全部' },
+                    ...filteredAttendees.map(name => ({ value: name, label: name }))
+                ],
+                itemHolder: filteredItemHolders.map(name => ({ value: name, label: name })),
+            });
         } catch (err) {
+            console.error('Fetch users error:', err);
             message.error('載入用戶失敗: ' + err.message);
+            logger.error('Fetch users failed', { error: err.message, stack: err.stack });
         }
     };
 
@@ -214,7 +237,6 @@ const BossKillForm = () => {
                 });
                 results.push(res.data);
 
-                // 自動分配 DKP 點數
                 const killId = res.data.results[0]?.kill_id;
                 if (killId) {
                     await axios.post(`${BASE_URL}/api/dkp/distribute/${killId}`, {}, {
@@ -268,18 +290,26 @@ const BossKillForm = () => {
     };
 
     const handleAttendeesChange = (value) => {
+        const filteredValue = value.filter(val => val !== 'all');
+        const allAttendees = userOptions.attendees
+            .filter(option => option.value !== 'all')
+            .map(option => option.value);
+
         if (value.includes('all')) {
-            const allAttendees = userOptions.map(option => option.value);
-            form.setFieldsValue({ attendees: allAttendees });
+            const isAllSelected = filteredValue.length === allAttendees.length;
+            if (isAllSelected) {
+                form.setFieldsValue({ attendees: [] });
+            } else {
+                form.setFieldsValue({ attendees: allAttendees });
+            }
         } else {
-            form.setFieldsValue({ attendees: value.filter(val => val !== 'all') });
+            form.setFieldsValue({ attendees: filteredValue });
         }
-        console.log('Selected attendees:', value);
+        console.log('Selected attendees:', filteredValue);
     };
 
-    // 渲染物品選項，帶有顏色
     const renderItemOption = (item) => {
-        const color = item.level?.color || '白色'; // 從 Item 表的 level 中獲取 color
+        const color = item.level?.color || '白色';
         return (
             <Select.Option key={item.name} value={item.name}>
                 <span style={{ color: colorMapping[color] || '#000000' }}>{item.name}</span>
@@ -288,7 +318,13 @@ const BossKillForm = () => {
     };
 
     return (
-        <div style={{ padding: '20px', backgroundColor: '#f0f2f5', minHeight: '100vh' }}>
+        <div style={{
+            padding: '20px',
+            backgroundColor: '#f0f2f5',
+            minHeight: 'calc(90vh - 64px)',
+            paddingTop: '84px',
+            boxSizing: 'border-box'
+        }}>
             <Card
                 title={
                     <Row justify="space-between" align="middle">
@@ -339,8 +375,8 @@ const BossKillForm = () => {
                                     style={{ marginBottom: 16 }}
                                 >
                                     <DatePicker
-                                        format="YYYY-MM-DD HH:mm"
-                                        showTime={{ format: 'HH:mm' }}
+                                        format="YYYY-MM-DD"
+                                        
                                         value={date}
                                         onChange={(date) => setDate(date)}
                                         style={{ width: '100%' }}
@@ -393,7 +429,14 @@ const BossKillForm = () => {
                             <Col xs={24} sm={12}>
                                 <Form.Item
                                     name="attendees"
-                                    label="出席成員"
+                                    label={
+                                        <span>
+                                            出席成員{' '}
+                                            {form.getFieldValue('attendees')?.length > 0 && (
+                                                <span>({form.getFieldValue('attendees').length} 已選)</span>
+                                            )}
+                                        </span>
+                                    }
                                     rules={[{ required: true, message: '請至少選擇一名出席成員！' }]}
                                     style={{ marginBottom: 16 }}
                                 >
@@ -403,16 +446,12 @@ const BossKillForm = () => {
                                         style={{ width: '100%' }}
                                         placeholder="請選擇出席成員（可多選）"
                                         onChange={handleAttendeesChange}
-                                    >
-                                        <Option key="all" value="all">
-                                            選擇全部
-                                        </Option>
-                                        {userOptions.map(option => (
-                                            <Option key={option.value} value={option.value}>
-                                                {option.label}
-                                            </Option>
-                                        ))}
-                                    </Select>
+                                        options={userOptions.attendees}
+                                        showSearch
+                                        filterOption={(input, option) =>
+                                            option.label.toLowerCase().indexOf(input.toLowerCase()) >= 0
+                                        }
+                                    />
                                 </Form.Item>
                                 <Form.Item
                                     name="itemHolder"
@@ -423,7 +462,11 @@ const BossKillForm = () => {
                                         allowClear
                                         style={{ width: '100%' }}
                                         placeholder="請選擇物品持有人"
-                                        options={userOptions}
+                                        options={userOptions.itemHolder}
+                                        showSearch
+                                        filterOption={(input, option) =>
+                                            option.label.toLowerCase().indexOf(input.toLowerCase()) >= 0
+                                        }
                                     />
                                 </Form.Item>
                             </Col>
@@ -461,7 +504,7 @@ const BossKillForm = () => {
                 .ant-upload-list-picture-card .ant-upload-list-item {
                     margin: 12px;
                     border: 1px solid #d9d9d9;
-                    border-radius: 4px;
+                    borderRadius: 4px;
                 }
                 .ant-upload-list-picture-card .ant-upload-list-item-thumbnail img {
                     object-fit: contain;

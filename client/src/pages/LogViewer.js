@@ -8,7 +8,7 @@ import logger from '../utils/logger';
 const { Option } = Select;
 const { RangePicker } = DatePicker;
 
-const BASE_URL = 'http://localhost:5000';
+const BASE_URL = process.env.REACT_APP_API_URL || '';
 
 const LogViewer = () => {
     const [logs, setLogs] = useState([]);

@@ -6,7 +6,7 @@ import axios from 'axios';
 import CreateAuction from './CreateAuction';
 import logger from '../utils/logger';
 
-const BASE_URL = 'http://localhost:5000';
+const BASE_URL = process.env.REACT_APP_API_URL || '';
 
 const BossKillDetail = () => {
     const { killId } = useParams(); // 從 URL 獲取 killId

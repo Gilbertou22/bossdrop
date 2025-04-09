@@ -2,11 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { Table, Button, Modal, Form, Input, Select, message, Spin, Alert, Pagination, Row, Col, Popconfirm, Tag, Card } from 'antd';
 import { SearchOutlined, DeleteOutlined } from '@ant-design/icons';
 import axios from 'axios';
-import logger from '../utils/logger'; // 引入前端日誌工具
+import logger from '../utils/logger';
 
 const { Option } = Select;
 
-const BASE_URL = 'http://localhost:5000';
+const BASE_URL = process.env.REACT_APP_API_URL || '';
 
 const ManageBosses = () => {
     const [bosses, setBosses] = useState([]);
@@ -20,9 +20,10 @@ const ManageBosses = () => {
     const [filters, setFilters] = useState({ search: '', difficulty: 'all' });
     const [selectedRowKeys, setSelectedRowKeys] = useState([]);
 
+    // 當 filters 變化時，自動觸發 fetchBosses
     useEffect(() => {
         fetchBosses();
-    }, []);
+    }, [filters]);
 
     const fetchBosses = async () => {
         setLoading(true);
@@ -35,15 +36,12 @@ const ManageBosses = () => {
             });
             setBosses(res.data);
             setFilteredBosses(res.data);
+            setCurrentPage(1); // 重置頁碼到第一頁
         } catch (err) {
             message.error(err.response?.data?.msg || '載入首領失敗');
         } finally {
             setLoading(false);
         }
-    };
-
-    const handleSearch = () => {
-        fetchBosses();
     };
 
     const handleCreateOrUpdate = async (values) => {
@@ -184,7 +182,7 @@ const ManageBosses = () => {
                         placeholder="搜索首領名稱或描述"
                         value={filters.search}
                         onChange={(e) => setFilters(prev => ({ ...prev, search: e.target.value }))}
-                        onSearch={handleSearch}
+                        onSearch={() => fetchBosses()}
                         style={{ width: 200 }}
                         enterButton={<SearchOutlined />}
                     />
@@ -192,7 +190,6 @@ const ManageBosses = () => {
                         value={filters.difficulty}
                         onChange={(value) => setFilters(prev => ({ ...prev, difficulty: value }))}
                         style={{ width: 200 }}
-                        onSelect={handleSearch}
                     >
                         <Option value="all">全部難度</Option>
                         <Option value="easy">簡單</Option>

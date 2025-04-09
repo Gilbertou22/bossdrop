@@ -4,7 +4,7 @@ import { UploadOutlined } from '@ant-design/icons';
 import axios from 'axios';
 import logger from '../utils/logger'; // 引入前端日誌工具
 
-const BASE_URL = 'http://localhost:5000';
+const BASE_URL = process.env.REACT_APP_API_URL || '';
 
 const AddAttendeeModal = ({ visible, onCancel, killId, token, onSubmit }) => {
     const [proofImage, setProofImage] = useState(null);

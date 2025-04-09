@@ -4,7 +4,7 @@ import axios from 'axios';
 import logger from '../utils/logger'; // 引入前端日誌工具
 import { useNavigate } from 'react-router-dom';
 
-const BASE_URL = 'http://localhost:5000';
+const BASE_URL = process.env.REACT_APP_API_URL || '';
 
 const ChangePassword = () => {
     const [form] = Form.useForm();

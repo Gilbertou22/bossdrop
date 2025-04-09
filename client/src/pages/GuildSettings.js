@@ -6,7 +6,7 @@ import axios from 'axios';
 import 'react-markdown-editor-lite/lib/index.css';
 import logger from '../utils/logger'; // 引入前端日誌工具
 
-const BASE_URL = 'http://localhost:5000';
+const BASE_URL = process.env.REACT_APP_API_URL || '';
 
 const GuildSettings = () => {
     const [form] = Form.useForm();
@@ -31,7 +31,7 @@ const GuildSettings = () => {
             const res = await axios.get(`${BASE_URL}/api/guilds/me`, {
                 headers: { 'x-auth-token': token },
             });
-            console.log('Fetch guild response:', res.data); // 調試日志
+       
             const guildData = res.data;
             if (!guildData || typeof guildData !== 'object' || !guildData._id) {
                 throw new Error('無效的旅團數據');
@@ -49,9 +49,9 @@ const GuildSettings = () => {
                 restrictBilling: guildData.settings.restrictBilling || false,
                 withdrawMinAmount: guildData.settings.withdrawMinAmount || 100,
             });
-            console.log('Fetched guild ID:', guildData._id); // 調試日志
+      
         } catch (err) {
-            console.error('Fetch guild error:', err.response || err);
+      
             if (err.response?.status === 404) {
                 message.warning('您尚未創建或加入旅團！');
             } else {
@@ -74,8 +74,7 @@ const GuildSettings = () => {
         }
         setLoading(true);
         try {
-            console.log('Submitting guild ID:', guild._id); // 調試日志
-            console.log('Submitting announcement:', values.announcement); // 調試日志
+           
             const settings = {
                 applyDeadlineHours: values.applyDeadlineHours,
                 editDeadlineHours: values.editDeadlineHours,
@@ -86,12 +85,7 @@ const GuildSettings = () => {
                 restrictBilling: values.restrictBilling,
                 withdrawMinAmount: values.withdrawMinAmount,
             };
-            console.log('Sending update request:', {
-                guildId: guild._id,
-                password: values.password,
-                announcement: values.announcement || '',
-                settings,
-            }); // 調試日志
+           
             const res = await axios.put(`${BASE_URL}/api/guilds/${guild._id}`, {
                 password: values.password,
                 announcement: values.announcement || '',
@@ -99,7 +93,7 @@ const GuildSettings = () => {
             }, {
                 headers: { 'x-auth-token': token },
             });
-            console.log('Update guild response:', res); // 調試完整響應
+          
             if (res.status >= 200 && res.status < 300) {
                 message.success(res.data.msg || '團隊設定更新成功！'); // 確保顯示備用訊息
             } else {
@@ -107,7 +101,7 @@ const GuildSettings = () => {
             }
             fetchGuild(); // 刷新 guild 數據以顯示最新 announcement
         } catch (err) {
-            console.error('Update guild error:', err.response || err);
+          
             const errorMsg = err.response?.data?.msg || err.message || '更新團隊設定失敗';
             message.error(errorMsg); // 確保顯示錯誤訊息
         } finally {
@@ -117,7 +111,7 @@ const GuildSettings = () => {
 
     const handleEditorChange = ({ text }) => {
         form.setFieldsValue({ announcement: text });
-        console.log('Editor change:', text); // 調試日志
+        
     };
 
     return (

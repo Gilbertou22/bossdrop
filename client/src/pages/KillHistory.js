@@ -12,8 +12,7 @@ import logger from '../utils/logger';
 
 const { RangePicker } = DatePicker;
 const { Option } = Select;
-
-const BASE_URL = 'http://localhost:5000';
+const BASE_URL = process.env.REACT_APP_API_URL || '';
 
 const colorMapping = {
     '白色': '#f0f0f0',
@@ -641,7 +640,7 @@ const KillHistory = () => {
                         <CheckOutlined style={{ position: 'absolute', color: 'white', fontSize: '13px', left: '3px', top: '3px' }} />
                     </div>
                 )}
-                <Tooltip title={detailContent} placement="top">
+              
                     <Card
                         hoverable
                         cover={
@@ -760,7 +759,7 @@ const KillHistory = () => {
                             }
                         />
                     </Card>
-                </Tooltip>
+              
             </Col>
         );
     };

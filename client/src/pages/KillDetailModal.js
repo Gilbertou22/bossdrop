@@ -6,7 +6,7 @@ import moment from 'moment';
 
 const { Option } = Select;
 
-const BASE_URL = 'http://localhost:5000';
+const BASE_URL = process.env.REACT_APP_API_URL || '';
 
 const colorMapping = {
     '白色': '#f0f0f0',

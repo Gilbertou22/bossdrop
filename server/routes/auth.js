@@ -3,13 +3,12 @@ const router = express.Router();
 const User = require('../models/User');
 const Guild = require('../models/Guild');
 const jwt = require('jsonwebtoken');
-const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs');
 require('dotenv').config();
 
 // 獲取客戶端 IP 地址
 router.get('/client-ip', (req, res) => {
     try {
-        // 獲取客戶端 IP 地址
         const clientIp = req.headers['x-forwarded-for'] || req.ip || '未知 IP';
         res.status(200).json({ ip: clientIp });
     } catch (err) {
@@ -18,19 +17,18 @@ router.get('/client-ip', (req, res) => {
 });
 
 router.post('/register', async (req, res) => {
-    const { world_name, character_name, password } = req.body;
+    const { world_name, character_name, password, guildPassword } = req.body;
+    console.log('Register request body:', req.body);
 
     try {
-        // 檢查必填字段
         if (!world_name || !character_name || !password) {
             return res.status(400).json({
                 code: 400,
                 msg: '缺少必填字段',
-                detail: '請提供 world_name、character_name、password ',
+                detail: '請提供 world_name、character_name、password',
             });
         }
 
-        // 檢查用戶名是否已存在
         let user = await User.findOne({ character_name });
         if (user) {
             return res.status(400).json({
@@ -40,7 +38,6 @@ router.post('/register', async (req, res) => {
             });
         }
 
-        // 驗證團隊密碼並獲取 guildId
         const guild = await Guild.findOne({ password: guildPassword });
         if (!guild) {
             return res.status(400).json({
@@ -50,32 +47,27 @@ router.post('/register', async (req, res) => {
             });
         }
 
-        // 創建新用戶
         user = new User({
             world_name,
             character_name,
-            password,
-            role: 'user', // 默認角色
+            password, // 密碼將由 pre-save 中間件哈希
+            role: 'user',
             diamonds: 0,
-            guildId: guild._id, // 設置 guildId
-            mustChangePassword: false, // 自行註冊的用戶不需要強制更改密碼
+            guildId: guild._id,
+            mustChangePassword: false,
         });
 
-        // 加密密碼
-        const salt = await bcrypt.genSalt(10);
-        user.password = await bcrypt.hash(password, salt);
-
+        console.log('User before save:', user);
         await user.save();
 
-        // 生成 JWT Token
         const payload = {
             user: {
-                id: user.id,
+                id: user._id,
                 role: user.role,
             },
         };
 
-        jwt.sign(payload, process.env.JWT_SECRET || 'your-secret-key', { expiresIn: 3600 }, (err, token) => {
+        jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: 3600 }, (err, token) => {
             if (err) throw err;
             res.json({
                 token,
@@ -102,7 +94,6 @@ router.post('/login', async (req, res) => {
     const { character_name, password } = req.body;
 
     try {
-        // 檢查必填字段
         if (!character_name || !password) {
             return res.status(400).json({
                 code: 400,
@@ -111,7 +102,6 @@ router.post('/login', async (req, res) => {
             });
         }
 
-        // 查找用戶
         const user = await User.findOne({ character_name });
         if (!user) {
             return res.status(400).json({
@@ -121,8 +111,9 @@ router.post('/login', async (req, res) => {
             });
         }
 
-        // 驗證密碼
+        console.log('User found:', user.password, password);
         const isMatch = await bcrypt.compare(password, user.password);
+        console.log('Password match:', isMatch);
         if (!isMatch) {
             return res.status(400).json({
                 code: 400,
@@ -131,9 +122,14 @@ router.post('/login', async (req, res) => {
             });
         }
 
-        // 生成 JWT Token
-        const payload = { id: user._id, role: user.role };
-        const token = jwt.sign(payload, process.env.JWT_SECRET || 'your-secret-key', { expiresIn: '1h' });
+        const payload = {
+            user: {
+                id: user._id,
+                role: user.role || 'user',
+            },
+        };
+
+        const token = jwt.sign(payload, process.env.JWT_SECRET , { expiresIn: '1h' });
 
         res.json({
             code: 200,
@@ -143,7 +139,7 @@ router.post('/login', async (req, res) => {
                 id: user._id,
                 character_name: user.character_name,
                 role: user.role,
-                mustChangePassword: user.mustChangePassword, // 返回是否需要更改密碼
+                mustChangePassword: user.mustChangePassword,
             },
         });
     } catch (err) {

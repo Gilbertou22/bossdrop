@@ -6,7 +6,7 @@ import logger from '../utils/logger';
 
 const { Text } = Typography;
 
-const BASE_URL = 'http://localhost:5000';
+const BASE_URL = process.env.REACT_APP_API_URL || '';
 
 const Login = () => {
     const [form] = Form.useForm();
@@ -41,13 +41,21 @@ const Login = () => {
             };
 
             const res = await axios.post(`${BASE_URL}/api/auth/login`, trimmedValues);
+      
+            const token = res.data.token;
+            if (!token) {
+                throw new Error('No token received from login response');
+            }
+            console.log('Received token:', token); // 檢查 token 是否收到
+            localStorage.setItem('token', token); // 存儲 token
+            console.log('Stored token:', localStorage.getItem('token')); // 確認存儲成功
+
             message.success(res.data.msg);
-            localStorage.setItem('token', res.data.token);
 
             // 根據角色導航到不同頁面（假設後端返回 user 對象包含 role）
             const userRole = res.data.user?.role || 'user';
             if (userRole === 'admin') {
-                navigate('/admin');
+                navigate('/');
             } else {
                 navigate('/');
             }

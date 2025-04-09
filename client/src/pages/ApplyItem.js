@@ -10,7 +10,7 @@ import logger from '../utils/logger';
 const { Option } = Select;
 const { Title, Text } = Typography;
 
-const BASE_URL = 'http://localhost:5000';
+const BASE_URL = process.env.REACT_APP_API_URL || '';
 
 // 與擊殺詳情頁面相同的顏色映射
 const colorMapping = {
@@ -111,9 +111,12 @@ const ApplyItem = () => {
         let validItems = [];
         const selectedKill = kills.find(kill => kill._id === value);
         if (selectedKill) {
-            // 顯示所有掉落物品（不過濾 apply_deadline）
-            validItems = selectedKill.dropped_items || [];
-            console.log(`Selected kill ${value} dropped items:`, validItems);
+            // 過濾掉已過期的物品
+            validItems = (selectedKill.dropped_items || []).filter(item => {
+                const applyDeadline = moment(item.apply_deadline);
+                return applyDeadline.isAfter(moment());
+            });
+            console.log(`Selected kill ${value} valid items after filtering:`, validItems);
             setFilteredItems(validItems);
             setSelectedKillId(value);
             form.setFieldsValue({ kill_id: value });
@@ -191,11 +194,18 @@ const ApplyItem = () => {
             console.error('Submit error:', err.response?.data || err);
             const errorMsg = err.response?.data?.msg || err.message || '申請失敗，請稍後再試';
             setError(errorMsg);
+            logger.error('Apply item error', {
+                userId: token, // 假設 token 中包含用戶信息
+                killId: values.kill_id,
+                itemName: values.item_name,
+                error: err.response?.data || err.message,
+                stack: err.stack,
+            });
         } finally {
             setLoading(false);
         }
     };
-
+    
     const handleSuccessModalClose = () => {
         setSuccessModalVisible(false);
         navigate('/kill-history'); // 提示框關閉後跳轉

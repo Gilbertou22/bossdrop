@@ -1,37 +1,67 @@
-import React, { useState, useEffect } from 'react';
-import { Navigate } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { Navigate, useLocation } from 'react-router-dom';
 import axios from 'axios';
-import logger from '../utils/logger'; // 引入前端日誌工具
+import { Spin } from 'antd';
+import logger from '../utils/logger';
 
-const RoleRoute = ({ children, allowedRoles }) => {
-    const token = localStorage.getItem('token');
-    const [userRole, setUserRole] = useState(null);
+const BASE_URL = process.env.REACT_APP_API_URL || '';
+
+const RoleRoute = ({ children, allowedRoles, mustChangePasswordRedirect }) => {
+    const [isAuthenticated, setIsAuthenticated] = useState(null);
+    const [user, setUser] = useState(null);
     const [loading, setLoading] = useState(true);
+    const location = useLocation();
 
     useEffect(() => {
-        const fetchUserRole = async () => {
-            if (!token) {
-                setLoading(false);
-                return;
-            }
+        // 不在 /register 和 /login 路由中檢查 token
+        if (location.pathname === '/register' || location.pathname === '/login') {
+            setIsAuthenticated(false);
+            setLoading(false);
+            return;
+        }
+
+        const token = localStorage.getItem('token');
+        if (!token) {
+            setIsAuthenticated(false);
+            setLoading(false);
+            return;
+        }
+
+        const fetchUser = async () => {
             try {
-                const res = await axios.get('http://localhost:5000/api/users/profile', {
+                const res = await axios.get(`${BASE_URL}/api/users/me`, {
                     headers: { 'x-auth-token': token },
                 });
-                setUserRole(res.data.role);
+                setUser(res.data);
+                setIsAuthenticated(true);
             } catch (err) {
-                console.error('Fetch user role error:', err);
+                logger.error('Fetch user error:', err.response?.data || err.message);
+                localStorage.removeItem('token');
+                setIsAuthenticated(false);
             } finally {
                 setLoading(false);
             }
         };
-        fetchUserRole();
-    }, [token]);
 
-    if (loading) return <div>檢查權限中...</div>;
-    if (!token || !allowedRoles.includes(userRole)) {
+        fetchUser();
+    }, [location]);
+
+    if (loading) {
+        return <Spin spinning={true} tip="檢查權限中..." style={{ display: 'block', textAlign: 'center', marginTop: '20%' }} />;
+    }
+
+    if (!isAuthenticated) {
         return <Navigate to="/login" replace />;
     }
+
+    if (mustChangePasswordRedirect && user.mustChangePassword) {
+        return <Navigate to="/change-password" replace />;
+    }
+
+    if (!allowedRoles.includes(user.role)) {
+        return <Navigate to="/" replace />;
+    }
+
     return children;
 };
 

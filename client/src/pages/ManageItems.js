@@ -1,14 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Table, Button, Modal, Form, Input, Select, message, Spin, Alert, Pagination, Row, Col, Popconfirm, Image, Tag, Card } from 'antd';
-import { SearchOutlined, DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons';
+import { Table, Button, Modal, Form, Input, Select, message, Spin, Alert, Pagination, Row, Col, Popconfirm, Image, Tag, Card, Space, Typography } from 'antd';
+import { SearchOutlined, DeleteOutlined, EditOutlined, PlusOutlined, EyeOutlined, RedoOutlined } from '@ant-design/icons';
 import axios from 'axios';
-import logger from '../utils/logger'; // 引入前端日誌工具
 
 const { Option } = Select;
+const { Title, Text } = Typography; // 修正：從 Typography 中導入 Title
 
-const BASE_URL = 'http://localhost:5000';
+const BASE_URL = process.env.REACT_APP_API_URL || '';
 
-// 計算顏色的亮度（基於 RGB 的相對亮度公式）
 const getLuminance = (hexColor) => {
     const r = parseInt(hexColor.slice(1, 3), 16) / 255;
     const g = parseInt(hexColor.slice(3, 5), 16) / 255;
@@ -16,7 +15,6 @@ const getLuminance = (hexColor) => {
     return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 };
 
-// 根據背景色選擇文字顏色
 const getTextColor = (bgColor) => {
     const luminance = getLuminance(bgColor);
     return luminance > 0.7 ? '#000000' : '#ffffff';
@@ -34,11 +32,16 @@ const ManageItems = () => {
     const [filters, setFilters] = useState({ search: '', type: 'all' });
     const [selectedRowKeys, setSelectedRowKeys] = useState([]);
     const [itemLevels, setItemLevels] = useState([]);
+    const [sort, setSort] = useState({ field: 'name', order: 'ascend' });
 
     useEffect(() => {
         fetchItems();
         fetchItemLevels();
     }, []);
+
+    useEffect(() => {
+        fetchItems();
+    }, [filters, sort]);
 
     const fetchItemLevels = async () => {
         try {
@@ -57,21 +60,20 @@ const ManageItems = () => {
                 params: {
                     search: filters.search || undefined,
                     type: filters.type === 'all' ? undefined : filters.type,
+                    sortBy: sort.field,
+                    sortOrder: sort.order === 'ascend' ? 'asc' : 'desc',
                 },
             });
             console.log('Fetched items:', res.data);
             setItems(res.data);
             setFilteredItems(res.data);
+            setCurrentPage(1); // 重置頁碼
         } catch (err) {
             console.error('Fetch items error:', err);
             message.error(err.response?.data?.msg || '載入物品失敗');
         } finally {
             setLoading(false);
         }
-    };
-
-    const handleSearch = () => {
-        fetchItems();
     };
 
     const handleCreateOrUpdate = async (values) => {
@@ -124,13 +126,15 @@ const ManageItems = () => {
             message.warning('請至少選擇一個物品進行刪除');
             return;
         }
+        const selectedItems = items.filter(item => selectedRowKeys.includes(item._id));
+        const itemNames = selectedItems.map(item => item.name).join(', ');
         setLoading(true);
         try {
             await axios.delete(`${BASE_URL}/api/items/batch-delete`, {
                 headers: { 'x-auth-token': token },
                 data: { ids: selectedRowKeys },
             });
-            message.success('批量刪除成功');
+            message.success(`成功刪除 ${selectedRowKeys.length} 個物品：${itemNames}`);
             fetchItems();
             setSelectedRowKeys([]);
         } catch (err) {
@@ -139,6 +143,12 @@ const ManageItems = () => {
         } finally {
             setLoading(false);
         }
+    };
+
+    const handleResetFilters = () => {
+        setFilters({ search: '', type: 'all' });
+        setSort({ field: 'name', order: 'ascend' });
+        setCurrentPage(1);
     };
 
     const rowSelection = {
@@ -171,7 +181,9 @@ const ManageItems = () => {
                     alt=""
                     width={50}
                     height={50}
-                    style={{ objectFit: 'cover' }}
+                    style={{ objectFit: 'cover', borderRadius: '4px' }}
+                    preview={{ mask: <EyeOutlined /> }}
+                    loading="lazy"
                 />
             ),
             width: 80,
@@ -180,6 +192,7 @@ const ManageItems = () => {
             title: '名稱',
             dataIndex: 'name',
             key: 'name',
+            sorter: true,
             width: 150,
             render: (name, record) => {
                 const level = record.level;
@@ -188,10 +201,10 @@ const ManageItems = () => {
                 return (
                     <span
                         style={{
-                            color: `${levelColor} `, // 主文字顏色保持黑色，確保可讀性
-                            fontWeight: 'bold', // 加粗
-                            fontSize: '16px', // 增大字體
-                            textShadow: `0px 0px 1px rgb(97, 97, 97)`, // 使用等級顏色作為文字陰影
+                            color: levelColor,
+                            fontWeight: 'bold',
+                            fontSize: '16px',
+                            textShadow: `0px 0px 1px rgb(97, 97, 97)`,
                         }}
                     >
                         {name}
@@ -203,6 +216,7 @@ const ManageItems = () => {
             title: '類型',
             dataIndex: 'type',
             key: 'type',
+            sorter: true,
             width: 120,
             render: (type) => typeMapping[type] || '未設置',
         },
@@ -290,56 +304,98 @@ const ManageItems = () => {
         currentPage * pageSize
     );
 
+    const handleTableChange = (pagination, _, sorter) => {
+        setCurrentPage(pagination.current);
+        setPageSize(pagination.pageSize);
+        if (sorter.field && sorter.order) {
+            setSort({
+                field: sorter.field,
+                order: sorter.order,
+            });
+        }
+    };
+
     return (
-        <div style={{ padding: '20px', backgroundColor: '#f0f2f5', minHeight: '100vh' }}>
+        <div style={{ padding: '20px', backgroundColor: '#f0f2f5', minHeight: 'calc(100vh - 64px)', paddingTop: '84px', boxSizing: 'border-box' }}>
             <Card
-                title={<h2 style={{ margin: 0, fontSize: '24px', color: '#1890ff' }}>物品管理</h2>}
+                title={
+                    <Space>
+                        <Title level={2} style={{ margin: 0, color: '#1890ff' }}>掉落物品</Title>
+                        {selectedRowKeys.length > 0 && (
+                            <Text type="secondary">已選擇 {selectedRowKeys.length} 個物品</Text>
+                        )}
+                    </Space>
+                }
                 bordered={false}
-                style={{ boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)', borderRadius: '8px' }}
+                style={{ boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)', borderRadius: '12px' }}
             >
-                <div style={{ marginBottom: '16px', display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
-                    <Input.Search
-                        placeholder="搜索物品名稱或描述"
-                        value={filters.search}
-                        onChange={(e) => setFilters(prev => ({ ...prev, search: e.target.value }))}
-                        onSearch={handleSearch}
-                        style={{ width: 200 }}
-                        enterButton={<SearchOutlined />}
-                    />
-                    <Select
-                        value={filters.type}
-                        onChange={(value) => setFilters(prev => ({ ...prev, type: value }))}
-                        style={{ width: 200 }}
-                        onSelect={handleSearch}
-                    >
-                        <Option value="all">全部類型</Option>
-                        <Option value="equipment">裝備</Option>
-                        <Option value="skill">技能</Option>
-                    </Select>
-                    <Button
-                        type="primary"
-                        onClick={() => setVisible(true)}
-                        style={{ marginLeft: 'auto' }}
-                        disabled={loading}
-                    >
-                        新增物品
-                    </Button>
-                    <Popconfirm
-                        title="確認批量刪除選中物品？"
-                        onConfirm={handleBatchDelete}
-                        okText="是"
-                        cancelText="否"
-                        disabled={loading || selectedRowKeys.length === 0}
-                    >
-                        <Button
-                            type="danger"
-                            icon={<DeleteOutlined />}
-                            disabled={loading || selectedRowKeys.length === 0}
+                <Row gutter={[16, 16]} style={{ marginBottom: '16px' }}>
+                    <Col xs={24} sm={12} md={6}>
+                        <Input.Search
+                            placeholder="搜索物品名稱或描述"
+                            value={filters.search}
+                            onChange={(e) => setFilters(prev => ({ ...prev, search: e.target.value }))}
+                            style={{ width: '100%' }}
+                            enterButton={<SearchOutlined />}
+                        />
+                    </Col>
+                    <Col xs={24} sm={12} md={6}>
+                        <Select
+                            value={filters.type}
+                            onChange={(value) => setFilters(prev => ({ ...prev, type: value }))}
+                            style={{ width: '100%' }}
                         >
-                            批量刪除
+                            <Option value="all">全部類型</Option>
+                            <Option value="equipment">裝備</Option>
+                            <Option value="skill">技能</Option>
+                        </Select>
+                    </Col>
+                    <Col xs={24} sm={12} md={6}>
+                        <Button
+                            type="primary"
+                            onClick={() => setVisible(true)}
+                            disabled={loading}
+                            icon={<PlusOutlined />}
+                            style={{ width: '100%', borderRadius: '8px' }}
+                        >
+                            新增物品
                         </Button>
-                    </Popconfirm>
-                </div>
+                    </Col>
+                    <Col xs={24} sm={12} md={6}>
+                        <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
+                            <Button
+                                onClick={handleResetFilters}
+                                icon={<RedoOutlined />}
+                                style={{ borderRadius: '8px' }}
+                            >
+                                重置篩選
+                            </Button>
+                            <Popconfirm
+                                title={
+                                    <div>
+                                        確認批量刪除以下物品？<br />
+                                        {items.filter(item => selectedRowKeys.includes(item._id)).map(item => (
+                                            <div key={item._id}>- {item.name}</div>
+                                        ))}
+                                    </div>
+                                }
+                                onConfirm={handleBatchDelete}
+                                okText="是"
+                                cancelText="否"
+                                disabled={loading || selectedRowKeys.length === 0}
+                            >
+                                <Button
+                                    type="danger"
+                                    icon={<DeleteOutlined />}
+                                    disabled={loading || selectedRowKeys.length === 0}
+                                    style={{ borderRadius: '8px' }}
+                                >
+                                    批量刪除
+                                </Button>
+                            </Popconfirm>
+                        </Space>
+                    </Col>
+                </Row>
                 <Spin spinning={loading} size="large">
                     {filteredItems.length === 0 && !loading ? (
                         <Alert
@@ -359,6 +415,8 @@ const ManageItems = () => {
                                 bordered
                                 pagination={false}
                                 scroll={{ x: 'max-content' }}
+                                onChange={handleTableChange}
+                                rowClassName="table-row-hover"
                             />
                             <Pagination
                                 current={currentPage}
@@ -372,6 +430,7 @@ const ManageItems = () => {
                                 style={{ marginTop: '16px', textAlign: 'right' }}
                                 showSizeChanger
                                 pageSizeOptions={['10', '20', '50']}
+                                showTotal={(total) => `共 ${total} 條記錄`}
                             />
                         </>
                     )}
@@ -386,6 +445,7 @@ const ManageItems = () => {
                     form.resetFields();
                 }}
                 footer={null}
+                transitionName="ant-fade"
             >
                 <Form form={form} onFinish={handleCreateOrUpdate} layout="vertical">
                     <Form.Item
@@ -453,12 +513,26 @@ const ManageItems = () => {
                         <Input placeholder="輸入圖片 URL（可選）" />
                     </Form.Item>
                     <Form.Item>
-                        <Button type="primary" htmlType="submit" loading={loading}>
+                        <Button type="primary" htmlType="submit" loading={loading} style={{ borderRadius: '8px' }}>
                             提交
                         </Button>
                     </Form.Item>
                 </Form>
             </Modal>
+            <style jsx global>{`
+                .table-row-hover:hover {
+                    background-color: #f0f4f8 !important;
+                }
+                .ant-btn-primary, .ant-btn-danger {
+                    transition: all 0.3s ease;
+                }
+                .ant-btn-primary:hover, .ant-btn-danger:hover {
+                    transform: scale(1.05);
+                }
+                .ant-modal {
+                    transition: all 0.3s ease;
+                }
+            `}</style>
         </div>
     );
 };

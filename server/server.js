@@ -4,14 +4,63 @@ const path = require('path');
 const startAuctionCron = require('./utils/auctionCron');
 const startItemExpirationCron = require('./utils/itemExpirationCron'); // 新增
 const cors = require('cors');
+const multer = require('multer');
 const app = express();
 
 connectDB();
 
+// 配置 multer 存儲
+const storage = multer.diskStorage({
+    destination: './uploads/icons/',
+    filename: (req, file, cb) => {
+        cb(null, `${Date.now()}-${file.originalname}`);
+    },
+});
+const upload = multer({
+    storage,
+    limits: { fileSize: 1024 * 1024 }, // 限制 1MB
+    fileFilter: (req, file, cb) => {
+        if (file.mimetype.startsWith('image/')) {
+            cb(null, true);
+        } else {
+            cb(new Error('僅支持圖片文件！'), false);
+        }
+    },
+});
+
+// 確保 uploads/icons 目錄存在
+const fs = require('fs');
+if (!fs.existsSync('./uploads/icons')) {
+    fs.mkdirSync('./uploads/icons', { recursive: true });
+}
+
 // 配置靜態文件服務
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-app.use(cors({ origin: 'http://localhost:3000', methods: ['GET', 'POST', 'PUT', 'DELETE'], allowedHeaders: ['Content-Type', 'x-auth-token'] }));
+//app.use(cors({ origin: 'http://localhost:3000', methods: ['GET', 'POST', 'PUT', 'DELETE'], allowedHeaders: ['Content-Type', 'x-auth-token'] }));
+
+
+// CORS 配置
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+    ? process.env.ALLOWED_ORIGINS.split(',')
+    : ['http://localhost:3000', 'https://103.195.4.189', 'https://www.gnmr.net'];
+
+app.use(cors({
+    origin: (origin, callback) => {
+        if (!origin || allowedOrigins.includes(origin)) {
+            callback(null, true);
+        } else {
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'x-auth-token'],
+    credentials: true,
+}));
+
+// 處理 OPTIONS 預檢請求
+app.options('*', cors());
+
 app.use(express.json());
 
 console.log('Loading routes...');
@@ -49,7 +98,9 @@ app.use('/api/dkp', require('./routes/dkp'));
 console.log('DKP route loaded');
 app.use('/api/item-levels', require('./routes/item-levels'));
 console.log('ItemLevels route loaded');
-
+const menuRoutes = require('./routes/menu');
+app.use('/api/menu', upload.single('customIcon'), menuRoutes); // 添加 upload 中間件
+console.log('Menu route loaded');
 
 try {
     startAuctionCron();

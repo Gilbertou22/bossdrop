@@ -5,11 +5,11 @@ import axios from 'axios';
 import formatNumber from '../utils/formatNumber';
 import moment from 'moment';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import logger from '../utils/logger'; // 引入前端日誌工具
+import logger from '../utils/logger';
 
 const { Option } = Select;
 
-const BASE_URL = 'http://localhost:5000';
+const BASE_URL = process.env.REACT_APP_API_URL || '';
 
 const ManageUsers = () => {
     const [users, setUsers] = useState([]);
@@ -28,8 +28,8 @@ const ManageUsers = () => {
     const [selectedRowKeys, setSelectedRowKeys] = useState([]);
     const [stats, setStats] = useState({ totalUsers: 0, activeUsers: 0 });
     const [growthData, setGrowthData] = useState([]);
-    const [guilds, setGuilds] = useState([]); // 旅團列表
-    const [useGuildPassword, setUseGuildPassword] = useState(false); // 是否使用旅團密碼
+    const [guilds, setGuilds] = useState([]);
+    const [useGuildPassword, setUseGuildPassword] = useState(false);
     const token = localStorage.getItem('token');
     const [online, setOnline] = useState(navigator.onLine);
     const [deferredPrompt, setDeferredPrompt] = useState(null);
@@ -45,7 +45,7 @@ const ManageUsers = () => {
     }, []);
 
     useEffect(() => {
-        fetchGuilds(); // 獲取旅團列表
+        fetchGuilds();
     }, []);
 
     const fetchGuilds = async () => {
@@ -160,7 +160,7 @@ const ManageUsers = () => {
             return;
         }
         setEditingUser(user);
-        setUseGuildPassword(false); // 重置選項
+        setUseGuildPassword(false);
         form.resetFields();
         form.setFieldsValue({
             world_name: user?.world_name || '',
@@ -199,18 +199,16 @@ const ManageUsers = () => {
 
             const { confirm_password, ...filteredValues } = values;
 
-            // 處理 raid_level
             if (filteredValues.raid_level !== undefined && filteredValues.raid_level !== null && filteredValues.raid_level !== '') {
                 filteredValues.raid_level = parseInt(filteredValues.raid_level, 10);
             } else {
-                filteredValues.raid_level = 0; // 如果為空，設置為 0
+                filteredValues.raid_level = 0;
             }
 
             if (filteredValues.diamonds) {
                 filteredValues.diamonds = parseInt(filteredValues.diamonds, 10);
             }
 
-            // 檢查必填字段
             if (!editingUser && (!filteredValues.character_name || !filteredValues.guildId)) {
                 message.error('請確保角色名稱和旅團已填寫！');
                 return;
@@ -218,11 +216,9 @@ const ManageUsers = () => {
 
             const formData = new FormData();
             Object.keys(filteredValues).forEach(key => {
-                // 即使值為 null，也傳遞字段，後端會檢查
                 formData.append(key, filteredValues[key] !== undefined && filteredValues[key] !== null ? filteredValues[key] : '');
             });
 
-            // 調試：記錄 formData 內容
             const formDataEntries = {};
             for (let [key, value] of formData.entries()) {
                 formDataEntries[key] = value;
@@ -259,6 +255,12 @@ const ManageUsers = () => {
     };
 
     const handleDelete = async (id) => {
+        const user = users.find(u => u._id === id);
+        if (user && (user.role === 'admin' || user.role === 'guild')) {
+            message.error(`無法刪除角色為 ${user.role} 的帳號！`);
+            return;
+        }
+
         try {
             if (!token) {
                 message.error('請先登入以管理盟友！');
@@ -288,6 +290,15 @@ const ManageUsers = () => {
             message.warning('請先登入並選擇至少一個盟友進行刪除');
             return;
         }
+
+        const selectedUsers = users.filter(user => selectedRowKeys.includes(user._id));
+        const protectedUsers = selectedUsers.filter(user => user.role === 'admin' || user.role === 'guild');
+        if (protectedUsers.length > 0) {
+            const protectedRoles = protectedUsers.map(user => user.role).join(', ');
+            message.error(`無法刪除角色為 ${protectedRoles} 的帳號！`);
+            return;
+        }
+
         setLoading(true);
         try {
             await axios.delete(`${BASE_URL}/api/users/batch-delete`, {
@@ -370,7 +381,7 @@ const ManageUsers = () => {
                 form.setFieldsValue({
                     password: selectedGuild.password,
                     confirm_password: selectedGuild.password,
-                    mustChangePassword: true, // 使用旅團密碼時強制更改
+                    mustChangePassword: true,
                 });
             } else {
                 form.setFieldsValue({
@@ -399,6 +410,9 @@ const ManageUsers = () => {
     const rowSelection = {
         selectedRowKeys,
         onChange: (selectedKeys) => setSelectedRowKeys(selectedKeys),
+        getCheckboxProps: (record) => ({
+            disabled: record.role === 'admin' || record.role === 'guild',
+        }),
     };
 
     const columns = [
@@ -481,14 +495,14 @@ const ManageUsers = () => {
                         onConfirm={() => handleDelete(record._id)}
                         okText="是"
                         cancelText="否"
-                        disabled={loading}
+                        disabled={loading || record.role === 'admin' || record.role === 'guild'}
                     >
                         <Button
                             type="danger"
                             shape="round"
                             size="small"
                             icon={<DeleteOutlined />}
-                            disabled={loading}
+                            disabled={loading || record.role === 'admin' || record.role === 'guild'}
                             style={{ background: '#ff4d4f', color: '#fff', borderColor: '#ff4d4f' }}
                             onMouseEnter={(e) => (e.target.style.background = '#ff7875')}
                             onMouseLeave={(e) => (e.target.style.background = '#ff4d4f')}
@@ -641,7 +655,7 @@ const ManageUsers = () => {
             </Card>
             <Modal
                 title={editingUser ? '編輯盟友' : '添加盟友'}
-                open={isModalVisible}
+                visible={isModalVisible}
                 onOk={handleOk}
                 onCancel={() => setIsModalVisible(false)}
                 width={600}
@@ -678,11 +692,9 @@ const ManageUsers = () => {
                                 rules={[
                                     {
                                         validator: (_, value) => {
-                                            // 檢查必填
                                             if (value === undefined || value === null || value === '') {
                                                 return Promise.reject(new Error('請輸入戰鬥等級！'));
                                             }
-                                            // 轉換為數字並驗證
                                             const numValue = parseInt(value, 10);
                                             if (isNaN(numValue) || numValue < 0) {
                                                 return Promise.reject(new Error('戰鬥等級必須為非負數！'));
@@ -793,7 +805,7 @@ const ManageUsers = () => {
             </Modal>
             <Modal
                 title="盟友詳情"
-                open={isDetailModalVisible}
+                visible={isDetailModalVisible}
                 onOk={() => setIsDetailModalVisible(false)}
                 onCancel={() => setIsDetailModalVisible(false)}
                 footer={null}
@@ -821,7 +833,7 @@ const ManageUsers = () => {
             </Modal>
             <Modal
                 title="發送廣播通知"
-                open={isBroadcastModalVisible}
+                visible={isBroadcastModalVisible}
                 onOk={handleBroadcast}
                 onCancel={() => setIsBroadcastModalVisible(false)}
                 okText="發送"

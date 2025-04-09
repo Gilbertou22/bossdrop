@@ -1,5 +1,5 @@
 const mongoose = require('mongoose');
-const bcrypt = require('bcryptjs');
+const bcrypt = require('bcryptjs'); // 確保使用 bcryptjs
 
 const UserSchema = new mongoose.Schema({
     world_name: { type: String, required: true },
@@ -19,12 +19,22 @@ const UserSchema = new mongoose.Schema({
     },
 });
 
-// 密碼加密
+// 在保存用戶前哈希密碼
 UserSchema.pre('save', async function (next) {
-    if (this.isModified('password')) {
-        this.password = await bcrypt.hash(this.password, 10);
+    try {
+        console.log('Pre-save hook triggered for user:', this.character_name);
+        console.log('Password modified:', this.isModified('password'));
+        console.log('Password before hash:', this.password);
+        if (this.isModified('password')) {
+            const salt = await bcrypt.genSalt(10);
+            this.password = await bcrypt.hash(this.password, salt);
+            console.log('Hashed password in pre-save:', this.password);
+        }
+        next();
+    } catch (err) {
+        console.error('Error in pre-save hook:', err);
+        next(err);
     }
-    next();
 });
 
 module.exports = mongoose.model('User', UserSchema);

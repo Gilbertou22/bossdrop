@@ -1,4 +1,3 @@
-// components/Navbar.js
 import React, { useState, useEffect, useCallback } from 'react';
 import { Menu, Layout, Dropdown, Avatar, Badge, Button, Popover, Drawer, Spin, message } from 'antd';
 import {
@@ -28,8 +27,24 @@ import { useNotification } from './NotificationContext';
 import logger from '../utils/logger';
 
 const { Header } = Layout;
+const { SubMenu } = Menu;
 
-const BASE_URL = 'http://localhost:5000';
+const BASE_URL = process.env.REACT_APP_API_URL || '';
+
+const iconMapping = {
+    HomeOutlined: <HomeOutlined />,
+    SketchOutlined: <SketchOutlined />,
+    FileDoneOutlined: <FileDoneOutlined />,
+    ShoppingOutlined: <ShoppingOutlined />,
+    BarChartOutlined: <BarChartOutlined />,
+    DollarOutlined: <DollarOutlined />,
+    TeamOutlined: <TeamOutlined />,
+    GiftOutlined: <GiftOutlined />,
+    CheckCircleOutlined: <CheckCircleOutlined />,
+    UserOutlined: <UserOutlined />,
+    CloudUploadOutlined: <CloudUploadOutlined />,
+    AuditOutlined: <AuditOutlined />,
+};
 
 const Navbar = () => {
     const navigate = useNavigate();
@@ -43,6 +58,8 @@ const Navbar = () => {
     const [drawerVisible, setDrawerVisible] = useState(false);
     const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
     const [deferredPrompt, setDeferredPrompt] = useState(null);
+    const [menuItems, setMenuItems] = useState([]);
+    const [openKeys, setOpenKeys] = useState([]);
 
     useEffect(() => {
         const handleResize = () => {
@@ -60,11 +77,17 @@ const Navbar = () => {
         if (token) {
             fetchUserInfo();
             fetchNotifications();
-            fetchPendingCount();
+            fetchMenuItems();
         }
 
         return () => window.removeEventListener('resize', handleResize);
     }, [token]);
+
+    useEffect(() => {
+        if (user && (user.role === 'admin' || user.role === 'moderator')) {
+            fetchPendingCount();
+        }
+    }, [user]);
 
     const handleInstallPWA = () => {
         if (deferredPrompt) {
@@ -123,6 +146,7 @@ const Navbar = () => {
             });
             const enrichedNotifications = await Promise.all(res.data.notifications.slice(0, 5).map(async (notification) => {
                 let imageUrl = 'https://via.placeholder.com/50';
+                let isValidAuction = true;
                 if (notification.auctionId) {
                     try {
                         const auctionRes = await axios.get(`${BASE_URL}/api/auctions/${notification.auctionId}`, {
@@ -135,7 +159,7 @@ const Navbar = () => {
                                 : auction.itemId;
                             if (typeof itemId !== 'string') {
                                 logger.warn('Invalid itemId in auction', { auctionId: notification.auctionId, itemId });
-                                return { ...notification, imageUrl };
+                                return { ...notification, imageUrl, isValidAuction };
                             }
                             const bossKillRes = await axios.get(`${BASE_URL}/api/boss-kills/${itemId}`, {
                                 headers: { 'x-auth-token': token },
@@ -148,14 +172,32 @@ const Navbar = () => {
                             }
                         }
                     } catch (err) {
-                        logger.warn('Error fetching auction or boss kill for notification', { notificationId: notification._id, error: err.message });
+                        if (err.response?.status === 404) {
+                            logger.warn('Auction not found for notification', {
+                                notificationId: notification._id,
+                                auctionId: notification.auctionId,
+                                error: err.response?.data || err.message,
+                            });
+                            isValidAuction = false;
+                        } else {
+                            logger.warn('Error fetching auction or boss kill for notification', {
+                                notificationId: notification._id,
+                                error: err.response?.data || err.message,
+                            });
+                        }
                     }
                 }
-                return { ...notification, imageUrl };
+                return { ...notification, imageUrl, isValidAuction };
             }));
-            setNotifications(enrichedNotifications);
+            const validNotifications = enrichedNotifications.filter(notification => {
+                if (notification.auctionId) {
+                    return notification.isValidAuction;
+                }
+                return true;
+            });
+            setNotifications(validNotifications);
             setUnreadCount(res.data.unreadCount);
-            logger.info('Fetched notifications', { unreadCount: res.data.unreadCount, notificationCount: enrichedNotifications.length });
+            logger.info('Fetched notifications', { unreadCount: res.data.unreadCount, notificationCount: validNotifications.length });
         } catch (err) {
             logger.error('Fetch notifications error', { error: err.response?.data || err.message });
             message.error('無法獲取通知，請重新登錄');
@@ -164,6 +206,83 @@ const Navbar = () => {
             setLoading(false);
         }
     }, [token, navigate, setNotifications, setUnreadCount]);
+
+    const fetchMenuItems = useCallback(async () => {
+        try {
+            const res = await axios.get(`${BASE_URL}/api/menu`, {
+                headers: { 'x-auth-token': token },
+            });
+
+            // 獲取所有子菜單項的 ID
+            const allChildIds = new Set();
+            res.data.forEach(item => {
+                if (item.children && Array.isArray(item.children)) {
+                    item.children.forEach(child => {
+                        if (child && child._id) {
+                            allChildIds.add(child._id.toString());
+                        }
+                    });
+                }
+            });
+
+            // 過濾出第一層級菜單項（不包含已經作為子菜單的項）
+            const menuItems = res.data
+                .filter(item => {
+                    // 處理異常的 roles 格式
+                    let roles;
+                    try {
+                        roles = Array.isArray(item.roles) ? item.roles : JSON.parse(item.roles || '[]');
+                        while (typeof roles === 'string') {
+                            roles = JSON.parse(roles);
+                        }
+                    } catch (err) {
+                        logger.warn('Failed to parse roles', { roles: item.roles, error: err.message });
+                        roles = [];
+                    }
+                    // 過濾條件：必須符合角色，且不是任何其他項的子菜單
+                    return roles.includes(user?.role || 'user') && !allChildIds.has(item._id.toString());
+                })
+                .map(item => ({
+                    key: item.key,
+                    label: item.label.includes('競標') && (user?.role === 'admin' || user?.role === 'moderator')
+                        ? `${item.label} (${pendingCount})`
+                        : item.label,
+                    icon: item.customIcon ? <Avatar src={item.customIcon} size={20} /> : (iconMapping[item.icon] || null),
+                    children: item.children
+                        ? item.children
+                            .filter(child => {
+                                let childRoles;
+                                try {
+                                    childRoles = Array.isArray(child.roles) ? child.roles : JSON.parse(child.roles || '[]');
+                                    while (typeof childRoles === 'string') {
+                                        childRoles = JSON.parse(childRoles);
+                                    }
+                                } catch (err) {
+                                    logger.warn('Failed to parse child roles', { roles: child.roles, error: err.message });
+                                    childRoles = [];
+                                }
+                                return childRoles.includes(user?.role || 'user');
+                            })
+                            .map(child => ({
+                                key: child.key,
+                                label: child.label,
+                                icon: child.customIcon ? <Avatar src={child.customIcon} size={20} /> : (iconMapping[child.icon] || null),
+                            }))
+                        : undefined,
+                }));
+            setMenuItems(token ? menuItems : [{ key: '/', label: '首頁', icon: <HomeOutlined /> }]);
+            logger.info('Fetched menu items', { menuItems });
+        } catch (err) {
+            logger.error('Fetch menu items error', { error: err.response?.data || err.message });
+            message.error('無法獲取菜單項');
+        }
+    }, [token, user, pendingCount]);
+
+    useEffect(() => {
+        if (user) {
+            fetchMenuItems();
+        }
+    }, [user, pendingCount, fetchMenuItems]);
 
     const markAsRead = async (notificationId) => {
         try {
@@ -193,62 +312,60 @@ const Navbar = () => {
         message.success('已登出');
     };
 
-    const userMenu = (
-        <Menu>
-            <Menu.Item key="profile" icon={<UserOutlined />} onClick={() => setProfileVisible(true)}>
-                修改資料
-            </Menu.Item>
-            <Menu.Item key="logout" icon={<LogoutOutlined />} onClick={handleLogout}>
-                登出
-            </Menu.Item>
-        </Menu>
-    );
+    const userMenuItems = [
+        { key: 'profile', label: '修改資料', icon: <UserOutlined /> },
+        { key: 'logout', label: '登出', icon: <LogoutOutlined /> },
+    ];
 
-    const getItemsByRole = (role) => {
-        const baseItems = [
-            { key: '/', label: '首頁', icon: <HomeOutlined /> },
-            { key: '/wallet', label: '個人錢包', icon: <SketchOutlined /> },
-            { key: '/apply-item', label: '申請物品', icon: <FileDoneOutlined /> },
-            {
-                key: '/auction',
-                label: (
-                    <span>
-                        競標 <Badge count={pendingCount} style={{ backgroundColor: '#52c41a' }} />
-                    </span>
-                ),
-                icon: <ShoppingOutlined />,
-            },
-            { key: '/kill-history', label: '擊殺歷史記錄', icon: <FileDoneOutlined /> },
-        ];
+    const handleMenuClick = ({ key }) => {
+        logger.info('Menu item clicked', { key });
+        const menuItem = menuItems.find(item => item.key === key) ||
+            menuItems.flatMap(item => item.children || []).find(child => child.key === key);
+        const hasChildren = menuItem && menuItem.children && menuItem.children.length > 0;
 
-        if (role === 'moderator' || role === 'admin') {
-            baseItems.push(
-                { key: '/approve-applications', label: '批准申請', icon: <CheckCircleOutlined /> },
-                { key: '/create-auction', label: '發起競標', icon: <DollarOutlined /> },
-            );
+        if (key === 'profile') {
+            setProfileVisible(true);
+        } else if (key === 'logout') {
+            handleLogout();
+        } else if (key && typeof key === 'string' && key.startsWith('/')) {
+            if (!hasChildren) {
+                logger.info('Navigating to', { key });
+                navigate(key);
+                if (isMobile) {
+                    setDrawerVisible(false);
+                }
+            }
+        } else {
+            logger.warn('Invalid menu item key', { key });
+            message.warning('無效的路徑');
         }
-
-        if (role === 'admin') {
-            baseItems.push({
-                key: 'management',
-                label: '管理',
-                icon: <TeamOutlined />,
-                children: [
-                    { key: '/boss-kill', label: '記錄擊殺', icon: <FileDoneOutlined /> },
-                    { key: '/manage-bosses', label: '管理首領', icon: <TeamOutlined /> },
-                    { key: '/manage-items', label: '管理物品', icon: <GiftOutlined /> },
-                    { key: '/manage-users', label: '管理盟友', icon: <UserOutlined /> },
-                    { key: '/manage-items-level', label: '管理物品等級', icon: <GiftOutlined /> },
-                    { key: '/stats', label: '統計報表', icon: <BarChartOutlined /> },
-                    { key: '/approve-attend-request', label: '管理補登申請', icon: <CloudUploadOutlined /> },
-                ],
-            });
-        }
-
-        return token ? baseItems : [{ key: '/', label: '首頁', icon: <HomeOutlined /> }];
     };
 
-    const items = getItemsByRole(user?.role);
+    const onOpenChange = (keys) => {
+        logger.info('Menu open keys changed', { keys });
+        setOpenKeys(keys);
+    };
+
+    const renderMenuItems = (items) => {
+        return items.map(item => {
+            if (item.children && item.children.length > 0) {
+                return (
+                    <SubMenu
+                        key={item.key}
+                        title={item.label}
+                        icon={item.icon}
+                    >
+                        {renderMenuItems(item.children)}
+                    </SubMenu>
+                );
+            }
+            return (
+                <Menu.Item key={item.key} icon={item.icon}>
+                    {item.label}
+                </Menu.Item>
+            );
+        });
+    };
 
     const notificationContent = (
         <div style={{ maxHeight: '300px', overflowY: 'auto', width: '300px' }}>
@@ -266,7 +383,11 @@ const Navbar = () => {
                         }}
                         onClick={() => {
                             markAsRead(notification._id);
-                            if (notification.auctionId) navigate(`/auction/${notification.auctionId}`);
+                            if (notification.auctionId && notification.isValidAuction) {
+                                navigate(`/auction/${notification.auctionId}`);
+                            } else if (notification.auctionId) {
+                                message.warning('該拍賣已不存在');
+                            }
                         }}
                     >
                         <Avatar
@@ -275,7 +396,7 @@ const Navbar = () => {
                             style={{ marginRight: '10px' }}
                             onError={() => {
                                 logger.warn('Failed to load notification image', { notificationId: notification._id, imageUrl: notification.imageUrl });
-                                return true; // 防止圖片加載失敗導致頁面崩潰
+                                return true;
                             }}
                         />
                         <div>
@@ -330,15 +451,12 @@ const Navbar = () => {
                             theme="light"
                             mode="inline"
                             selectedKeys={[location.pathname]}
-                            items={items}
-                            onClick={({ key }) => {
-                                if (key === 'profile') setProfileVisible(true);
-                                else {
-                                    navigate(key);
-                                    setDrawerVisible(false);
-                                }
-                            }}
-                        />
+                            openKeys={openKeys}
+                            onOpenChange={onOpenChange}
+                            onClick={handleMenuClick}
+                        >
+                            {renderMenuItems(menuItems)}
+                        </Menu>
                     </Drawer>
                 </>
             ) : (
@@ -346,13 +464,13 @@ const Navbar = () => {
                     theme="dark"
                     mode="horizontal"
                     selectedKeys={[location.pathname]}
-                    items={items}
-                    onClick={({ key }) => {
-                        if (key === 'profile') setProfileVisible(true);
-                        else navigate(key);
-                    }}
+                    openKeys={openKeys}
+                    onOpenChange={onOpenChange}
+                    onClick={handleMenuClick}
                     style={{ flex: 1, lineHeight: '64px', borderBottom: 'none', background: 'transparent' }}
-                />
+                >
+                    {renderMenuItems(menuItems)}
+                </Menu>
             )}
             <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '8px' : '20px' }}>
                 {deferredPrompt && (
@@ -372,7 +490,7 @@ const Navbar = () => {
                                     <BellOutlined style={{ fontSize: '20px', color: '#fff', cursor: 'pointer' }} />
                                 </Badge>
                             </Popover>
-                            <Dropdown overlay={userMenu} trigger={['click']} placement="bottomRight">
+                            <Dropdown menu={{ items: userMenuItems, onClick: handleMenuClick }} trigger={['click']} placement="bottomRight">
                                 <Avatar
                                     size={32}
                                     src={user?.screenshot || `https://via.placeholder.com/32?text=${encodeURIComponent(user?.character_name || 'User')}`}
@@ -409,7 +527,7 @@ const Navbar = () => {
                 )}
             </div>
             <UserProfile visible={profileVisible} onCancel={() => setProfileVisible(false)} />
-            <style jsx>{`
+            <style jsx="true">{`
                 @media (max-width: 768px) {
                     .ant-btn {
                         padding: 4px 8px !important;

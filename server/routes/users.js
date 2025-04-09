@@ -3,10 +3,11 @@ const router = express.Router();
 const User = require('../models/User');
 const Guild = require('../models/Guild');
 const multer = require('multer');
-const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs');
 const path = require('path');
 const jsonwebtoken = require('jsonwebtoken');
 const { auth, adminOnly } = require('../middleware/auth');
+const logger = require('../logger'); // 假設你有一個 logger 工具
 
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
@@ -32,7 +33,7 @@ const upload = multer({
 });
 
 router.use((req, res, next) => {
-    //console.log(`Incoming request: ${req.method} ${req.path} - User:`, req.user);
+    logger.info(`Incoming request: ${req.method} ${req.originalUrl}`);
     next();
 });
 
@@ -48,7 +49,7 @@ router.get('/stats', auth, async (req, res) => {
         const activeUsers = await User.countDocuments({ status: 'active' });
         res.json({ totalUsers, activeUsers });
     } catch (err) {
-        console.error('Error fetching user stats:', err);
+        logger.error('Error fetching user stats:', err.message);
         res.status(500).json({ code: 500, msg: '獲取用戶統計失敗' });
     }
 });
@@ -72,25 +73,14 @@ router.post('/register', upload.single('screenshot'), async (req, res) => {
             screenshot,
             status: 'pending',
             guildId: guildId || null,
-            mustChangePassword: false, // 自行註冊的用戶不需要強制更改密碼
+            mustChangePassword: false,
         });
-
-        const salt = await bcrypt.genSalt(10);
-        user.password = await bcrypt.hash(password, salt);
 
         await user.save();
 
-        const payload = {
-            user: {
-                id: user.id,
-                role: user.role || 'user',
-            },
-        };
-
-        const token = jsonwebtoken.sign(payload, process.env.JWT_SECRET || 'your-secret-key', { expiresIn: 3600 });
-        res.json({ user_id: user._id, token, msg: '註冊成功，等待審核！' });
+        res.json({ user_id: user._id, msg: '註冊成功，等待審核！' });
     } catch (err) {
-        console.error('Register error:', err.message);
+        logger.error('Register error:', err.message);
         res.status(500).json({ msg: '伺服器錯誤: ' + err.message });
     }
 });
@@ -100,6 +90,7 @@ router.get('/', auth, adminOnly, async (req, res) => {
         const users = await User.find().select('world_name character_name discord_id raid_level diamonds status screenshot role guildId mustChangePassword createdAt updatedAt');
         res.json(users);
     } catch (err) {
+        logger.error('Error fetching users:', err.message);
         res.status(500).json({ msg: '獲取用戶列表失敗', error: err.message });
     }
 });
@@ -115,55 +106,8 @@ router.get('/profile', auth, async (req, res) => {
         }
         res.json(user);
     } catch (err) {
-        console.error('Error fetching user:', err);
+        logger.error('Error fetching user:', err.message);
         res.status(500).json({ msg: '伺服器錯誤，請稍後重試' });
-    }
-});
-
-router.delete('/api/users/:id', auth, adminOnly, async (req, res) => {
-    try {
-        const user = await User.findById(req.params.id);
-        if (!user) return res.status(404).json({ msg: '用戶不存在', detail: `ID ${req.params.id} 未找到` });
-        await user.remove();
-        res.json({ msg: '用戶刪除成功' });
-    } catch (err) {
-        res.status(500).json({ msg: '刪除用戶失敗', error: err.message });
-    }
-});
-
-router.put('/:id', auth, adminOnly, upload.single('screenshot'), async (req, res) => {
-    //console.log('PUT /api/users/:id request - req.user:', req.user, 'params.id:', req.params.id);
-    const { world_name, character_name, discord_id, raid_level, diamonds, status, role, password, guildId, mustChangePassword } = req.body;
-    try {
-        const user = await User.findById(req.params.id);
-        if (!user) {
-            console.log(`User not found for ID: ${req.params.id}`);
-            return res.status(404).json({ msg: '用戶不存在', detail: `ID ${req.params.id} 未找到` });
-        }
-        if (character_name && character_name !== user.character_name) {
-            const existingUser = await User.findOne({ character_name });
-            if (existingUser) return res.status(400).json({ msg: '角色名稱已存在' });
-        }
-        user.world_name = world_name || user.world_name;
-        user.character_name = character_name || user.character_name;
-        user.discord_id = discord_id || user.discord_id;
-        user.raid_level = raid_level !== undefined ? parseInt(raid_level) : user.raid_level;
-        user.diamonds = diamonds !== undefined ? parseInt(diamonds) : user.diamonds;
-        user.status = status || user.status;
-        user.screenshot = req.file ? req.file.path : user.screenshot;
-        user.role = role || user.role;
-        user.guildId = guildId || user.guildId;
-        if (password) {
-            const salt = await bcrypt.genSalt(10);
-            user.password = await bcrypt.hash(password, salt);
-        }
-        user.mustChangePassword = mustChangePassword !== undefined ? mustChangePassword : user.mustChangePassword; // 更新是否需更改密碼
-        await user.save();
-        //console.log(`User updated successfully: ${user._id}`);
-        res.json({ msg: '用戶更新成功', user });
-    } catch (err) {
-        console.error('Update user error:', err);
-        res.status(500).json({ msg: '更新用戶失敗', error: err.message });
     }
 });
 
@@ -184,8 +128,85 @@ router.put('/profile', auth, async (req, res) => {
         await user.save();
         res.json({ msg: '用戶資料更新成功' });
     } catch (err) {
-        console.error('Update error:', err);
+        logger.error('Update error:', err.message);
         res.status(500).json({ msg: '更新失敗', error: err.message });
+    }
+});
+
+router.delete('/:id', auth, adminOnly, async (req, res) => {
+    logger.info(`DELETE /api/users/:id called with id: ${req.params.id}, user: ${req.user?.id}`);
+    try {
+        const user = await User.findById(req.params.id);
+        if (!user) {
+            logger.warn(`User not found for ID: ${req.params.id}`);
+            return res.status(404).json({ msg: '用戶不存在', detail: `ID ${req.params.id} 未找到` });
+        }
+        if (user.role === 'admin' || user.role === 'guild') {
+            return res.status(403).json({ msg: `無法刪除角色為 ${user.role} 的帳號` });
+        }
+        await user.deleteOne();
+        logger.info(`User deleted successfully: ${req.params.id}`);
+        res.json({ msg: '用戶刪除成功' });
+    } catch (err) {
+        logger.error('Delete user error:', err.message);
+        res.status(500).json({ msg: '刪除用戶失敗', error: err.message });
+    }
+});
+
+router.delete('/api/users/batch-delete', auth, adminOnly, async (req, res) => {
+    const { ids } = req.body;
+    logger.info(`DELETE /api/users/batch-delete called with ids: ${ids}, user: ${req.user?.id}`);
+    try {
+        if (!Array.isArray(ids) || ids.length === 0) {
+            return res.status(400).json({ msg: '請提供有效的用戶 ID 列表' });
+        }
+        const users = await User.find({ _id: { $in: ids } });
+        const protectedUsers = users.filter(user => user.role === 'admin' || user.role === 'guild');
+        if (protectedUsers.length > 0) {
+            const protectedRoles = [...new Set(protectedUsers.map(user => user.role))].join(', ');
+            return res.status(403).json({ msg: `無法刪除角色為 ${protectedRoles} 的帳號` });
+        }
+        await User.deleteMany({ _id: { $in: ids } });
+        logger.info(`Users batch deleted successfully: ${ids}`);
+        res.json({ msg: '批量刪除成功' });
+    } catch (err) {
+        logger.error('Batch delete error:', err.message);
+        res.status(500).json({ msg: '批量刪除失敗', error: err.message });
+    }
+});
+
+router.put('/:id', auth, adminOnly, upload.single('screenshot'), async (req, res) => {
+    const { world_name, character_name, discord_id, raid_level, diamonds, status, role, password, guildId, mustChangePassword } = req.body;
+    try {
+        const user = await User.findById(req.params.id);
+        if (!user) {
+            logger.warn(`User not found for ID: ${req.params.id}`);
+            return res.status(404).json({ msg: '用戶不存在', detail: `ID ${req.params.id} 未找到` });
+        }
+        if (character_name && character_name !== user.character_name) {
+            const existingUser = await User.findOne({ character_name });
+            if (existingUser) return res.status(400).json({ msg: '角色名稱已存在' });
+        }
+        user.world_name = world_name || user.world_name;
+        user.character_name = character_name || user.character_name;
+        user.discord_id = discord_id || user.discord_id;
+        user.raid_level = raid_level !== undefined ? parseInt(raid_level) : user.raid_level;
+        user.diamonds = diamonds !== undefined ? parseInt(diamonds) : user.diamonds;
+        user.status = status || user.status;
+        user.screenshot = req.file ? req.file.path : user.screenshot;
+        user.role = role || user.role;
+        user.guildId = guildId || user.guildId;
+        if (password) {
+            const salt = await bcrypt.genSalt(10);
+            user.password = await bcrypt.hash(password, salt);
+        }
+        user.mustChangePassword = mustChangePassword !== undefined ? mustChangePassword : user.mustChangePassword;
+        await user.save();
+        logger.info(`User updated successfully: ${req.params.id}`);
+        res.json({ msg: '用戶更新成功', user });
+    } catch (err) {
+        logger.error('Update user error:', err.message);
+        res.status(500).json({ msg: '更新用戶失敗', error: err.message });
     }
 });
 
@@ -209,10 +230,10 @@ router.get('/me', auth, async (req, res) => {
             status: user.status,
             screenshot: user.screenshot ? `${req.protocol}://${req.get('host')}/${user.screenshot.replace('./', '')}` : null,
             guildId: user.guildId,
-            mustChangePassword: user.mustChangePassword, // 返回是否需要更改密碼
+            mustChangePassword: user.mustChangePassword,
         });
     } catch (err) {
-        console.error('Error fetching user:', err);
+        logger.error('Error fetching user:', err.message);
         res.status(500).json({ msg: '伺服器錯誤，請稍後重試', error: err.message });
     }
 });
@@ -243,18 +264,15 @@ router.get('/growth', auth, async (req, res) => {
         ]);
         res.json(growthData);
     } catch (err) {
-        console.error('Error fetching user growth:', err);
+        logger.error('Error fetching user growth:', err.message);
         res.status(500).json({ code: 500, msg: '獲取用戶增長數據失敗' });
     }
 });
 
-// 新增：管理員創建成員
 router.post('/create-member', auth, adminOnly, upload.none(), async (req, res) => {
     const { character_name, password, guildId, useGuildPassword, world_name } = req.body;
 
     try {
-        //console.log('Received create-member request:', req.body); // 調試日誌
-
         if (!character_name || !guildId) {
             return res.status(400).json({
                 code: 400,
@@ -290,7 +308,6 @@ router.post('/create-member', auth, adminOnly, upload.none(), async (req, res) =
         }
 
         let finalPassword = password;
-        // 處理 useGuildPassword 可能為數組的情況
         const useGuildPasswordValue = Array.isArray(useGuildPassword) ? useGuildPassword[0] : useGuildPassword;
         if (useGuildPasswordValue === 'true') {
             if (!guild.password) {
@@ -309,19 +326,19 @@ router.post('/create-member', auth, adminOnly, upload.none(), async (req, res) =
             });
         }
 
-        console.log('Final password:', finalPassword); // 調試日誌
+        logger.info('Final password:', finalPassword);
 
         const user = new User({
-            world_name, // 添加 world_name
+            world_name,
             character_name,
             password: finalPassword,
             role: 'user',
             guildId,
-            mustChangePassword: true, // 管理員創建的成員需更改密碼
-            status: 'pending', // 預設待審核
+            mustChangePassword: true,
+            status: 'pending',
         });
 
-        console.log('New user object:', user); // 調試日誌
+        logger.info('New user object:', user);
 
         const salt = await bcrypt.genSalt(10);
         user.password = await bcrypt.hash(finalPassword, salt);
@@ -338,7 +355,7 @@ router.post('/create-member', auth, adminOnly, upload.none(), async (req, res) =
             },
         });
     } catch (err) {
-        console.error('Create member error:', err);
+        logger.error('Create member error:', err.message);
         res.status(500).json({
             code: 500,
             msg: '創建成員失敗',
@@ -347,7 +364,6 @@ router.post('/create-member', auth, adminOnly, upload.none(), async (req, res) =
     }
 });
 
-// 新增：更改密碼
 router.post('/change-password', auth, async (req, res) => {
     const { currentPassword, newPassword } = req.body;
     const userId = req.user.id;
@@ -380,7 +396,7 @@ router.post('/change-password', auth, async (req, res) => {
         }
 
         user.password = await bcrypt.hash(newPassword, 10);
-        user.mustChangePassword = false; // 更改密碼後設置為 false
+        user.mustChangePassword = false;
         await user.save();
 
         res.json({
@@ -389,7 +405,7 @@ router.post('/change-password', auth, async (req, res) => {
             detail: '您已成功更改密碼，請使用新密碼登入',
         });
     } catch (err) {
-        console.error('Change password error:', err);
+        logger.error('Change password error:', err.message);
         res.status(500).json({
             code: 500,
             msg: '更改密碼失敗',

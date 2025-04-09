@@ -23,15 +23,17 @@ const scheduleAuctionStatusUpdate = () => {
     schedule.scheduleJob('*/1 * * * *', async () => {
         try {
             const now = moment();
+            logger.info('Running auction status update task', { currentTime: now.toISOString() });
             const expiredAuctions = await Auction.find({
                 status: 'active',
                 endTime: { $lt: now.toDate() },
             });
 
+            logger.info('Found expired auctions', { count: expiredAuctions.length });
             for (const auction of expiredAuctions) {
                 auction.status = 'pending';
                 await auction.save();
-                logger.info('Auction status updated to pending', { auctionId: auction._id });
+                logger.info('Auction status updated to pending', { auctionId: auction._id, endTime: auction.endTime });
             }
         } catch (err) {
             logger.error('Error updating auction statuses', { error: err.message, stack: err.stack });
@@ -224,110 +226,14 @@ router.get('/won', auth, async (req, res) => {
 
 router.post('/:kill_id/start', auth, async (req, res) => {
     const { kill_id } = req.params;
-    const { startingPrice, buyoutPrice, duration, auctionType = 'open', restrictions = {}, itemIndex = 0 } = req.body; // 預設 itemIndex 為 0
+    const { startingPrice, buyoutPrice, duration, auctionType = 'open', restrictions = {}, itemIndex = 0 } = req.body;
     const user = req.user;
 
     try {
-        logger.info('Received auction creation request', { kill_id, startingPrice, buyoutPrice, duration, auctionType, restrictions, itemIndex });
-
-        if (!startingPrice || startingPrice <= 0) {
-            return res.status(400).json({
-                code: 400,
-                msg: '無效的起始價格',
-                detail: '起始價格必須大於 0。',
-            });
-        }
-
-        if (buyoutPrice && buyoutPrice <= startingPrice) {
-            return res.status(400).json({
-                code: 400,
-                msg: '無效的一口價',
-                detail: '一口價必須大於起始價格。',
-            });
-        }
-
-        if (!duration || duration <= 0) {
-            return res.status(400).json({
-                code: 400,
-                msg: '無效的拍賣時長',
-                detail: '拍賣時長必須大於 0。',
-            });
-        }
-
-        if (!['open', 'blind', 'lottery'].includes(auctionType)) {
-            return res.status(400).json({
-                code: 400,
-                msg: '無效的拍賣類型',
-                detail: `拍賣類型必須為 'open'、'blind' 或 'lottery'，當前為 ${auctionType}。`,
-            });
-        }
-
-        if (itemIndex < 0) {
-            return res.status(400).json({
-                code: 400,
-                msg: '無效的物品索引',
-                detail: '物品索引必須大於或等於 0。',
-            });
-        }
-
-        const bossKill = await BossKill.findById(kill_id);
-        if (!bossKill) {
-            return res.status(404).json({
-                code: 404,
-                msg: '擊殺記錄不存在',
-                detail: `無法找到 ID 為 ${kill_id} 的擊殺記錄。`,
-            });
-        }
-
-        if (!bossKill.dropped_items || bossKill.dropped_items.length === 0) {
-            return res.status(400).json({
-                code: 400,
-                msg: '無有效掉落物品',
-                detail: `ID 為 ${kill_id} 的擊殺記錄中無掉落物品。`,
-            });
-        }
-
-        if (itemIndex >= bossKill.dropped_items.length) {
-            return res.status(400).json({
-                code: 400,
-                msg: '無效的物品索引',
-                detail: `物品索引 ${itemIndex} 超出範圍，擊殺記錄中只有 ${bossKill.dropped_items.length} 個物品。`,
-            });
-        }
-
+        // ... 其他代碼 ...
         const droppedItem = bossKill.dropped_items[itemIndex];
-        const applyDeadline = moment(droppedItem.apply_deadline);
-        if (!applyDeadline.isBefore(moment()) && bossKill.status !== 'expired') {
-            return res.status(400).json({
-                code: 400,
-                msg: '申請期限尚未結束',
-                detail: `物品 ${droppedItem.name} 的申請期限尚未結束，且狀態未過期。`,
-            });
-        }
-
-        const existingAuction = await Auction.findOne({ itemId: kill_id });
-        if (existingAuction) {
-            if (['settled', 'cancelled'].includes(existingAuction.status)) {
-                await BossKill.findByIdAndUpdate(kill_id, { auction_status: 'pending' });
-                logger.info('Reset auction_status to pending for BossKill', { killId: kill_id });
-            } else {
-                return res.status(400).json({
-                    code: 400,
-                    msg: '競標已存在',
-                    detail: `物品 ${droppedItem.name} 的競標已存在，狀態為 ${existingAuction.status}。`,
-                });
-            }
-        }
-
-        let itemHolder = bossKill.itemHolder;
-        if (!itemHolder) {
-            const createdByUser = await User.findById(user.id);
-            itemHolder = createdByUser?.character_name || '未知持有者';
-            logger.warn(`itemHolder not set in BossKill ${kill_id}, using default: ${itemHolder}`, { killId: kill_id });
-        }
-
         const auction = new Auction({
-            itemId: kill_id, // 確保設置 itemId
+            itemId: kill_id,
             auctionType,
             startingPrice: parseInt(startingPrice),
             currentPrice: parseInt(startingPrice),
@@ -342,27 +248,11 @@ router.post('/:kill_id/start', auth, async (req, res) => {
                 dkpThreshold: restrictions.dkpThreshold || 0,
                 sameGuild: restrictions.sameGuild || false,
             },
-            itemName: droppedItem.name || '未知物品', // 確保設置 itemName
-            imageUrl: droppedItem.image_url || '', // 保存物品圖片（如果有）
+            itemName: droppedItem?.name || '未知物品', // 確保 itemName 始終有值
+            imageUrl: droppedItem?.image_url || '',
         });
         await auction.save();
-
-        bossKill.auction_status = 'active';
-        await bossKill.save();
-
-        await Notification.create({
-            userId: user.id,
-            message: `競標 ${droppedItem.name} 已開始！`,
-            type: 'system',
-        });
-
-        logger.info('Auction created successfully', { userId: user.id, auctionId: auction._id, auctionType, restrictions: auction.restrictions });
-        res.status(201).json({
-            code: 201,
-            msg: '競標創建成功',
-            detail: `競標 ${droppedItem.name} 已開始，ID: ${auction._id}。`,
-            auction_id: auction._id,
-        });
+        // ... 其他代碼 ...
     } catch (err) {
         console.error('Start auction error:', err);
         res.status(500).json({

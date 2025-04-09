@@ -8,7 +8,7 @@ import logger from '../utils/logger'; // 引入前端日誌工具
 import 'moment/locale/zh-tw';
 moment.locale('zh-tw');
 
-const BASE_URL = 'http://localhost:5000';
+const BASE_URL = process.env.REACT_APP_API_URL || '';
 
 const statusMap = {
     active: '活躍',

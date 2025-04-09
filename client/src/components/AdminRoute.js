@@ -3,6 +3,9 @@ import { Navigate } from 'react-router-dom';
 import axios from 'axios';
 import logger from '../utils/logger'; // 引入前端日誌工具
 
+
+const BASE_URL = process.env.REACT_APP_API_URL || '';
+
 const AdminRoute = ({ children }) => {
     const token = localStorage.getItem('token');
 
@@ -16,7 +19,7 @@ const AdminRoute = ({ children }) => {
                 return;
             }
             try {
-                const res = await axios.get('http://localhost:5000/api/users/me', {
+                const res = await axios.get(`${BASE_URL}/api/users/me`, {
                     headers: { 'x-auth-token': token },
                 });
                 setIsAdmin(res.data.role === 'admin');

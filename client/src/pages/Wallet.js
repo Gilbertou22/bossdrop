@@ -14,7 +14,7 @@ const { Option } = Select;
 const { RangePicker } = DatePicker;
 const { TabPane } = Tabs;
 
-const BASE_URL = 'http://localhost:5000';
+const BASE_URL = process.env.REACT_APP_API_URL || '';
 
 const isValidObjectId = (id) => /^[0-9a-fA-F]{24}$/.test(id);
 

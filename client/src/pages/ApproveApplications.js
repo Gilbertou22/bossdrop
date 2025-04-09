@@ -9,7 +9,7 @@ import logger from '../utils/logger';
 const { Search } = Input;
 const { Option } = Select;
 
-const BASE_URL = 'http://localhost:5000';
+const BASE_URL = process.env.REACT_APP_API_URL || '';
 
 const ApproveApplications = () => {
     const [applications, setApplications] = useState([]);

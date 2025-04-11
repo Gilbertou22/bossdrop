@@ -1,12 +1,14 @@
 import React, { createContext, useState, useEffect } from 'react';
 import axios from 'axios';
 import logger from './utils/logger';
+import { useNavigate } from 'react-router-dom';
 
 export const AuthContext = createContext();
 
 const BASE_URL = process.env.REACT_APP_API_URL || '';
 
 const AuthProvider = ({ children }) => {
+    const navigate = useNavigate();
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     const [user, setUser] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -27,14 +29,16 @@ const AuthProvider = ({ children }) => {
                 setIsAuthenticated(false);
                 setUser(null);
                 logger.error('Auth check failed:', err.response?.data || err.message);
+                navigate('/login');
             }).finally(() => {
                 setLoading(false);
             });
         } else {
             setIsAuthenticated(false);
+            setUser(null);
             setLoading(false);
         }
-    }, []);
+    }, [navigate]);
 
     const login = (token, user) => {
         localStorage.setItem('token', token);
@@ -48,6 +52,7 @@ const AuthProvider = ({ children }) => {
         setIsAuthenticated(false);
         setUser(null);
         logger.info('User logged out');
+        navigate('/login');
     };
 
     return (

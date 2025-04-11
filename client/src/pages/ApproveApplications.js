@@ -39,7 +39,7 @@ const ApproveApplications = () => {
                 headers: { 'x-auth-token': token },
             });
             setRole(res.data.role);
-            console.log('Fetched user info - role:', res.data.role);
+           
         } catch (err) {
             console.error('Fetch user info error:', err);
             message.error('載入用戶信息失敗: ' + (err.response?.data?.msg || err.message));
@@ -55,12 +55,12 @@ const ApproveApplications = () => {
                 status: filters.status === 'all' ? undefined : filters.status,
                 search: filters.search || undefined,
             };
-            console.log('Fetching applications with params:', params);
+           
             const res = await axios.get(`${BASE_URL}/api/applications`, {
                 headers: { 'x-auth-token': token },
                 params,
             });
-            console.log('Fetched applications data:', res.data);
+           
             setApplications(res.data);
         } catch (err) {
             console.error('Fetch applications error:', err.response?.data || err);

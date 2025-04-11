@@ -63,9 +63,9 @@ const Notifications = () => {
             setLocalNotifications(enrichedNotifications); // 更新本地狀態
             setNotifications(enrichedNotifications); // 更新上下文狀態
             setUnreadCount(res.data.unreadCount);
-            console.log('Notifications: Fetched unreadCount:', res.data.unreadCount);
+          
         } catch (err) {
-            console.error('Fetch notifications error:', err);
+          
             message.error('無法獲取通知，請重新登錄');
             navigate('/login');
         } finally {
@@ -75,7 +75,7 @@ const Notifications = () => {
 
     const markAsRead = async (id) => {
         try {
-            console.log('Notifications: Marking as read for notificationId:', id);
+          
             await axios.put(`${BASE_URL}/api/notifications/${id}/read`, {}, {
                 headers: { 'x-auth-token': token },
             });

@@ -46,9 +46,9 @@ const Login = () => {
             if (!token) {
                 throw new Error('No token received from login response');
             }
-            console.log('Received token:', token); // 檢查 token 是否收到
+            
             localStorage.setItem('token', token); // 存儲 token
-            console.log('Stored token:', localStorage.getItem('token')); // 確認存儲成功
+            
 
             message.success(res.data.msg);
 

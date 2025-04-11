@@ -73,7 +73,7 @@ const KillHistory = () => {
             setRole(res.data.role);
             setCurrentUser(res.data.character_name);
             setUserId(res.data.id);
-            console.log('Fetched user info - role:', res.data.role, 'user:', res.data.character_name, 'id:', res.data.id);
+        
         } catch (err) {
             console.error('Fetch user info error:', err);
             message.error('載入用戶信息失敗: ' + (err.response?.data?.msg || err.message));
@@ -89,7 +89,7 @@ const KillHistory = () => {
             });
             setApplyDeadlineHours(res.data.settings.applyDeadlineHours || 48);
         } catch (err) {
-            console.error('Fetch guild settings error:', err);
+           
             message.warning('載入旅團設定失敗，使用預設 48 小時補登期限');
         }
     };
@@ -99,7 +99,7 @@ const KillHistory = () => {
             const res = await axios.get(`${BASE_URL}/api/bosses`, {
                 headers: { 'x-auth-token': token },
             });
-            console.log('Fetched bosses:', res.data);
+     
             setBosses(res.data);
         } catch (err) {
             console.error('Fetch bosses error:', err);
@@ -112,7 +112,7 @@ const KillHistory = () => {
             const res = await axios.get(`${BASE_URL}/api/applications/user`, {
                 headers: { 'x-auth-token': token },
             });
-            console.log('Fetched user applications raw:', res.data);
+         
             const activeApplications = res.data.filter(app => {
                 if (!app) {
                     console.warn('Invalid application entry:', app);
@@ -122,10 +122,10 @@ const KillHistory = () => {
                     console.warn('Missing item_id in application:', app);
                     return false;
                 }
-                console.log('Application status:', app.status);
+           
                 return app.status === 'pending' || app.status === 'approved';
             });
-            console.log('Processed user applications:', activeApplications);
+           
             if (activeApplications.length === 0) {
                 console.warn('No active applications after filtering. Raw data:', res.data);
             }
@@ -142,10 +142,10 @@ const KillHistory = () => {
                 headers: { 'x-auth-token': token },
                 params: { kill_id, item_id },
             });
-            console.log(`Fetched applications for kill_id: ${kill_id}, item_id: ${item_id}:`, res.data);
+            
             return res.data || [];
         } catch (err) {
-            console.error(`Fetch applications error for kill_id: ${kill_id}, item_id: ${item_id}:`, err.response?.data || err.message);
+            
             return [];
         }
     };
@@ -187,7 +187,7 @@ const KillHistory = () => {
                 headers: { 'x-auth-token': token },
                 params,
             });
-            console.log('Fetched kill history raw:', res.data);
+         
             if (!res.data.data || res.data.data.length === 0) {
                 console.warn('No boss kills data returned from API.');
                 setHistory([]);
@@ -199,9 +199,9 @@ const KillHistory = () => {
             // 檢查是否有 bossId 缺失的記錄
             res.data.data.forEach(record => {
                 if (!record.bossId) {
-                    console.warn(`BossKill record missing bossId: ${record._id}`);
+                    
                 } else if (!record.bossId.name) {
-                    console.warn(`Boss record missing name for bossId: ${record.bossId._id}`);
+                    
                 }
             });
 
@@ -221,7 +221,7 @@ const KillHistory = () => {
                         });
                     })
                     ?.map(item => item.name) || [];
-                console.log(`Record ${record._id} applyingItems:`, applyingItems);
+            
                 return {
                     ...record,
                     applyingItems,
@@ -264,7 +264,7 @@ const KillHistory = () => {
                 total: res.data.pagination.total,
             });
         } catch (err) {
-            console.error('Fetch kill history error:', err);
+            
             message.error(`載入擊殺歷史失敗: ${err.response?.data?.msg || err.message}`);
         } finally {
             setLoading(false);
@@ -390,13 +390,13 @@ const KillHistory = () => {
     };
 
     const getApplicationDetails = (killId, itemId) => {
-        console.log(`Looking for application with killId: ${killId}, itemId: ${itemId}`);
+    
         const app = userApplications.find(app => {
             const appKillId = app.kill_id && app.kill_id._id ? app.kill_id._id.toString() : null;
             const match = appKillId === killId.toString() &&
                 app.item_id && app.item_id.toString() === itemId.toString() &&
                 app.status === 'pending';
-            console.log(`Checking application:`, app, `appKillId: ${appKillId}, Match: ${match}`);
+    
             return match;
         });
         return app;
@@ -427,7 +427,7 @@ const KillHistory = () => {
                 return;
             }
 
-            console.log(`Quick applying for killId: ${killId}, itemId: ${itemId}, itemName: ${itemName}`);
+     
             const res = await axios.post(
                 `${BASE_URL}/api/applications`,
                 {
@@ -437,7 +437,7 @@ const KillHistory = () => {
                 },
                 { headers: { 'x-auth-token': token } }
             );
-            console.log('Quick apply response:', res.data);
+         
             message.success(res.data.msg || '申請提交成功！');
             await fetchUserApplications();
             fetchHistory(pagination.current, pagination.pageSize);

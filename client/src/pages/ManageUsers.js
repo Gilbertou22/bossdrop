@@ -65,9 +65,9 @@ const ManageUsers = () => {
             deferredPrompt.prompt();
             deferredPrompt.userChoice.then((choiceResult) => {
                 if (choiceResult.outcome === 'accepted') {
-                    console.log('User accepted the install prompt');
+               
                 } else {
-                    console.log('User dismissed the install prompt');
+               
                 }
                 setDeferredPrompt(null);
             });
@@ -91,9 +91,9 @@ const ManageUsers = () => {
             if (Array.isArray(res.data)) {
                 setUsers(res.data);
                 setFilteredUsers(res.data);
-                console.log('Fetched users data:', res.data);
+              
             } else {
-                console.warn('API response is not an array:', res.data);
+              
                 setUsers([]);
                 setFilteredUsers([]);
                 message.warning('API 返回數據格式不正確');
@@ -223,7 +223,7 @@ const ManageUsers = () => {
             for (let [key, value] of formData.entries()) {
                 formDataEntries[key] = value;
             }
-            console.log('Submitting formData:', formDataEntries);
+      
 
             const url = editingUser ? `/api/users/${editingUser._id}` : '/api/users/create-member';
             const method = editingUser ? 'put' : 'post';
@@ -236,12 +236,7 @@ const ManageUsers = () => {
             setIsModalVisible(false);
             fetchUsers();
         } catch (err) {
-            console.error(`Handle ${editingUser ? 'update' : 'create'} error:`, {
-                status: err.response?.status,
-                data: err.response?.data,
-                message: err.message,
-                code: err.code,
-            });
+           
             if (err.response) {
                 message.error(`盟友${editingUser ? '更新' : '創建'}失敗: ${err.response.data?.msg || err.message}`);
             } else if (err.request) {

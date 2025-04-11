@@ -57,9 +57,9 @@ const BossKillForm = () => {
             deferredPrompt.prompt();
             deferredPrompt.userChoice.then((choiceResult) => {
                 if (choiceResult.outcome === 'accepted') {
-                    console.log('User accepted the install prompt');
+            
                 } else {
-                    console.log('User dismissed the install prompt');
+            
                 }
                 setDeferredPrompt(null);
             });
@@ -93,7 +93,7 @@ const BossKillForm = () => {
             const res = await axios.get(`${BASE_URL}/api/users`, {
                 headers: { 'x-auth-token': token },
             });
-            console.log('Fetched users:', res.data);
+            
             if (!Array.isArray(res.data)) {
                 throw new Error('後端返回的用戶數據格式不正確');
             }
@@ -148,7 +148,7 @@ const BossKillForm = () => {
 
             message.info('圖片過大，正在壓縮...');
             const compressedFile = await imageCompression(file, compressionOptions);
-            console.log('Compressed file size:', compressedFile.size / 1024, 'KB');
+           
 
             if (compressedFile.size / 1024 > 600) {
                 message.error('圖片壓縮後仍超過 600KB，請選擇更小的圖片！');
@@ -172,7 +172,7 @@ const BossKillForm = () => {
     };
 
     const onFinish = (values) => {
-        console.log('onFinish triggered with values:', values);
+ 
         if (fileList.length === 0) {
             message.error('請至少上傳一張圖片！');
             return;
@@ -191,7 +191,7 @@ const BossKillForm = () => {
             )) {
                 handleSubmit(values);
             } else {
-                console.log('Submission cancelled');
+               
             }
         } else {
             message.error('請至少選擇一個掉落物品！');
@@ -231,7 +231,7 @@ const BossKillForm = () => {
                     window.location.href = '/login';
                     return;
                 }
-                console.log(`Sending request for item: ${item.name}`);
+             
                 const res = await axios.post(`${BASE_URL}/api/boss-kills`, formData, {
                     headers: { 'x-auth-token': token, 'Content-Type': 'multipart/form-data' },
                 });
@@ -242,10 +242,10 @@ const BossKillForm = () => {
                     await axios.post(`${BASE_URL}/api/dkp/distribute/${killId}`, {}, {
                         headers: { 'x-auth-token': token },
                     });
-                    console.log(`DKP distributed for killId: ${killId}`);
+               
                 }
 
-                console.log(`API response for ${item.name}:`, res.data);
+               
             } catch (err) {
                 console.error(`Submit error for ${item.name}:`, err);
                 message.error(`提交失敗 (${item.name}): ${err.response?.data?.msg || err.message}`);
@@ -305,7 +305,7 @@ const BossKillForm = () => {
         } else {
             form.setFieldsValue({ attendees: filteredValue });
         }
-        console.log('Selected attendees:', filteredValue);
+    
     };
 
     const renderItemOption = (item) => {

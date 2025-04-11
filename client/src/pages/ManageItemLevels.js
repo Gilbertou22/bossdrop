@@ -30,11 +30,11 @@ const ManageItemLevels = () => {
             const res = await axios.get(`${BASE_URL}/api/items/item-levels`, {
                 headers: { 'x-auth-token': localStorage.getItem('token') },
             });
-            console.log('Fetched item levels:', res.data);
+       
             setItemLevels(res.data);
             setFilteredLevels(res.data);
         } catch (err) {
-            console.error('Fetch item levels error:', err);
+       
             message.error(err.response?.data?.msg || '載入物品等級失敗');
         } finally {
             setLoading(false);

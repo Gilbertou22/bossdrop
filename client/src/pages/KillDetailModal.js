@@ -63,9 +63,9 @@ const KillDetailModal = ({ visible, onCancel, killData, onUpdate, token, initial
                 headers: { 'x-auth-token': token },
             });
             setCurrentUser(res.data.character_name);
-            console.log('Fetched current user:', res.data.character_name);
+        
         } catch (err) {
-            console.error('Fetch current user error:', err);
+        
             message.error('無法獲取當前用戶信息');
         }
     };

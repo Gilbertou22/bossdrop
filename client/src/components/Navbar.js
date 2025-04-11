@@ -1,23 +1,13 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { Menu, Layout, Dropdown, Avatar, Badge, Button, Popover, Drawer, Spin, message } from 'antd';
+import React, { useState, useEffect, useCallback, useContext } from 'react';
+import { Menu, Layout, Dropdown, Avatar, Badge, Button, Popover, Drawer, Spin, message, Divider, Space, Typography } from 'antd';
 import {
     LoginOutlined,
     UserAddOutlined,
-    FileDoneOutlined,
-    ShoppingOutlined,
-    BarChartOutlined,
     LogoutOutlined,
-    DollarOutlined,
     HomeOutlined,
-    TeamOutlined,
-    GiftOutlined,
-    CheckCircleOutlined,
-    UserOutlined,
     BellOutlined,
-    SketchOutlined,
-    AuditOutlined,
-    CloudUploadOutlined,
     MenuOutlined,
+    EditOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import axios from 'axios';
@@ -25,33 +15,21 @@ import moment from 'moment';
 import UserProfile from '../pages/UserProfile';
 import { useNotification } from './NotificationContext';
 import logger from '../utils/logger';
+import { getIconMapping } from '../components/IconMapping';
+import { AuthContext } from '../AuthProvider';
 
 const { Header } = Layout;
 const { SubMenu } = Menu;
+const { Text } = Typography;
 
 const BASE_URL = process.env.REACT_APP_API_URL || '';
-
-const iconMapping = {
-    HomeOutlined: <HomeOutlined />,
-    SketchOutlined: <SketchOutlined />,
-    FileDoneOutlined: <FileDoneOutlined />,
-    ShoppingOutlined: <ShoppingOutlined />,
-    BarChartOutlined: <BarChartOutlined />,
-    DollarOutlined: <DollarOutlined />,
-    TeamOutlined: <TeamOutlined />,
-    GiftOutlined: <GiftOutlined />,
-    CheckCircleOutlined: <CheckCircleOutlined />,
-    UserOutlined: <UserOutlined />,
-    CloudUploadOutlined: <CloudUploadOutlined />,
-    AuditOutlined: <AuditOutlined />,
-};
 
 const Navbar = () => {
     const navigate = useNavigate();
     const location = useLocation();
-    const token = localStorage.getItem('token');
+    const { user, logout } = useContext(AuthContext); // 從 AuthContext 獲取 user 和 logout
     const { unreadCount, setUnreadCount, notifications, setNotifications } = useNotification();
-    const [user, setUser] = useState(null);
+    const [token, setToken] = useState(localStorage.getItem('token')); // 本地監聽 token 變化
     const [profileVisible, setProfileVisible] = useState(false);
     const [pendingCount, setPendingCount] = useState(0);
     const [loading, setLoading] = useState(false);
@@ -74,14 +52,31 @@ const Navbar = () => {
             setDeferredPrompt(e);
         });
 
-        if (token) {
-            fetchUserInfo();
+        // 監聽 localStorage 的 token 變化
+        const handleStorageChange = () => {
+            const newToken = localStorage.getItem('token');
+            setToken(newToken);
+        };
+
+        window.addEventListener('storage', handleStorageChange);
+
+        return () => {
+            window.removeEventListener('resize', handleResize);
+            window.removeEventListener('storage', handleStorageChange);
+        };
+    }, []);
+
+    // 監聽 token 和 user 變化，重新加載菜單數據
+    useEffect(() => {
+        if (!token) {
+            setMenuItems([{ key: '/', label: '首頁', icon: <HomeOutlined /> }]); // 登出時重置菜單
+            setNotifications([]);
+            setUnreadCount(0);
+        } else if (user) {
             fetchNotifications();
             fetchMenuItems();
         }
-
-        return () => window.removeEventListener('resize', handleResize);
-    }, [token]);
+    }, [token, user]);
 
     useEffect(() => {
         if (user && (user.role === 'admin' || user.role === 'moderator')) {
@@ -102,25 +97,6 @@ const Navbar = () => {
             });
         }
     };
-
-    const fetchUserInfo = useCallback(async () => {
-        try {
-            setLoading(true);
-            const res = await axios.get(`${BASE_URL}/api/users/profile`, {
-                headers: { 'x-auth-token': token },
-            });
-            setUser(res.data);
-            logger.info('Fetched user info', { userId: res.data.id, role: res.data.role });
-        } catch (err) {
-            logger.error('Fetch user info error', { error: err.response?.data || err.message });
-            if (err.response?.status === 401 || err.response?.status === 403) {
-                message.error('請求失敗，請重新登入');
-                navigate('/login');
-            }
-        } finally {
-            setLoading(false);
-        }
-    }, [token, navigate]);
 
     const fetchPendingCount = useCallback(async () => {
         try {
@@ -247,7 +223,7 @@ const Navbar = () => {
                     label: item.label.includes('競標') && (user?.role === 'admin' || user?.role === 'moderator')
                         ? `${item.label} (${pendingCount})`
                         : item.label,
-                    icon: item.customIcon ? <Avatar src={item.customIcon} size={20} /> : (iconMapping[item.icon] || null),
+                    icon: item.customIcon ? <Avatar src={item.customIcon} size={20} /> : (getIconMapping()[item.icon] || null),
                     children: item.children
                         ? item.children
                             .filter(child => {
@@ -266,7 +242,7 @@ const Navbar = () => {
                             .map(child => ({
                                 key: child.key,
                                 label: child.label,
-                                icon: child.customIcon ? <Avatar src={child.customIcon} size={20} /> : (iconMapping[child.icon] || null),
+                                icon: child.customIcon ? <Avatar src={child.customIcon} size={20} /> : (getIconMapping()[child.icon] || null),
                             }))
                         : undefined,
                 }));
@@ -277,12 +253,6 @@ const Navbar = () => {
             message.error('無法獲取菜單項');
         }
     }, [token, user, pendingCount]);
-
-    useEffect(() => {
-        if (user) {
-            fetchMenuItems();
-        }
-    }, [user, pendingCount, fetchMenuItems]);
 
     const markAsRead = async (notificationId) => {
         try {
@@ -304,19 +274,22 @@ const Navbar = () => {
     };
 
     const handleLogout = () => {
-        localStorage.removeItem('token');
-        setUser(null);
+        logout(); // 使用 AuthContext 的 logout 函數
         setNotifications([]);
         setUnreadCount(0);
-        navigate('/login');
+        setMenuItems([{ key: '/', label: '首頁', icon: <HomeOutlined /> }]);
         message.success('已登出');
     };
 
-    const userMenuItems = [
-        { key: 'profile', label: '修改資料', icon: <UserOutlined /> },
-        { key: 'logout', label: '登出', icon: <LogoutOutlined /> },
-    ];
+    
+    const getFirstCharacter = (name) => {
+        if (!name) return 'U'; // 如果名稱不存在，顯示默認字符 "U"
+    
+        const firstChar = name.match(/./u)?.[0];
+        return firstChar || 'U'; // 如果提取失敗，返回默認字符 "U"
+    };
 
+    // 定義 handleMenuClick 函數
     const handleMenuClick = ({ key }) => {
         logger.info('Menu item clicked', { key });
         const menuItem = menuItems.find(item => item.key === key) ||
@@ -341,11 +314,13 @@ const Navbar = () => {
         }
     };
 
+    // 定義 onOpenChange 函數
     const onOpenChange = (keys) => {
         logger.info('Menu open keys changed', { keys });
         setOpenKeys(keys);
     };
 
+    // 定義 renderMenuItems 函數
     const renderMenuItems = (items) => {
         return items.map(item => {
             if (item.children && item.children.length > 0) {
@@ -366,6 +341,40 @@ const Navbar = () => {
             );
         });
     };
+
+    // 優化彈出選單的內容
+    const userMenu = (
+        <div style={{ width: '200px', padding: '8px' }}>
+            <div style={{ textAlign: 'center', marginBottom: '8px' }}>
+                <Avatar
+                    size={48}
+                    style={{
+                        backgroundColor: '#87d068',
+                        fontSize: '20px',
+                        fontWeight: 'bold',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        marginBottom: '8px',
+                    }}
+                >
+                    {getFirstCharacter(user?.character_name)}
+                </Avatar>
+                <Text strong>{user?.character_name || '未知用戶'}</Text>
+                <br />
+                <Text type="secondary">{user?.role ? user.role.charAt(0).toUpperCase() + user.role.slice(1) : '未知角色'}</Text>
+            </div>
+            <Divider style={{ margin: '8px 0' }} />
+            <Menu onClick={handleMenuClick} selectable={false}>
+                <Menu.Item key="profile" icon={<EditOutlined />}>
+                    修改資料
+                </Menu.Item>
+                <Menu.Item key="logout" icon={<LogoutOutlined />}>
+                    登出
+                </Menu.Item>
+            </Menu>
+        </div>
+    );
 
     const notificationContent = (
         <div style={{ maxHeight: '300px', overflowY: 'auto', width: '300px' }}>
@@ -490,18 +499,24 @@ const Navbar = () => {
                                     <BellOutlined style={{ fontSize: '20px', color: '#fff', cursor: 'pointer' }} />
                                 </Badge>
                             </Popover>
-                            <Dropdown menu={{ items: userMenuItems, onClick: handleMenuClick }} trigger={['click']} placement="bottomRight">
+                            <Dropdown overlay={userMenu} trigger={['click']} placement="bottomRight">
                                 <Avatar
                                     size={32}
-                                    src={user?.screenshot || `https://via.placeholder.com/32?text=${encodeURIComponent(user?.character_name || 'User')}`}
-                                    style={{ cursor: 'pointer', backgroundColor: '#87d068' }}
-                                />
+                                    style={{
+                                        cursor: 'pointer',
+                                        backgroundColor: '#87d068',
+                                        fontSize: '16px',
+                                        fontWeight: 'bold',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        transition: 'all 0.3s ease',
+                                    }}
+                                    className="user-avatar"
+                                >
+                                    {getFirstCharacter(user?.character_name)}
+                                </Avatar>
                             </Dropdown>
-                            {!isMobile && (
-                                <span style={{ color: '#fff', verticalAlign: 'middle', fontSize: '16px' }}>
-                                    {user?.character_name || '載入中...'}
-                                </span>
-                            )}
                         </div>
                     </Spin>
                 )}
@@ -539,6 +554,20 @@ const Navbar = () => {
                     .ant-badge {
                         margin-right: 0 !important;
                     }
+                }
+                .user-avatar:hover {
+                    transform: scale(1.1);
+                    background-color: #5cb85c !important;
+                }
+                .ant-dropdown-menu {
+                    padding: 0 !important;
+                }
+                .ant-dropdown-menu-item {
+                    padding: 8px 16px !important;
+                    transition: background-color 0.3s ease !important;
+                }
+                .ant-dropdown-menu-item:hover {
+                    background-color: #f0f0f0 !important;
                 }
             `}</style>
         </Header>

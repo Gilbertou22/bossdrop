@@ -23,22 +23,26 @@ router.get('/', auth, async (req, res) => {
 router.post('/', auth, adminOnly, async (req, res) => {
     const { key, label, icon, roles, children, order } = req.body;
     try {
-        // 確保 roles 是一個有效的陣列
         let parsedRoles = [];
         if (roles) {
             parsedRoles = Array.isArray(roles) ? roles : JSON.parse(roles);
         }
 
-        // 確保 children 是一個有效的 ObjectId 陣列
         let parsedChildren = [];
         if (children) {
             parsedChildren = Array.isArray(children) ? children : JSON.parse(children);
-            parsedChildren = parsedChildren.map(child => {
-                if (!mongoose.Types.ObjectId.isValid(child)) {
-                    throw new Error(`Invalid ObjectId: ${child}`);
-                }
-                return new mongoose.Types.ObjectId(child);
-            });
+            parsedChildren = parsedChildren
+                .map(child => {
+                    if (typeof child !== 'string') {
+                        logger.warn('Invalid child type, expected string', { child });
+                        return null;
+                    }
+                    if (!mongoose.Types.ObjectId.isValid(child)) {
+                        throw new Error(`Invalid ObjectId: ${child}`);
+                    }
+                    return new mongoose.Types.ObjectId(child);
+                })
+                .filter(child => child); // 過濾掉無效值
         }
 
         const menuItem = new MenuItem({
@@ -75,22 +79,26 @@ router.put('/:id', auth, adminOnly, async (req, res) => {
             return res.status(404).json({ msg: '菜單項不存在' });
         }
 
-        // 確保 roles 是一個有效的陣列
         let parsedRoles = [];
         if (roles) {
             parsedRoles = Array.isArray(roles) ? roles : JSON.parse(roles);
         }
 
-        // 確保 children 是一個有效的 ObjectId 陣列
         let parsedChildren = [];
         if (children) {
             parsedChildren = Array.isArray(children) ? children : JSON.parse(children);
-            parsedChildren = parsedChildren.map(child => {
-                if (!mongoose.Types.ObjectId.isValid(child)) {
-                    throw new Error(`Invalid ObjectId: ${child}`);
-                }
-                return new mongoose.Types.ObjectId(child);
-            });
+            parsedChildren = parsedChildren
+                .map(child => {
+                    if (typeof child !== 'string') {
+                        logger.warn('Invalid child type, expected string', { child });
+                        return null;
+                    }
+                    if (!mongoose.Types.ObjectId.isValid(child)) {
+                        throw new Error(`Invalid ObjectId: ${child}`);
+                    }
+                    return new mongoose.Types.ObjectId(child);
+                })
+                .filter(child => child); // 過濾掉無效值
         }
 
         menuItem.key = key || menuItem.key;

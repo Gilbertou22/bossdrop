@@ -53,7 +53,7 @@ const initMenu = async () => {
         managementItem.children = insertedChildren.map(child => child._id);
         await managementItem.save();
 
-        console.log('Menu initialized successfully');
+      
         mongoose.connection.close();
     } catch (err) {
         console.error('Error initializing menu:', err);

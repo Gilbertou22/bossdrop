@@ -22,7 +22,7 @@ import Guilds from './pages/GuildSettings';
 import ApproveAttendRequest from './pages/ManageSupplementRequests';
 import React, { useState, useEffect, useContext } from 'react';
 import { NotificationProvider } from './components/NotificationContext';
-import AuthProvider from './AuthProvider'; // 修改為 default 導入
+import AuthProvider from './AuthProvider';
 import { Layout, Spin, Typography } from 'antd';
 import ChangePassword from './components/ChangePassword';
 import LogViewer from './pages/LogViewer';
@@ -34,7 +34,6 @@ import ManageMenu from './pages/ManageMenu';
 import Forbidden from './pages/Forbidden';
 import MenuLogs from './pages/MenuLogs';
 
-
 const { Content, Footer } = Layout;
 const { Text } = Typography;
 
@@ -43,8 +42,8 @@ function App() {
 
     return (
         <NotificationProvider>
-            <AuthProvider>
-                <Router>
+            <Router>
+                <AuthProvider>
                     <Layout style={{ minHeight: '100vh' }}>
                         <Navbar />
                         <Layout style={{ marginTop: '64px' }}>
@@ -82,7 +81,7 @@ function App() {
                                                     <ApplyItem />
                                                 </RoleRoute>
                                             }
-                                        />                                        
+                                        />
                                         <Route
                                             path="/auction"
                                             element={
@@ -239,8 +238,8 @@ function App() {
                         </Layout>
                         <UserProfile visible={profileVisible} onCancel={() => setProfileVisible(false)} />
                     </Layout>
-                </Router>
-            </AuthProvider>
+                </AuthProvider>
+            </Router>
         </NotificationProvider>
     );
 }

@@ -53,19 +53,19 @@ const ApplyItem = () => {
             const res = await axios.get(`${BASE_URL}/api/boss-kills`, {
                 headers: { 'x-auth-token': token },
             });
-            console.log('Fetched kills:', res.data);
+     
             // 過濾 status === 'pending' 的擊殺記錄
             const pendingKills = res.data.data.filter(kill => {
                 const killStatus = kill.status ? kill.status.toLowerCase() : 'pending';
                 const isPending = killStatus === 'pending';
-                console.log(`Kill ${kill._id} status: ${killStatus}, isPending: ${isPending}`);
+     
                 return isPending;
             });
-            console.log('Filtered pending kills:', pendingKills);
+     
             setKills(pendingKills);
             setFilteredKills(pendingKills);
         } catch (err) {
-            console.error('Fetch kills error:', err.response?.data || err.message);
+     
             setError('載入擊殺記錄失敗: ' + (err.response?.data?.msg || err.message));
         } finally {
             setLoading(false);
@@ -79,12 +79,12 @@ const ApplyItem = () => {
             const res = await axios.get(`${BASE_URL}/api/applications/user`, {
                 headers: { 'x-auth-token': token },
             });
-            console.log('Fetched user applications:', res.data);
+           
             const activeApplications = res.data.filter(app => app.status === 'pending' || app.status === 'approved');
             setUserApplications(activeApplications.map(app => `${app.kill_id._id}_${app.item_id}`));
-            console.log('Processed user applications:', activeApplications.map(app => `${app.kill_id._id}_${app.item_id}`));
+           
         } catch (err) {
-            console.error('Fetch user applications error:', err.response?.data || err.message);
+           
             setError('無法載入申請記錄，限制可能不準確');
         } finally {
             setLoading(false);
@@ -116,7 +116,7 @@ const ApplyItem = () => {
                 const applyDeadline = moment(item.apply_deadline);
                 return applyDeadline.isAfter(moment());
             });
-            console.log(`Selected kill ${value} valid items after filtering:`, validItems);
+            
             setFilteredItems(validItems);
             setSelectedKillId(value);
             form.setFieldsValue({ kill_id: value });
@@ -132,14 +132,11 @@ const ApplyItem = () => {
             setError(null);
         }
         form.setFieldsValue({ item_name: undefined });
-        console.log('Selected kill:', selectedKill);
-        console.log('Updated filteredItems:', validItems);
-        console.log('Form kill_id after set:', form.getFieldValue('kill_id'));
+       
     };
 
     const handleSubmit = async (values) => {
-        console.log('handleSubmit triggered with values:', values);
-        console.log('Form values before submit:', form.getFieldsValue());
+       
         try {
             setLoading(true);
             setError(null);
@@ -169,11 +166,7 @@ const ApplyItem = () => {
             if (userApplications.includes(applicationKey)) {
                 throw new Error('您已為此物品提交申請，無法再次申請！');
             }
-            console.log('Sending request with data:', {
-                kill_id: values.kill_id,
-                item_id: selectedItem._id,
-                item_name: values.item_name,
-            });
+           
             const res = await axios.post(
                 `${BASE_URL}/api/applications`,
                 {
@@ -183,7 +176,7 @@ const ApplyItem = () => {
                 },
                 { headers: { 'x-auth-token': token } }
             );
-            console.log('API response:', res.data);
+       
             // 顯示成功提示框
             setSuccessModalVisible(true);
             form.resetFields();
@@ -325,7 +318,7 @@ const ApplyItem = () => {
                                             const isApplied = userApplications.includes(applicationKey);
                                             const applyDeadline = moment(item.apply_deadline);
                                             const isExpired = applyDeadline.isBefore(moment());
-                                            console.log(`Item ${item.name}: applicationKey=${applicationKey}, isApplied=${isApplied}, isExpired=${isExpired}`);
+                                            
                                             return (
                                                 <Option
                                                     key={item._id}

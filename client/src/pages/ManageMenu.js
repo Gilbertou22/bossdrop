@@ -1,84 +1,65 @@
-import React, { useState, useEffect } from 'react';
-import { Table, Button, Modal, Form, Input, Select, message, Spin, Alert, Row, Col, Popconfirm, Card, Space, Typography, List, Menu, Upload, Avatar, Pagination } from 'antd';
-import { DeleteOutlined, EditOutlined, PlusOutlined, SearchOutlined, HomeOutlined, SketchOutlined, FileDoneOutlined, ShoppingOutlined, BarChartOutlined, DollarOutlined, TeamOutlined, GiftOutlined, CheckCircleOutlined, UserOutlined, CloudUploadOutlined, AuditOutlined, UploadOutlined } from '@ant-design/icons';
-import { DragDropContext, Droppable, Draggable } from 'react-beautiful-dnd';
+import React, { useState, useEffect, useContext, useCallback } from 'react';
+import { Tree, Button, Modal, Form, Input, Select, message, Spin, Row, Col, Popconfirm, Card, Space, Typography, Upload, Alert, Dropdown, Menu } from 'antd';
+import { DeleteOutlined, EditOutlined, PlusOutlined, UploadOutlined, MessageOutlined } from '@ant-design/icons';
+import { getIconMapping, getIconNames, IconRenderer } from '../components/IconMapping';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
+import { AuthContext } from '../AuthProvider';
 
 const { Option } = Select;
 const { Title, Text } = Typography;
 
 const BASE_URL = process.env.REACT_APP_API_URL || '';
 
-const iconMapping = {
-    HomeOutlined: <HomeOutlined />,
-    SketchOutlined: <SketchOutlined />,
-    FileDoneOutlined: <FileDoneOutlined />,
-    ShoppingOutlined: <ShoppingOutlined />,
-    BarChartOutlined: <BarChartOutlined />,
-    DollarOutlined: <DollarOutlined />,
-    TeamOutlined: <TeamOutlined />,
-    GiftOutlined: <GiftOutlined />,
-    CheckCircleOutlined: <CheckCircleOutlined />,
-    UserOutlined: <UserOutlined />,
-    CloudUploadOutlined: <CloudUploadOutlined />,
-    AuditOutlined: <AuditOutlined />,
-};
-
 const ManageMenu = () => {
     const navigate = useNavigate();
+    const { user } = useContext(AuthContext);
     const token = localStorage.getItem('token');
-    const [user, setUser] = useState(null);
-    const [menuItems, setMenuItems] = useState([]);
-    const [filteredItems, setFilteredItems] = useState([]);
+    const [treeData, setTreeData] = useState([]);
     const [loading, setLoading] = useState(false);
-    const [dragLoading, setDragLoading] = useState(false);
     const [visible, setVisible] = useState(false);
+    const [messageVisible, setMessageVisible] = useState(false);
+    const [selectedUserId, setSelectedUserId] = useState(null);
+    const [selectedNode, setSelectedNode] = useState(null);
+    const [contextNode, setContextNode] = useState(null); // 用於右鍵菜單的節點
+    const [contextMenuVisible, setContextMenuVisible] = useState(false); // 控制右鍵菜單可見性
     const [form] = Form.useForm();
+    const [messageForm] = Form.useForm();
     const [editingItem, setEditingItem] = useState(null);
-    const [selectedRowKeys, setSelectedRowKeys] = useState([]);
-    const [search, setSearch] = useState('');
-    const [currentPage, setCurrentPage] = useState(1);
-    const [pageSize, setPageSize] = useState(10);
-    const [sort, setSort] = useState({ field: 'order', order: 'ascend' });
-    const [openKeys, setOpenKeys] = useState([]);
 
     useEffect(() => {
-        const fetchUserInfo = async () => {
-            try {
-                const res = await axios.get(`${BASE_URL}/api/users/profile`, {
-                    headers: { 'x-auth-token': token },
-                });
-                setUser(res.data);
-                if (res.data.role !== 'admin') {
-                    navigate('/403');
-                }
-            } catch (err) {
-                message.error('無法獲取用戶信息，請重新登錄');
-                navigate('/login');
-            }
-        };
-
-        if (token) {
-            fetchUserInfo();
-            fetchMenuItems();
-        } else {
+        if (!token) {
             navigate('/login');
+        } else {
+            fetchMenuItems();
         }
     }, [token, navigate]);
 
+    // 監聽點擊和鍵盤事件以關閉右鍵菜單
     useEffect(() => {
-        const filtered = menuItems.filter(item => {
-            const roles = Array.isArray(item.roles) ? item.roles : JSON.parse(item.roles || '[]');
-            return (
-                (item.key.toLowerCase().includes(search.toLowerCase()) ||
-                    item.label.toLowerCase().includes(search.toLowerCase())) &&
-                roles.includes(user?.role || 'user')
-            );
-        });
-        setFilteredItems(filtered);
-        setCurrentPage(1);
-    }, [menuItems, search, user]);
+        const handleClickOutside = (event) => {
+            // 檢查點擊是否在右鍵菜單之外
+            if (contextMenuVisible && !event.target.closest('.ant-dropdown-menu')) {
+                setContextMenuVisible(false);
+                setContextNode(null);
+            }
+        };
+
+        const handleEscKey = (event) => {
+            if (event.key === 'Escape' && contextMenuVisible) {
+                setContextMenuVisible(false);
+                setContextNode(null);
+            }
+        };
+
+        document.addEventListener('click', handleClickOutside);
+        document.addEventListener('keydown', handleEscKey);
+
+        return () => {
+            document.removeEventListener('click', handleClickOutside);
+            document.removeEventListener('keydown', handleEscKey);
+        };
+    }, [contextMenuVisible]);
 
     const fetchMenuItems = async () => {
         setLoading(true);
@@ -86,8 +67,87 @@ const ManageMenu = () => {
             const res = await axios.get(`${BASE_URL}/api/menu`, {
                 headers: { 'x-auth-token': token },
             });
-            setMenuItems(res.data);
-            setFilteredItems(res.data);
+
+            // 處理後端返回的數據，根據 parentId 構建樹狀結構
+            const seenIds = new Set();
+            const allItems = res.data
+                .filter(item => {
+                    if (seenIds.has(item._id)) {
+                        console.warn('Duplicate _id found:', item._id);
+                        return false;
+                    }
+                    seenIds.add(item._id);
+                    return true;
+                })
+                .map(item => {
+                    let roles;
+                    try {
+                        roles = Array.isArray(item.roles) ? item.roles : JSON.parse(item.roles || '[]');
+                        while (typeof roles === 'string') {
+                            roles = JSON.parse(roles);
+                        }
+                    } catch (err) {
+                        console.warn('Failed to parse roles', { roles: item.roles, error: err.message });
+                        roles = [];
+                    }
+
+                    return {
+                        ...item,
+                        roles,
+                        key: item.key || item._id,
+                        title: item.label,
+                        children: [], // 初始設置為空，後續根據 parentId 填充
+                    };
+                });
+
+            // 根據 parentId 構建樹狀結構
+            const treeDataMap = {};
+            const treeData = [];
+
+            // 將所有節點放入 map
+            allItems.forEach(item => {
+                // 確保子節點的 title 設置為 label
+                if (item.children && Array.isArray(item.children)) {
+                    item.children = item.children.map(child => ({
+                        ...child,
+                        key: child.key || child._id,
+                        title: child.label,
+                        children: child.children || [],
+                    }));
+                }
+                treeDataMap[item._id] = { ...item, children: item.children || [] };
+            });
+
+            // 根據 parentId 構建層級關係
+            allItems.forEach(item => {
+                if (item.parentId && treeDataMap[item.parentId]) {
+                    treeDataMap[item.parentId].children.push(treeDataMap[item._id]);
+                } else {
+                    treeData.push(treeDataMap[item._id]);
+                }
+            });
+
+            // 移除重複的頂層節點（如果它們已經作為子節點存在）
+            const topLevelIds = new Set(treeData.map(item => item._id));
+            const finalTreeData = treeData.filter(item => {
+                let isChild = false;
+                for (const topItem of treeData) {
+                    if (topItem._id === item._id) continue;
+                    const hasChild = (node) => {
+                        if (node.children.some(child => child._id === item._id)) {
+                            return true;
+                        }
+                        return node.children.some(child => hasChild(child));
+                    };
+                    if (hasChild(topItem)) {
+                        isChild = true;
+                        break;
+                    }
+                }
+                return !isChild;
+            });
+
+            setTreeData(finalTreeData);
         } catch (err) {
             message.error({
                 content: '載入菜單項失敗',
@@ -107,11 +167,13 @@ const ManageMenu = () => {
         formData.append('icon', values.icon || '');
         const roles = Array.isArray(values.roles) ? values.roles : [];
         formData.append('roles', JSON.stringify(roles));
-        const children = Array.isArray(values.children) ? values.children : [];
-        formData.append('children', JSON.stringify(children));
         formData.append('order', values.order || 0);
         if (values.customIcon && values.customIcon.length > 0) {
             formData.append('customIcon', values.customIcon[0].originFileObj);
+        }
+        // 如果是新增子節點，設置 parentId
+        if (contextNode && !editingItem) {
+            formData.append('parentId', contextNode._id);
         }
 
         try {
@@ -129,8 +191,11 @@ const ManageMenu = () => {
             }
             fetchMenuItems();
             setVisible(false);
+            setContextNode(null);
+            setContextMenuVisible(false); // 關閉右鍵菜單
             form.resetFields();
             setEditingItem(null);
+            setSelectedNode(null);
         } catch (err) {
             message.error(err.response?.data?.msg || '操作失敗');
         } finally {
@@ -146,6 +211,7 @@ const ManageMenu = () => {
             });
             message.success('菜單項刪除成功');
             fetchMenuItems();
+            setSelectedNode(null);
         } catch (err) {
             message.error(err.response?.data?.msg || '刪除失敗');
         } finally {
@@ -153,191 +219,142 @@ const ManageMenu = () => {
         }
     };
 
-    const handleBatchDelete = async () => {
-        if (selectedRowKeys.length === 0) {
-            message.warning('請至少選擇一個菜單項進行刪除');
-            return;
-        }
+    const handleSendMessage = async (values) => {
         setLoading(true);
         try {
-            await axios.delete(`${BASE_URL}/api/menu/batch`, {
+            const response = await axios.post(`${BASE_URL}/send-discord-message`, {
+                discordId: selectedUserId,
+                message: values.message,
+            }, {
                 headers: { 'x-auth-token': token },
-                data: { ids: selectedRowKeys },
             });
-            message.success('批量刪除成功');
-            fetchMenuItems();
-            setSelectedRowKeys([]);
+            if (response.data.success) {
+                message.success('消息發送成功');
+            } else {
+                message.error(response.data.message || '消息發送失敗');
+            }
+            setMessageVisible(false);
+            messageForm.resetFields();
+            setSelectedUserId(null);
         } catch (err) {
-            message.error(err.response?.data?.msg || '批量刪除失敗');
+            message.error(err.response?.data?.message || '消息發送失敗');
         } finally {
             setLoading(false);
         }
     };
 
-    const onDragEnd = async (result) => {
-        if (!result.destination) return;
-        setDragLoading(true);
-        const reorderedItems = Array.from(filteredItems);
-        const [movedItem] = reorderedItems.splice(result.source.index, 1);
-        reorderedItems.splice(result.destination.index, 0, movedItem);
-        setFilteredItems(reorderedItems);
-        try {
-            await Promise.all(reorderedItems.map((item, index) =>
-                axios.put(`${BASE_URL}/api/menu/${item._id}`, { ...item, order: index }, {
-                    headers: { 'x-auth-token': token },
-                })
-            ));
-            message.success('菜單項排序已更新');
-        } catch (err) {
-            message.error('排序更新失敗');
-            fetchMenuItems();
-        } finally {
-            setDragLoading(false);
-        }
-    };
+    const onDrop = async (info) => {
+        const dropKey = info.node.key;
+        const dragKey = info.dragNode.key;
+        const dropPos = info.node.pos.split('-');
+        const dropPosition = info.dropPosition - Number(dropPos[dropPos.length - 1]);
 
-    const handleTableChange = (pagination, _, sorter) => {
-        setCurrentPage(pagination.current);
-        setPageSize(pagination.pageSize);
-        if (sorter.field && sorter.order) {
-            setSort({
-                field: sorter.field,
-                order: sorter.order,
-            });
-            const sortedItems = [...filteredItems].sort((a, b) => {
-                const valueA = a[sorter.field] || '';
-                const valueB = b[sorter.field] || '';
-                if (sorter.order === 'ascend') {
-                    return valueA.localeCompare(valueB);
+        const loop = (data, key, callback) => {
+            data.forEach((item, index, arr) => {
+                if (item.key === key) {
+                    return callback(item, index, arr);
                 }
-                return valueB.localeCompare(valueA);
+                if (item.children) {
+                    loop(item.children, key, callback);
+                }
             });
-            setFilteredItems(sortedItems);
+        };
+
+        const data = [...treeData];
+
+        let dragObj;
+        loop(data, dragKey, (item, index, arr) => {
+            arr.splice(index, 1);
+            dragObj = item;
+        });
+
+        if (!info.dropToGap) {
+            loop(data, dropKey, (item) => {
+                item.children = item.children || [];
+                item.children.push(dragObj);
+            });
+        } else if (
+            (info.node.children || []).length > 0 &&
+            info.node.expanded &&
+            dropPosition === 1
+        ) {
+            loop(data, dropKey, (item) => {
+                item.children = item.children || [];
+                item.children.unshift(dragObj);
+            });
+        } else {
+            let ar = [];
+            let i;
+            loop(data, dropKey, (item, index, arr) => {
+                ar = arr;
+                i = index;
+            });
+            if (dropPosition === -1) {
+                ar.splice(i, 0, dragObj);
+            } else {
+                ar.splice(i + 1, 0, dragObj);
+            }
+        }
+
+        setTreeData(data);
+
+        try {
+            await axios.put(`${BASE_URL}/api/menu/reorder`, { treeData: data }, {
+                headers: { 'x-auth-token': token },
+            });
+            message.success('菜單順序已保存');
+        } catch (err) {
+            message.error('保存順序失敗');
+            fetchMenuItems();
         }
     };
 
-    const rowSelection = {
-        selectedRowKeys,
-        onChange: (selectedKeys) => setSelectedRowKeys(selectedKeys),
+    const onSelect = (selectedKeys, info) => {
+        if (selectedKeys.length > 0) {
+            const node = info.node;
+            setSelectedNode(node);
+            form.setFieldsValue({
+                key: node.key,
+                label: node.label,
+                icon: node.icon,
+                roles: node.roles,
+                order: node.order,
+                customIcon: node.customIcon ? [{ uid: '-1', name: 'icon', status: 'done', url: node.customIcon }] : [],
+            });
+        } else {
+            setSelectedNode(null);
+            form.resetFields();
+        }
     };
 
-    const columns = [
-        {
-            title: '',
-            key: 'drag',
-            width: 30,
-            render: () => <span style={{ cursor: 'move' }}>:::</span>,
-        },
-        { title: '路徑', dataIndex: 'key', key: 'key', sorter: true, width: 150 },
-        { title: '顯示名稱', dataIndex: 'label', key: 'label', sorter: true, width: 150 },
-        {
-            title: '圖標',
-            dataIndex: 'icon',
-            key: 'icon',
-            width: 120,
-            render: (icon, record) => record.customIcon ? (
-                <Avatar src={record.customIcon} size={20} />
-            ) : icon ? (
-                <Space>
-                    {iconMapping[icon]}
-                    <Text>{icon}</Text>
-                </Space>
-            ) : '無',
-        },
-        {
-            title: '可見角色',
-            dataIndex: 'roles',
-            key: 'roles',
-            render: roles => {
-                const parsedRoles = Array.isArray(roles) ? roles : JSON.parse(roles || '[]');
-                return parsedRoles.join(', ');
-            },
-            width: 150,
-        },
-        {
-            title: '子菜單',
-            dataIndex: 'children',
-            key: 'children',
-            render: children => children.length > 0 ? (
-                <List
-                    size="small"
-                    dataSource={children}
-                    renderItem={child => <List.Item>{child.label}</List.Item>}
-                />
-            ) : '無',
-            width: 200,
-        },
-        { title: '排序', dataIndex: 'order', key: 'order', width: 100 },
-        {
-            title: '操作',
-            key: 'action',
-            render: (_, record) => (
-                <Row gutter={[8, 8]} justify="center">
-                    <Col>
-                        <Button
-                            onClick={() => {
-                                setEditingItem(record);
-                                setVisible(true);
-                                const parsedRoles = Array.isArray(record.roles) ? record.roles : JSON.parse(record.roles || '[]');
-                                form.setFieldsValue({
-                                    key: record.key,
-                                    label: record.label,
-                                    icon: record.icon,
-                                    roles: parsedRoles,
-                                    order: record.order,
-                                    children: record.children.map(child => child._id),
-                                    customIcon: record.customIcon ? [{ uid: '-1', name: 'icon', status: 'done', url: record.customIcon }] : [],
-                                });
-                            }}
-                            disabled={loading}
-                            type="primary"
-                            shape="round"
-                            size="small"
-                            icon={<EditOutlined />}
-                        >
-                            編輯
-                        </Button>
-                    </Col>
-                    <Col>
-                        <Popconfirm
-                            title="確認刪除此菜單項？"
-                            onConfirm={() => handleDelete(record._id)}
-                            okText="是"
-                            cancelText="否"
-                            disabled={loading}
-                        >
-                            <Button
-                                danger
-                                disabled={loading}
-                                shape="round"
-                                size="small"
-                                icon={<DeleteOutlined />}
-                            >
-                                刪除
-                            </Button>
-                        </Popconfirm>
-                    </Col>
-                </Row>
-            ),
-            width: 150,
-        },
-    ];
-
-    // 為 paginatedItems 添加索引
-    const paginatedItems = filteredItems
-        .slice((currentPage - 1) * pageSize, currentPage * pageSize)
-        .map((item, index) => ({
-            ...item,
-            dragIndex: index, // 添加 dragIndex 字段
-        }));
-
-    const handleMenuClick = ({ key }) => {
-        message.info(`導航到 ${key}`);
+    const onRightClick = (info) => {
+        const node = info.node;
+        // 更嚴格的檢查：確保 parentId 不存在、為 null 或為空字符串
+        console.log('Right-clicked node:', node.label, 'parentId:', node.parentId);
+        if (!node.parentId || node.parentId === '' || node.parentId === null) {
+            setContextNode(node);
+            setContextMenuVisible(true); // 顯示右鍵菜單
+        } else {
+            setContextNode(null);
+            setContextMenuVisible(false); // 隱藏右鍵菜單
+        }
     };
 
-    const onOpenChange = (keys) => {
-        setOpenKeys(keys);
+    const handleAddChild = () => {
+        setVisible(true); // 顯示模態框
+        setEditingItem(null); // 確保是新增模式
+        form.resetFields(); // 重置表單
+        setContextMenuVisible(false); // 關閉右鍵菜單
     };
+
+    // 右鍵菜單
+    const contextMenu = (
+        <Menu>
+            <Menu.Item key="add-child" onClick={handleAddChild}>
+                新增子節點
+            </Menu.Item>
+        </Menu>
+    );
 
     return (
         <div style={{ padding: '20px', backgroundColor: '#f0f2f5', minHeight: 'calc(100vh - 64px)', paddingTop: '84px', boxSizing: 'border-box' }}>
@@ -345,28 +362,19 @@ const ManageMenu = () => {
                 title={
                     <Space>
                         <Title level={2} style={{ margin: 0, color: '#1890ff' }}>菜單管理</Title>
-                        {selectedRowKeys.length > 0 && (
-                            <Text type="secondary">已選擇 {selectedRowKeys.length} 個菜單項</Text>
-                        )}
                     </Space>
                 }
                 bordered={false}
                 style={{ boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)', borderRadius: '12px' }}
             >
                 <Row gutter={[16, 16]} style={{ marginBottom: '16px' }}>
-                    <Col xs={24} sm={12} md={6}>
-                        <Input.Search
-                            placeholder="搜索路徑或名稱"
-                            value={search}
-                            onChange={(e) => setSearch(e.target.value)}
-                            style={{ width: '100%' }}
-                            enterButton={<SearchOutlined />}
-                        />
-                    </Col>
-                    <Col xs={24} sm={12} md={6}>
+                    <Col xs={24} sm={12} md={8}>
                         <Button
                             type="primary"
-                            onClick={() => setVisible(true)}
+                            onClick={() => {
+                                setContextNode(null); // 確保新增頂層節點時不設置 parentId
+                                setVisible(true);
+                            }}
                             disabled={loading}
                             icon={<PlusOutlined />}
                             style={{ width: '100%', borderRadius: '8px' }}
@@ -374,128 +382,178 @@ const ManageMenu = () => {
                             新增菜單項
                         </Button>
                     </Col>
-                    <Col xs={24} sm={12} md={6}>
-                        <Popconfirm
-                            title={
-                                <div>
-                                    確認批量刪除以下菜單項？<br />
-                                    {menuItems.filter(item => selectedRowKeys.includes(item._id)).map(item => (
-                                        <div key={item._id}>- {item.label}</div>
-                                    ))}
-                                </div>
-                            }
-                            onConfirm={handleBatchDelete}
-                            okText="是"
-                            cancelText="否"
-                            disabled={loading || selectedRowKeys.length === 0}
-                        >
-                            <Button
-                                type="danger"
-                                icon={<DeleteOutlined />}
-                                disabled={loading || selectedRowKeys.length === 0}
-                                style={{ width: '100%', borderRadius: '8px' }}
-                            >
-                                批量刪除
-                            </Button>
-                        </Popconfirm>
+                </Row>
+                <Row gutter={[16, 16]}>
+                    <Col xs={24} md={8}>
+                        <Card title="菜單結構" style={{ borderRadius: '12px', boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)' }}>
+                            <Spin spinning={loading} size="large">
+                                {treeData.length === 0 && !loading ? (
+                                    <Alert
+                                        message="無菜單項"
+                                        description="目前沒有菜單項記錄。"
+                                        type="info"
+                                        showIcon
+                                        style={{ marginBottom: '16px' }}
+                                    />
+                                ) : (
+                                    <Dropdown
+                                        overlay={contextMenu}
+                                        trigger={['contextMenu']}
+                                        visible={contextMenuVisible}
+                                        onVisibleChange={(visible) => {
+                                            if (!visible) {
+                                                setContextMenuVisible(false);
+                                                setContextNode(null);
+                                            }
+                                        }}
+                                    >
+                                        <Tree
+                                            treeData={treeData}
+                                            draggable
+                                            onDrop={onDrop}
+                                            onSelect={onSelect}
+                                            onRightClick={onRightClick}
+                                            blockNode
+                                            showLine={true}
+                                            defaultExpandedKeys={[]}
+                                        />
+                                    </Dropdown>
+                                )}
+                            </Spin>
+                        </Card>
+                    </Col>
+                    <Col xs={24} md={16}>
+                        <Card title="菜單項詳情" style={{ borderRadius: '12px', boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)' }}>
+                            <Spin spinning={loading} size="large">
+                                {selectedNode ? (
+                                    <>
+                                        <Form form={form} onFinish={handleCreateOrUpdate} layout="vertical">
+                                            <Form.Item
+                                                name="key"
+                                                label="路徑"
+                                                rules={[{ required: true, message: '請輸入路徑！' }]}
+                                            >
+                                                <Input placeholder="例如：/ 或 /wallet" />
+                                            </Form.Item>
+                                            <Form.Item
+                                                name="label"
+                                                label="顯示名稱"
+                                                rules={[{ required: true, message: '請輸入顯示名稱！' }]}
+                                            >
+                                                <Input placeholder="例如：首頁" />
+                                            </Form.Item>
+                                            <Form.Item
+                                                name="icon"
+                                                label="預定義圖標"
+                                            >
+                                                <Select placeholder="選擇圖標" allowClear>
+                                                    {getIconNames().map(icon => (
+                                                        <Option key={icon} value={icon}>
+                                                            <Space>
+                                                                {getIconMapping()[icon]}
+                                                                {icon}
+                                                            </Space>
+                                                        </Option>
+                                                    ))}
+                                                </Select>
+                                            </Form.Item>
+                                            <Form.Item
+                                                name="customIcon"
+                                                label="自定義圖標"
+                                                valuePropName="fileList"
+                                                getValueFromEvent={(e) => e && e.fileList}
+                                            >
+                                                <Upload
+                                                    listType="picture"
+                                                    maxCount={1}
+                                                    beforeUpload={() => false}
+                                                    accept="image/*"
+                                                >
+                                                    <Button icon={<UploadOutlined />}>上傳自定義圖標</Button>
+                                                </Upload>
+                                            </Form.Item>
+                                            <Form.Item
+                                                name="roles"
+                                                label="可見角色"
+                                                rules={[{ required: true, message: '請選擇可見角色！' }]}
+                                            >
+                                                <Select mode="multiple" placeholder="選擇角色">
+                                                    <Option value="user">普通用戶</Option>
+                                                    <Option value="admin">管理員</Option>
+                                                    <Option value="moderator">版主</Option>
+                                                </Select>
+                                            </Form.Item>
+                                            <Form.Item
+                                                name="order"
+                                                label="排序"
+                                                rules={[{ type: 'number', message: '請輸入數字！' }]}
+                                            >
+                                                <Input type="number" placeholder="數字越小越靠前" />
+                                            </Form.Item>
+                                            <Form.Item>
+                                                <Space>
+                                                    <Button
+                                                        type="primary"
+                                                        htmlType="submit"
+                                                        loading={loading}
+                                                        style={{ borderRadius: '8px' }}
+                                                        onClick={() => setEditingItem(selectedNode)}
+                                                    >
+                                                        保存
+                                                    </Button>
+                                                    <Button
+                                                        onClick={() => {
+                                                            setSelectedNode(null);
+                                                            form.resetFields();
+                                                        }}
+                                                        style={{ borderRadius: '8px' }}
+                                                    >
+                                                        取消
+                                                    </Button>
+                                                    <Popconfirm
+                                                        title="確認刪除此菜單項？"
+                                                        onConfirm={() => handleDelete(selectedNode._id)}
+                                                        okText="是"
+                                                        cancelText="否"
+                                                        disabled={loading}
+                                                    >
+                                                        <Button
+                                                            danger
+                                                            disabled={loading}
+                                                            style={{ borderRadius: '8px' }}
+                                                        >
+                                                            刪除
+                                                        </Button>
+                                                    </Popconfirm>
+                                                    <Button
+                                                        onClick={() => {
+                                                            setSelectedUserId(selectedNode.discordId);
+                                                            setMessageVisible(true);
+                                                        }}
+                                                        disabled={loading || !selectedNode.discordId}
+                                                        style={{ borderRadius: '8px' }}
+                                                    >
+                                                        發送消息
+                                                    </Button>
+                                                </Space>
+                                            </Form.Item>
+                                        </Form>
+                                    </>
+                                ) : (
+                                    <Text>請選擇一個菜單項以查看或編輯詳情</Text>
+                                )}
+                            </Spin>
+                        </Card>
                     </Col>
                 </Row>
-                <Spin spinning={loading || dragLoading} size="large">
-                    {filteredItems.length === 0 && !loading ? (
-                        <Alert
-                            message="無菜單項"
-                            description="目前沒有符合條件的菜單項記錄。"
-                            type="info"
-                            showIcon
-                            style={{ marginBottom: '16px' }}
-                        />
-                    ) : (
-                        <>
-                            <DragDropContext onDragEnd={onDragEnd}>
-                                <Droppable droppableId="menuItems">
-                                    {(provided) => (
-                                        <div {...provided.droppableProps} ref={provided.innerRef}>
-                                            <Table
-                                                rowSelection={rowSelection}
-                                                dataSource={paginatedItems}
-                                                columns={columns}
-                                                rowKey="_id"
-                                                bordered
-                                                scroll={{ x: 'max-content' }}
-                                                rowClassName="table-row-hover"
-                                                onChange={handleTableChange}
-                                                components={{
-                                                    body: {
-                                                        row: ({ children, ...props }) => (
-                                                            <Draggable draggableId={props['data-row-key']} index={props['data-row-index']}>
-                                                                {(provided, snapshot) => (
-                                                                    <tr
-                                                                        ref={provided.innerRef}
-                                                                        {...provided.draggableProps}
-                                                                        {...provided.dragHandleProps}
-                                                                        {...props}
-                                                                        style={{
-                                                                            ...provided.draggableProps.style,
-                                                                            backgroundColor: snapshot.isDragging ? '#e6f7ff' : undefined,
-                                                                        }}
-                                                                    >
-                                                                        {children}
-                                                                    </tr>
-                                                                )}
-                                                            </Draggable>
-                                                        ),
-                                                    },
-                                                }}
-                                                pagination={false}
-                                                data-row-index={(record) => record.dragIndex} // 傳遞 dragIndex 給 row
-                                            />
-                                            {provided.placeholder}
-                                        </div>
-                                    )}
-                                </Droppable>
-                            </DragDropContext>
-                            <Pagination
-                                current={currentPage}
-                                pageSize={pageSize}
-                                total={filteredItems.length}
-                                onChange={setCurrentPage}
-                                onShowSizeChange={(current, size) => {
-                                    setCurrentPage(1);
-                                    setPageSize(size);
-                                }}
-                                style={{ marginTop: '16px', textAlign: 'right' }}
-                                showSizeChanger
-                                pageSizeOptions={['10', '20', '50']}
-                                showTotal={(total) => `共 ${total} 條記錄`}
-                            />
-                        </>
-                    )}
-                </Spin>
-                <Card title="菜單預覽" style={{ marginTop: '16px', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)' }}>
-                    <Menu
-                        mode="inline"
-                        openKeys={openKeys}
-                        onOpenChange={onOpenChange}
-                        onClick={handleMenuClick}
-                        items={filteredItems.map(item => ({
-                            key: item.key,
-                            label: item.label,
-                            icon: item.customIcon ? <Avatar src={item.customIcon} size={20} /> : (iconMapping[item.icon] || null),
-                            children: item.children ? item.children.map(child => ({
-                                key: child.key,
-                                label: child.label,
-                                icon: child.customIcon ? <Avatar src={child.customIcon} size={20} /> : (iconMapping[child.icon] || null),
-                            })) : undefined,
-                        }))}
-                    />
-                </Card>
             </Card>
             <Modal
-                title={editingItem ? '編輯菜單項' : '新增菜單項'}
+                title="新增菜單項"
                 open={visible}
                 onCancel={() => {
                     setVisible(false);
-                    setEditingItem(null);
+                    setContextNode(null);
+                    setContextMenuVisible(false); // 關閉右鍵菜單
                     form.resetFields();
                 }}
                 footer={null}
@@ -521,10 +579,10 @@ const ManageMenu = () => {
                         label="預定義圖標"
                     >
                         <Select placeholder="選擇圖標" allowClear>
-                            {Object.keys(iconMapping).map(icon => (
+                            {getIconNames().map(icon => (
                                 <Option key={icon} value={icon}>
                                     <Space>
-                                        {iconMapping[icon]}
+                                        {getIconMapping()[icon]}
                                         {icon}
                                     </Space>
                                 </Option>
@@ -558,18 +616,6 @@ const ManageMenu = () => {
                         </Select>
                     </Form.Item>
                     <Form.Item
-                        name="children"
-                        label="子菜單"
-                    >
-                        <Select mode="multiple" placeholder="選擇子菜單項" allowClear>
-                            {menuItems
-                                .filter(item => item._id !== editingItem?._id)
-                                .map(item => (
-                                    <Option key={item._id} value={item._id}>{item.label}</Option>
-                                ))}
-                        </Select>
-                    </Form.Item>
-                    <Form.Item
                         name="order"
                         label="排序"
                         rules={[{ type: 'number', message: '請輸入數字！' }]}
@@ -583,10 +629,33 @@ const ManageMenu = () => {
                     </Form.Item>
                 </Form>
             </Modal>
+            <Modal
+                title="發送消息給用戶"
+                open={messageVisible}
+                onCancel={() => {
+                    setMessageVisible(false);
+                    setSelectedUserId(null);
+                    messageForm.resetFields();
+                }}
+                footer={null}
+                transitionName="ant-fade"
+            >
+                <Form form={messageForm} onFinish={handleSendMessage} layout="vertical">
+                    <Form.Item
+                        name="message"
+                        label="消息內容"
+                        rules={[{ required: true, message: '請輸入消息內容！' }]}
+                    >
+                        <Input.TextArea rows={4} placeholder="輸入你想發送的消息" />
+                    </Form.Item>
+                    <Form.Item>
+                        <Button type="primary" htmlType="submit" loading={loading} style={{ borderRadius: '8px' }}>
+                            發送
+                        </Button>
+                    </Form.Item>
+                </Form>
+            </Modal>
             <style jsx global>{`
-                .table-row-hover:hover {
-                    background-color: #f0f4f8 !important;
-                }
                 .ant-btn-primary, .ant-btn-danger {
                     transition: all 0.3s ease;
                 }

@@ -64,7 +64,7 @@ const ManageItems = () => {
                     sortOrder: sort.order === 'ascend' ? 'asc' : 'desc',
                 },
             });
-            console.log('Fetched items:', res.data);
+       
             setItems(res.data);
             setFilteredItems(res.data);
             setCurrentPage(1); // 重置頁碼

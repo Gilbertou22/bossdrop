@@ -47,7 +47,9 @@ const RoleRoute = ({ children, allowedRoles, mustChangePasswordRedirect }) => {
     }, [location]);
 
     if (loading) {
-        return <Spin spinning={true} tip="檢查權限中..." style={{ display: 'block', textAlign: 'center', marginTop: '20%' }} />;
+        return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+            <Spin size="large" tip="載入中..." />
+        </div>
     }
 
     if (!isAuthenticated) {

@@ -3,9 +3,20 @@ import { Menu, Layout, Dropdown, Avatar, Badge, Button, Popover, Drawer, Spin, m
 import {
     LoginOutlined,
     UserAddOutlined,
+    FileDoneOutlined,
+    ShoppingOutlined,
+    BarChartOutlined,
     LogoutOutlined,
+    DollarOutlined,
     HomeOutlined,
+    TeamOutlined,
+    GiftOutlined,
+    CheckCircleOutlined,
+    UserOutlined,
     BellOutlined,
+    SketchOutlined,
+    AuditOutlined,
+    CloudUploadOutlined,
     MenuOutlined,
     EditOutlined,
 } from '@ant-design/icons';
@@ -27,7 +38,7 @@ const BASE_URL = process.env.REACT_APP_API_URL || '';
 const Navbar = () => {
     const navigate = useNavigate();
     const location = useLocation();
-    const { user, logout } = useContext(AuthContext); // 從 AuthContext 獲取 user 和 logout
+    const { user, logout } = useContext(AuthContext);
     const { unreadCount, setUnreadCount, notifications, setNotifications } = useNotification();
     const [token, setToken] = useState(localStorage.getItem('token')); // 本地監聽 token 變化
     const [profileVisible, setProfileVisible] = useState(false);
@@ -68,8 +79,10 @@ const Navbar = () => {
 
     // 監聽 token 和 user 變化，重新加載菜單數據
     useEffect(() => {
+        console.log('Token:', token);
+        console.log('User:', user);
         if (!token) {
-            setMenuItems([{ key: '/', label: '首頁', icon: <HomeOutlined /> }]); // 登出時重置菜單
+            setMenuItems([{ key: '/', label: '首頁', icon: <HomeOutlined /> }]);
             setNotifications([]);
             setUnreadCount(0);
         } else if (user) {
@@ -185,9 +198,12 @@ const Navbar = () => {
 
     const fetchMenuItems = useCallback(async () => {
         try {
-            const res = await axios.get(`${BASE_URL}/api/menu`, {
-                headers: { 'x-auth-token': token },
+            const res = await axios.get(`${BASE_URL}/api/session/menu`, {
+                headers: { 'x-auth-token': token },                
+                withCredentials: true,
             });
+
+            console.log('Session menu response:', res.data); // 檢查 session 數據
 
             // 獲取所有子菜單項的 ID
             const allChildIds = new Set();
@@ -204,19 +220,11 @@ const Navbar = () => {
             // 過濾出第一層級菜單項（不包含已經作為子菜單的項）
             const menuItems = res.data
                 .filter(item => {
-                    // 處理異常的 roles 格式
-                    let roles;
-                    try {
-                        roles = Array.isArray(item.roles) ? item.roles : JSON.parse(item.roles || '[]');
-                        while (typeof roles === 'string') {
-                            roles = JSON.parse(roles);
-                        }
-                    } catch (err) {
-                        logger.warn('Failed to parse roles', { roles: item.roles, error: err.message });
-                        roles = [];
+                    if (!item._id) {
+                        console.warn('Item with undefined _id:', item);
+                        return false;
                     }
-                    // 過濾條件：必須符合角色，且不是任何其他項的子菜單
-                    return roles.includes(user?.role || 'user') && !allChildIds.has(item._id.toString());
+                    return !allChildIds.has(item._id.toString());
                 })
                 .map(item => ({
                     key: item.key,
@@ -225,32 +233,27 @@ const Navbar = () => {
                         : item.label,
                     icon: item.customIcon ? <Avatar src={item.customIcon} size={20} /> : (getIconMapping()[item.icon] || null),
                     children: item.children
-                        ? item.children
-                            .filter(child => {
-                                let childRoles;
-                                try {
-                                    childRoles = Array.isArray(child.roles) ? child.roles : JSON.parse(child.roles || '[]');
-                                    while (typeof childRoles === 'string') {
-                                        childRoles = JSON.parse(childRoles);
-                                    }
-                                } catch (err) {
-                                    logger.warn('Failed to parse child roles', { roles: child.roles, error: err.message });
-                                    childRoles = [];
-                                }
-                                return childRoles.includes(user?.role || 'user');
-                            })
-                            .map(child => ({
-                                key: child.key,
-                                label: child.label,
-                                icon: child.customIcon ? <Avatar src={child.customIcon} size={20} /> : (getIconMapping()[child.icon] || null),
-                            }))
+                        ? item.children.map(child => ({
+                            key: child.key,
+                            label: child.label,
+                            icon: child.customIcon ? <Avatar src={child.customIcon} size={20} /> : (getIconMapping()[child.icon] || null),
+                        }))
                         : undefined,
                 }));
-            setMenuItems(token ? menuItems : [{ key: '/', label: '首頁', icon: <HomeOutlined /> }]);
-            logger.info('Fetched menu items', { menuItems });
+
+            console.log('Fetched menuItems:', menuItems); // 檢查過濾後的菜單項
+
+            // 如果 menuItems 為空，設置默認菜單項
+            if (menuItems.length === 0) {
+                setMenuItems([{ key: '/', label: '首頁', icon: <HomeOutlined /> }]);
+            } else {
+                setMenuItems(menuItems);
+            }
+            logger.info('Fetched menu items from session', { menuItems });
         } catch (err) {
-            logger.error('Fetch menu items error', { error: err.response?.data || err.message });
+            logger.error('Fetch session menu items error', { error: err.response?.data || err.message });
             message.error('無法獲取菜單項');
+            setMenuItems([{ key: '/', label: '首頁', icon: <HomeOutlined /> }]);
         }
     }, [token, user, pendingCount]);
 
@@ -281,10 +284,10 @@ const Navbar = () => {
         message.success('已登出');
     };
 
-    
+    // 提取用戶名稱的第一個字節，處理多字節字符
     const getFirstCharacter = (name) => {
         if (!name) return 'U'; // 如果名稱不存在，顯示默認字符 "U"
-    
+        // 使用正則表達式提取第一個字符（支持多字節字符）
         const firstChar = name.match(/./u)?.[0];
         return firstChar || 'U'; // 如果提取失敗，返回默認字符 "U"
     };

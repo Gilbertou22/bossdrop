@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useContext, useCallback } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import { Tree, Button, Modal, Form, Input, Select, message, Spin, Row, Col, Popconfirm, Card, Space, Typography, Upload, Alert, Dropdown, Menu } from 'antd';
 import { DeleteOutlined, EditOutlined, PlusOutlined, UploadOutlined, MessageOutlined } from '@ant-design/icons';
 import { getIconMapping, getIconNames, IconRenderer } from '../components/IconMapping';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { AuthContext } from '../AuthProvider';
+import logger from '../utils/logger';
 
 const { Option } = Select;
 const { Title, Text } = Typography;
@@ -38,7 +39,6 @@ const ManageMenu = () => {
     // 監聽點擊和鍵盤事件以關閉右鍵菜單
     useEffect(() => {
         const handleClickOutside = (event) => {
-            // 檢查點擊是否在右鍵菜單之外
             if (contextMenuVisible && !event.target.closest('.ant-dropdown-menu')) {
                 setContextMenuVisible(false);
                 setContextNode(null);
@@ -64,14 +64,21 @@ const ManageMenu = () => {
     const fetchMenuItems = async () => {
         setLoading(true);
         try {
-            const res = await axios.get(`${BASE_URL}/api/menu`, {
+            const res = await axios.get(`${BASE_URL}/api/session/menu`, {
                 headers: { 'x-auth-token': token },
+                withCredentials: true,
             });
+
+            console.log('Session menu response:', res.data); // 檢查 session 數據
 
             // 處理後端返回的數據，根據 parentId 構建樹狀結構
             const seenIds = new Set();
             const allItems = res.data
                 .filter(item => {
+                    if (!item._id) {
+                        console.warn('Item with undefined _id:', item);
+                        return false;
+                    }
                     if (seenIds.has(item._id)) {
                         console.warn('Duplicate _id found:', item._id);
                         return false;
@@ -106,7 +113,6 @@ const ManageMenu = () => {
 
             // 將所有節點放入 map
             allItems.forEach(item => {
-                // 確保子節點的 title 設置為 label
                 if (item.children && Array.isArray(item.children)) {
                     item.children = item.children.map(child => ({
                         ...child,
@@ -147,13 +153,16 @@ const ManageMenu = () => {
                 return !isChild;
             });
 
-            setTreeData(finalTreeData);
+            console.log('Final tree data:', finalTreeData); // 檢查最終樹狀數據
+            setTreeData(finalTreeData.length > 0 ? finalTreeData : [{ key: '/', label: '首頁', children: [] }]);
         } catch (err) {
+            logger.error('Fetch session menu items error', { error: err.response?.data || err.message });
             message.error({
                 content: '載入菜單項失敗',
                 duration: 3,
                 onClose: () => fetchMenuItems(),
             });
+            setTreeData([{ key: '/', label: '首頁', children: [] }]); // 設置默認數據
         } finally {
             setLoading(false);
         }
@@ -186,10 +195,11 @@ const ManageMenu = () => {
             } else {
                 response = await axios.post(`${BASE_URL}/api/menu`, formData, {
                     headers: { 'x-auth-token': token, 'Content-Type': 'multipart/form-data' },
+                    
                 });
                 message.success('菜單項創建成功');
             }
-            fetchMenuItems();
+            fetchMenuItems(); // 更新 session 中的菜單數據
             setVisible(false);
             setContextNode(null);
             setContextMenuVisible(false); // 關閉右鍵菜單
@@ -303,6 +313,7 @@ const ManageMenu = () => {
                 headers: { 'x-auth-token': token },
             });
             message.success('菜單順序已保存');
+            fetchMenuItems(); // 更新 session 中的菜單數據
         } catch (err) {
             message.error('保存順序失敗');
             fetchMenuItems();
@@ -329,7 +340,6 @@ const ManageMenu = () => {
 
     const onRightClick = (info) => {
         const node = info.node;
-        // 更嚴格的檢查：確保 parentId 不存在、為 null 或為空字符串
         console.log('Right-clicked node:', node.label, 'parentId:', node.parentId);
         if (!node.parentId || node.parentId === '' || node.parentId === null) {
             setContextNode(node);

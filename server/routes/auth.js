@@ -2,8 +2,10 @@ const express = require('express');
 const router = express.Router();
 const User = require('../models/User');
 const Guild = require('../models/Guild');
+const MenuItem = require('../models/MenuItem'); // 引入 MenuItem 模型
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
+const logger = require('../logger');
 require('dotenv').config();
 
 // 獲取客戶端 IP 地址
@@ -122,6 +124,57 @@ router.post('/login', async (req, res) => {
             });
         }
 
+        // 生成菜單數據並存入 session
+        const menuItems = await MenuItem.find()
+            .populate({
+                path: 'children',
+                populate: { path: 'children' },
+            })
+            .sort({ order: 1 });
+
+        console.log('Raw menu items:', menuItems); // 檢查原始數據
+
+        // 過濾菜單項，僅保留當前用戶角色有權訪問的節點
+        const filterMenuItems = (items, userRole) => {
+            return items
+                .filter(item => {
+                    let roles;
+                    try {
+                        roles = Array.isArray(item.roles) ? item.roles : JSON.parse(item.roles || '[]');
+                        while (typeof roles === 'string') {
+                            roles = JSON.parse(roles);
+                        }
+                    } catch (err) {
+                        logger.warn('Failed to parse roles', { roles: item.roles, error: err.message });
+                        roles = [];
+                    }
+                    console.log('Filtering item:', item.label, 'Roles:', roles, 'User role:', userRole);
+                    return roles.includes(userRole);
+                })
+                .map(item => {
+                    const filteredItem = {
+                        key: item.key,
+                        label: item.label,
+                        icon: item.icon,
+                        customIcon: item.customIcon,
+                        roles: item.roles,
+                        parentId: item.parentId,
+                        order: item.order,
+                        _id: item._id.toString(),
+                    };
+                    if (item.children && item.children.length > 0) {
+                        filteredItem.children = filterMenuItems(item.children, userRole);
+                    }
+                    return filteredItem;
+                })
+                .filter(item => item.children ? item.children.length > 0 : true);
+        };
+
+        const filteredMenuItems = filterMenuItems(menuItems, user.role);
+        console.log('Filtered menu items:', filteredMenuItems); // 檢查過濾後數據
+        req.session.menuItems = filteredMenuItems; // 將過濾後的菜單數據存入 session
+        logger.info('Menu items stored in session', { userId: user._id, menuItems: filteredMenuItems });
+
         const payload = {
             user: {
                 id: user._id,
@@ -129,7 +182,7 @@ router.post('/login', async (req, res) => {
             },
         };
 
-        const token = jwt.sign(payload, process.env.JWT_SECRET , { expiresIn: '1h' });
+        const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '1h' });
 
         res.json({
             code: 200,
@@ -151,5 +204,6 @@ router.post('/login', async (req, res) => {
         });
     }
 });
+
 
 module.exports = router;

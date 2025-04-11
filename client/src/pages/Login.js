@@ -18,7 +18,9 @@ const Login = () => {
     useEffect(() => {
         const fetchClientIp = async () => {
             try {
-                const res = await axios.get(`${BASE_URL}/api/auth/client-ip`);
+                const res = await axios.get(`${BASE_URL}/api/auth/client-ip`, {
+                    withCredentials: true,
+                });
                 setClientIp(res.data.ip);
             } catch (err) {
                 logger.error('Fetch client IP error:', {
@@ -40,15 +42,19 @@ const Login = () => {
                 password: values.password,
             };
 
-            const res = await axios.post(`${BASE_URL}/api/auth/login`, trimmedValues);
-      
+            const res = await axios.post(`${BASE_URL}/api/auth/login`, trimmedValues, {
+                withCredentials: true, // 允許接收 Set-Cookie 頭部
+            });
+
+            console.log('Login response:', res.data);
+            console.log('Response headers:', res.headers); // 檢查 Set-Cookie 頭部
+
             const token = res.data.token;
             if (!token) {
                 throw new Error('No token received from login response');
             }
-            
+
             localStorage.setItem('token', token); // 存儲 token
-            
 
             message.success(res.data.msg);
 
@@ -75,9 +81,7 @@ const Login = () => {
     return (
         <div className="login-container">
             <Spin spinning={loading} tip="正在登入...">
-                <Card
-                    
-                >
+                <Card>
                     <Form
                         form={form}
                         onFinish={handleSubmit}

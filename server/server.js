@@ -1,4 +1,5 @@
 const express = require('express');
+const session = require('express-session');
 const connectDB = require('./config/db');
 const path = require('path');
 const startAuctionCron = require('./utils/auctionCron');
@@ -58,6 +59,25 @@ app.use(cors({
     credentials: true,
 }));
 
+// 設置 session
+app.use(session({
+    secret: 'bfksfysa7e32kdhayu292sz', // 替換為安全的密鑰
+    resave: false,
+    saveUninitialized: true,
+    cookie: {
+        secure: false, //process.env.NODE_ENV === 'production', // 生產環境使用 HTTPS
+        httpOnly: true,
+        maxAge: 24 * 60 * 60 * 1000, // session 有效期 24 小時
+    },
+}));
+
+// 檢查 session 中間件
+app.use((req, res, next) => {
+    console.log('Session ID:', req.sessionID);
+    console.log('Session data before request:', req.session);
+    next();
+});
+
 // 處理 OPTIONS 預檢請求
 app.options('*', cors());
 
@@ -101,6 +121,8 @@ console.log('ItemLevels route loaded');
 const menuRoutes = require('./routes/menu');
 app.use('/api/menu', upload.single('customIcon'), menuRoutes); // 添加 upload 中間件
 console.log('Menu route loaded');
+app.use('/api/session', require('./routes/session'));
+console.log('Session route loaded');
 
 try {
     startAuctionCron();

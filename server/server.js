@@ -1,5 +1,8 @@
 const express = require('express');
 const session = require('express-session');
+const cookieParser = require('cookie-parser');
+const mongoose = require('mongoose');
+const MongoStore = require('connect-mongo');
 const connectDB = require('./config/db');
 const path = require('path');
 const startAuctionCron = require('./utils/auctionCron');
@@ -41,6 +44,30 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 //app.use(cors({ origin: 'http://localhost:3000', methods: ['GET', 'POST', 'PUT', 'DELETE'], allowedHeaders: ['Content-Type', 'x-auth-token'] }));
 
 
+app.use(cookieParser());
+// Initialize session middleware
+app.use(
+    session({
+        secret: process.env.SESSION_SECRET || 'bfksfysa7e32kdhayu292sz',
+        resave: false,
+        saveUninitialized: true,
+        /*
+        store: MongoStore.create({
+            mongoUrl: process.env.MONGO_URI,
+            collectionName: 'sessions',
+            ttl: 24 * 60 * 60, // 24 hours in seconds
+        }).on('error', (err) => {
+            console.error('MongoStore error:', err);
+        }),
+        */
+        cookie: {
+            secure: process.env.NODE_ENV === 'production',
+            maxAge: 24 * 60 * 60 * 1000, // 24 hours
+            httpOnly: true,
+        },
+    })
+);
+
 // CORS 配置
 const allowedOrigins = process.env.ALLOWED_ORIGINS
     ? process.env.ALLOWED_ORIGINS.split(',')
@@ -59,23 +86,21 @@ app.use(cors({
     credentials: true,
 }));
 
-// 設置 session
-app.use(session({
-    secret: 'bfksfysa7e32kdhayu292sz', // 替換為安全的密鑰
-    resave: false,
-    saveUninitialized: true,
-    cookie: {
-        secure: false, //process.env.NODE_ENV === 'production', // 生產環境使用 HTTPS
-        httpOnly: true,
-        maxAge: 24 * 60 * 60 * 1000, // session 有效期 24 小時
-    },
-}));
 
 // 檢查 session 中間件
 app.use((req, res, next) => {
     console.log('Session ID:', req.sessionID);
     console.log('Session data before request:', req.session);
     next();
+});
+
+mongoose.connect(process.env.MONGO_URI, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+}).then(() => {
+    console.log('Connected to MongoDB');
+}).catch(err => {
+    console.error('MongoDB connection error:', err);
 });
 
 // 處理 OPTIONS 預檢請求

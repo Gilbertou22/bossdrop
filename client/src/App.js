@@ -22,7 +22,7 @@ import Guilds from './pages/GuildSettings';
 import ApproveAttendRequest from './pages/ManageSupplementRequests';
 import React, { useState, useEffect, useContext } from 'react';
 import { NotificationProvider } from './components/NotificationContext';
-import AuthProvider from './AuthProvider';
+import { AuthProvider } from './AuthProvider'; // 修改為命名導出
 import { Layout, Spin, Typography } from 'antd';
 import ChangePassword from './components/ChangePassword';
 import LogViewer from './pages/LogViewer';

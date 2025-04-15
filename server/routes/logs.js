@@ -9,12 +9,7 @@ const Log = mongoose.model('Log', new mongoose.Schema({}, { strict: false }), 'l
 router.post('/', auth, async (req, res) => {
     try {
         const { level, message, metadata } = req.body;
-        logger.info(message, {
-            ...metadata,
-            level,
-            userId: req.user?.id || 'anonymous',
-            source: 'frontend',
-        });
+       
         res.status(200).json({ msg: 'Log received' });
     } catch (err) {
         logger.error('Error saving frontend log', {
@@ -40,7 +35,7 @@ router.get('/query', auth, adminOnly, async (req, res) => {
             if (endTime) query['metadata.timestamp'].$lte = new Date(endTime);
         }
 
-        logger.info('Querying logs', { query, userId: req.user?.id || 'anonymous' });
+  
 
         const skip = (page - 1) * limit;
         const logs = await Log.find(query)
@@ -51,7 +46,7 @@ router.get('/query', auth, adminOnly, async (req, res) => {
 
         const total = await Log.countDocuments(query);
 
-        logger.info('Logs queried successfully', { count: logs.length, total });
+     
 
         res.json({
             data: logs,

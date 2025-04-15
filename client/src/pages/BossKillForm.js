@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Form, Button, Upload, Select, message, DatePicker, Input, Row, Col, Alert, Spin, Card } from 'antd';
+import { Form, Button, Upload, Select, message, DatePicker, Input, Row, Col, Alert, Spin, Card, Space, Typography } from 'antd';
 import { UploadOutlined, UserOutlined, PlusOutlined, DeleteOutlined } from '@ant-design/icons';
 import axios from 'axios';
 import moment from 'moment';
@@ -8,6 +8,7 @@ import logger from '../utils/logger';
 
 const { Option } = Select;
 const { TextArea } = Input;
+const { Text } = Typography;
 
 const BASE_URL = process.env.REACT_APP_API_URL || '';
 
@@ -29,12 +30,14 @@ const BossKillForm = () => {
     const [userOptions, setUserOptions] = useState({
         attendees: [],
         itemHolder: [],
+        guildCaptain: null, // 儲存旅團部隊長
     });
     const [date, setDate] = useState(null);
     const [uploading, setUploading] = useState(false);
     const [loading, setLoading] = useState(false);
     const [online, setOnline] = useState(navigator.onLine);
     const [deferredPrompt, setDeferredPrompt] = useState(null);
+    const [logText, setLogText] = useState(''); // 儲存旅團日誌內容
     const token = localStorage.getItem('token');
 
     useEffect(() => {
@@ -57,9 +60,9 @@ const BossKillForm = () => {
             deferredPrompt.prompt();
             deferredPrompt.userChoice.then((choiceResult) => {
                 if (choiceResult.outcome === 'accepted') {
-            
+                    logger.info('User accepted the install prompt');
                 } else {
-            
+                    logger.info('User dismissed the install prompt');
                 }
                 setDeferredPrompt(null);
             });
@@ -93,7 +96,7 @@ const BossKillForm = () => {
             const res = await axios.get(`${BASE_URL}/api/users`, {
                 headers: { 'x-auth-token': token },
             });
-            
+
             if (!Array.isArray(res.data)) {
                 throw new Error('後端返回的用戶數據格式不正確');
             }
@@ -108,6 +111,9 @@ const BossKillForm = () => {
                 .filter(user => user.role !== 'guild')
                 .map(user => user.character_name);
 
+            // 提取旅團部隊長（假設 role 為 admin）
+            const guildCaptain = res.data.find(user => user.role === 'admin')?.character_name;
+
             setUsers(res.data.map(user => user.character_name));
             setUserOptions({
                 attendees: [
@@ -115,6 +121,7 @@ const BossKillForm = () => {
                     ...filteredAttendees.map(name => ({ value: name, label: name }))
                 ],
                 itemHolder: filteredItemHolders.map(name => ({ value: name, label: name })),
+                guildCaptain, // 保存旅團部隊長
             });
         } catch (err) {
             console.error('Fetch users error:', err);
@@ -148,7 +155,6 @@ const BossKillForm = () => {
 
             message.info('圖片過大，正在壓縮...');
             const compressedFile = await imageCompression(file, compressionOptions);
-           
 
             if (compressedFile.size / 1024 > 600) {
                 message.error('圖片壓縮後仍超過 600KB，請選擇更小的圖片！');
@@ -171,8 +177,141 @@ const BossKillForm = () => {
         setFileList(fileList.filter(item => item.uid !== file.uid));
     };
 
+    // 解析旅團日誌並自動填寫表單
+    const parseLogAndFillForm = () => {
+        try {
+            // 按行分割日誌
+            const lines = logText.split('\n').map(line => line.trim()).filter(line => line);
+
+            // 解析第一行（表頭）和第二行（內容）
+            const headerLine = lines[0]; // 消滅時間 地點 首領 總參與人數 旅團部隊長 分配方式
+            const contentLine = lines[1]; // 2025.04.12-23.02.41 冰封瀑布 哀嘆的女王普蘭 10 伊莉斯 旅團部隊長獲得(英雄)
+
+            // 按 TAB 分隔表頭和內容
+            const headers = headerLine.split('\t').map(h => h.trim());
+            const contents = contentLine.split('\t').map(c => c.trim());
+
+            // 創建字段映射
+            const logData = {};
+            headers.forEach((header, index) => {
+                logData[header] = contents[index];
+            });
+
+            // 提取消滅時間
+            const timeStr = logData['消滅時間']; // 2025.04.12-23.02.41
+            let killTime = null;
+            if (timeStr) {
+                const timeRegex = /(\d{4}\.\d{2}\.\d{2})[- ](\d{2}\.\d{2}\.\d{2}|\d{2}:\d{2}:\d{2})/;
+                const match = timeStr.match(timeRegex);
+                if (match) {
+                    const datePart = match[1]; // 2025.04.12
+                    let timePart = match[2]; // 23.02.41 或 23:02:41
+                    timePart = timePart.replace(/\./g, ':'); // 將 23.02.41 轉為 23:02:41
+                    const formattedTime = `${datePart.replace(/\./g, '-')} ${timePart}`; // 2025-04-12 23:02:41
+                    killTime = moment(formattedTime, 'YYYY-MM-DD HH:mm:ss');
+                    if (!killTime.isValid()) {
+                        message.warning('消滅時間格式無效，請手動選擇');
+                    } else {
+                        form.setFieldsValue({ kill_time: killTime });
+                        setDate(killTime);
+                    }
+                } else {
+                    message.warning('未找到有效的消滅時間格式，請手動選擇');
+                }
+            } else {
+                message.warning('未找到消滅時間，請手動選擇');
+            }
+
+            // 提取首領
+            const bossName = logData['首領']; // 哀嘆的女王普蘭
+            if (bossName) {
+                const boss = bosses.find(b => b.name === bossName);
+                if (boss) {
+                    form.setFieldsValue({ bossId: boss._id });
+                } else {
+                    message.warning(`未找到首領 ${bossName}，請手動選擇`);
+                }
+            }
+
+            // 提取分配方式（物品持有人）
+            const distribution = logData['分配方式']; // 旅團部隊長獲得(英雄)
+            const guildCaptainName = logData['旅團部隊長']; // 伊莉斯
+            if (distribution) {
+                // 檢查是否為旅團部隊長獲得
+                if (distribution.includes('旅團部隊長獲得')) {
+                    if (guildCaptainName && users.includes(guildCaptainName)) {
+                        form.setFieldsValue({ itemHolder: guildCaptainName });
+                        message.success(`已自動選擇旅團部隊長 ${guildCaptainName} 作為戰利品持有人`);
+                    } else {
+                        message.warning('未找到旅團部隊長或旅團部隊長不在用戶列表中，請手動選擇物品持有人');
+                    }
+                } else {
+                    // 嘗試匹配具體的物品持有人
+                    const holderMatch = distribution.match(/物品持有人,\s*([^ ]+)/);
+                    if (holderMatch) {
+                        const itemHolder = holderMatch[1]; // 伊莉斯
+                        if (users.includes(itemHolder)) {
+                            form.setFieldsValue({ itemHolder });
+                        } else {
+                            message.warning(`未找到用戶 ${itemHolder}，請手動選擇物品持有人`);
+                        }
+                    } else {
+                        message.warning('未找到物品持有人，請手動選擇');
+                    }
+                }
+            } else {
+                message.warning('未找到分配方式，請手動選擇物品持有人');
+            }
+
+            // 提取戰鬥參與者
+            const attendeesStartIndex = lines.findIndex(line => line.startsWith('戰鬥參與者'));
+            const attendeesEndIndex = lines.findIndex(line => line.startsWith('旅團部隊成員'));
+            if (attendeesStartIndex !== -1 && attendeesEndIndex !== -1) {
+                const attendeesLines = lines.slice(attendeesStartIndex + 1, attendeesEndIndex);
+                const attendees = attendeesLines
+                    .map(line => line.trim())
+                    .filter(line => line);
+                const validAttendees = attendees.filter(attendee => users.includes(attendee));
+                if (validAttendees.length > 0) {
+                    form.setFieldsValue({ attendees: validAttendees });
+                } else {
+                    message.warning('未找到有效的戰鬥參與者，請手動選擇');
+                }
+            }
+
+            // 提取戰利品
+            const itemsStartIndex = lines.findIndex(line => line.startsWith('戰利品'));
+            if (itemsStartIndex !== -1) {
+                const itemsLines = lines.slice(itemsStartIndex + 1);
+                const droppedItems = itemsLines
+                    .map(line => {
+                        const parts = line.split('\t').map(part => part.trim());
+                        if (parts.length >= 2) {
+                            const itemName = parts[0]; // 戰利品名稱
+                            return itemName;
+                        }
+                        return null;
+                    })
+                    .filter(item => item);
+                const validItems = droppedItems
+                    .map(itemName => items.find(item => item.name === itemName))
+                    .filter(item => item)
+                    .map(item => ({ name: item.name }));
+                if (validItems.length > 0) {
+                    form.setFieldsValue({ item_names: validItems });
+                } else {
+                    message.warning('未找到有效的戰利品，請手動選擇');
+                }
+            }
+
+            message.success('已自動填寫表單，請檢查並提交');
+        } catch (err) {
+            console.error('Parse log error:', err);
+            message.error('解析旅團日誌失敗，請檢查格式並重試');
+        }
+    };
+
     const onFinish = (values) => {
- 
         if (fileList.length === 0) {
             message.error('請至少上傳一張圖片！');
             return;
@@ -191,7 +330,7 @@ const BossKillForm = () => {
             )) {
                 handleSubmit(values);
             } else {
-               
+                // 用戶取消提交
             }
         } else {
             message.error('請至少選擇一個掉落物品！');
@@ -231,7 +370,7 @@ const BossKillForm = () => {
                     window.location.href = '/login';
                     return;
                 }
-             
+
                 const res = await axios.post(`${BASE_URL}/api/boss-kills`, formData, {
                     headers: { 'x-auth-token': token, 'Content-Type': 'multipart/form-data' },
                 });
@@ -242,10 +381,10 @@ const BossKillForm = () => {
                     await axios.post(`${BASE_URL}/api/dkp/distribute/${killId}`, {}, {
                         headers: { 'x-auth-token': token },
                     });
-               
+                    logger.info('DKP distributed for kill', { killId });
                 }
 
-               
+                logger.info('Boss kill recorded', { killId });
             } catch (err) {
                 console.error(`Submit error for ${item.name}:`, err);
                 message.error(`提交失敗 (${item.name}): ${err.response?.data?.msg || err.message}`);
@@ -260,6 +399,7 @@ const BossKillForm = () => {
             alert(`擊殺記錄成功！ID: ${successIds}`);
             form.resetFields();
             setFileList([]);
+            setLogText(''); // 清空日誌輸入框
             form.setFieldsValue({ kill_time: null });
         }
         setLoading(false);
@@ -305,7 +445,6 @@ const BossKillForm = () => {
         } else {
             form.setFieldsValue({ attendees: filteredValue });
         }
-    
     };
 
     const renderItemOption = (item) => {
@@ -328,7 +467,7 @@ const BossKillForm = () => {
             <Card
                 title={
                     <Row justify="space-between" align="middle">
-                        <h2 style={{ margin: 0, fontSize: '24px', color: '#1890ff' }}>記錄擊殺</h2>
+                        <h2 style={{ margin: 0, fontSize: '24px', color: '#1890ff' }}>首領消滅記錄</h2>
                         {deferredPrompt && (
                             <Button type="link" onClick={handleInstallPWA}>
                                 安裝應用
@@ -349,6 +488,31 @@ const BossKillForm = () => {
                         initialValues={{ kill_time: null }}
                         requiredMark={true}
                     >
+                        {/* 旅團日誌輸入框 */}
+                        <Form.Item
+                            label={
+                                <span>
+                                    貼上旅團日誌（可自動填寫表單）
+                                    <Text type="secondary" style={{ marginLeft: 8 }}>
+                                        格式示例：消滅時間 2025.04.12-23.02.41 或 2025.04.12 23:02:41
+                                    </Text>
+                                </span>
+                            }
+                            style={{ marginBottom: 16 }}
+                        >
+                            <Space direction="vertical" style={{ width: '100%' }}>
+                                <TextArea
+                                    rows={6}
+                                    value={logText}
+                                    onChange={(e) => setLogText(e.target.value)}
+                                    placeholder="請貼上旅團日誌內容..."
+                                />
+                                <Button type="primary" onClick={parseLogAndFillForm}>
+                                    解析並填寫表單
+                                </Button>
+                            </Space>
+                        </Form.Item>
+
                         <Row gutter={16}>
                             <Col xs={24} sm={12}>
                                 <Form.Item
@@ -370,13 +534,13 @@ const BossKillForm = () => {
                                 </Form.Item>
                                 <Form.Item
                                     name="kill_time"
-                                    label="擊殺時間"
-                                    rules={[{ required: true, message: '請選擇擊殺時間！' }]}
+                                    label="消滅時間"
+                                    rules={[{ required: true, message: '請選擇消滅時間！' }]}
                                     style={{ marginBottom: 16 }}
                                 >
                                     <DatePicker
-                                        format="YYYY-MM-DD"
-                                        
+                                        showTime
+                                        format="YYYY-MM-DD HH:mm"
                                         value={date}
                                         onChange={(date) => setDate(date)}
                                         style={{ width: '100%' }}
@@ -393,10 +557,10 @@ const BossKillForm = () => {
                                                         <Form.Item
                                                             {...restField}
                                                             name={[name, 'name']}
-                                                            rules={[{ required: true, message: '請選擇掉落物品！' }]}
+                                                            rules={[{ required: true, message: '請選擇戰利品！' }]}
                                                         >
                                                             <Select
-                                                                placeholder="選擇掉落物品"
+                                                                placeholder="選擇戰利品"
                                                                 allowClear
                                                             >
                                                                 {items.map(item => renderItemOption(item))}
@@ -419,7 +583,7 @@ const BossKillForm = () => {
                                                     block
                                                     icon={<PlusOutlined />}
                                                 >
-                                                    添加掉落物品
+                                                    添加戰利品
                                                 </Button>
                                             </Form.Item>
                                         </>
@@ -431,20 +595,20 @@ const BossKillForm = () => {
                                     name="attendees"
                                     label={
                                         <span>
-                                            出席成員{' '}
+                                            戰鬥參與者{' '}
                                             {form.getFieldValue('attendees')?.length > 0 && (
                                                 <span>({form.getFieldValue('attendees').length} 已選)</span>
                                             )}
                                         </span>
                                     }
-                                    rules={[{ required: true, message: '請至少選擇一名出席成員！' }]}
+                                    rules={[{ required: true, message: '請至少選擇一名參與者！' }]}
                                     style={{ marginBottom: 16 }}
                                 >
                                     <Select
                                         mode="multiple"
                                         allowClear
                                         style={{ width: '100%' }}
-                                        placeholder="請選擇出席成員（可多選）"
+                                        placeholder="請選擇戰鬥參與者（可多選）"
                                         onChange={handleAttendeesChange}
                                         options={userOptions.attendees}
                                         showSearch
@@ -455,13 +619,13 @@ const BossKillForm = () => {
                                 </Form.Item>
                                 <Form.Item
                                     name="itemHolder"
-                                    label="物品持有人"
+                                    label="戰利品持有人"
                                     style={{ marginBottom: 16 }}
                                 >
                                     <Select
                                         allowClear
                                         style={{ width: '100%' }}
-                                        placeholder="請選擇物品持有人"
+                                        placeholder="請選擇戰利品持有人"
                                         options={userOptions.itemHolder}
                                         showSearch
                                         filterOption={(input, option) =>

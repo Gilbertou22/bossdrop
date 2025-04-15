@@ -6,6 +6,7 @@ const MenuItem = require('../models/MenuItem'); // 引入 MenuItem 模型
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const logger = require('../logger');
+const { auth } = require('../middleware/auth');
 require('dotenv').config();
 
 // 獲取客戶端 IP 地址
@@ -23,6 +24,7 @@ router.post('/register', async (req, res) => {
     console.log('Register request body:', req.body);
 
     try {
+        g
         if (!world_name || !character_name || !password) {
             return res.status(400).json({
                 code: 400,
@@ -90,6 +92,13 @@ router.post('/register', async (req, res) => {
             detail: err.message,
         });
     }
+});
+
+
+
+// 獲取當前用戶信息
+router.get('/user', auth, (req, res) => {
+    res.json({ user: req.user });
 });
 
 router.post('/login', async (req, res) => {
@@ -205,5 +214,18 @@ router.post('/login', async (req, res) => {
     }
 });
 
+
+// 登出路由
+router.post('/logout', (req, res) => {
+    req.session.destroy(err => {
+        console.log('Session destroyed:', req.sessionID);
+        if (err) {
+            console.error('Session destroy error:', err);
+            return res.status(500).json({ msg: '登出失敗' });
+        }
+        res.clearCookie('connect.sid'); // 假設使用 express-session
+        res.json({ msg: '登出成功' });
+    });
+});
 
 module.exports = router;

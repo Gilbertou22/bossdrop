@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Form, Input, Button, message, Card, Spin, Typography } from 'antd';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../AuthProvider';
 import logger from '../utils/logger';
 
 const { Text } = Typography;
@@ -11,10 +12,10 @@ const BASE_URL = process.env.REACT_APP_API_URL || '';
 const Login = () => {
     const [form] = Form.useForm();
     const [loading, setLoading] = useState(false);
-    const [clientIp, setClientIp] = useState('正在獲取...'); // 用於存儲客戶端 IP
+    const [clientIp, setClientIp] = useState('正在獲取...');
     const navigate = useNavigate();
+    const { login } = useAuth();
 
-    // 獲取客戶端 IP 地址
     useEffect(() => {
         const fetchClientIp = async () => {
             try {
@@ -42,29 +43,9 @@ const Login = () => {
                 password: values.password,
             };
 
-            const res = await axios.post(`${BASE_URL}/api/auth/login`, trimmedValues, {
-                withCredentials: true, // 允許接收 Set-Cookie 頭部
-            });
-
-            console.log('Login response:', res.data);
-            console.log('Response headers:', res.headers); // 檢查 Set-Cookie 頭部
-
-            const token = res.data.token;
-            if (!token) {
-                throw new Error('No token received from login response');
-            }
-
-            localStorage.setItem('token', token); // 存儲 token
-
-            message.success(res.data.msg);
-
-            // 根據角色導航到不同頁面（假設後端返回 user 對象包含 role）
-            const userRole = res.data.user?.role || 'user';
-            if (userRole === 'admin') {
-                navigate('/');
-            } else {
-                navigate('/');
-            }
+            await login(trimmedValues);
+            message.success('登入成功');
+            navigate('/'); // 直接導航到首頁
         } catch (err) {
             const errorMsg = err.response?.data?.msg || '登入失敗，請稍後重試';
             logger.error('Login error:', {
@@ -125,7 +106,6 @@ const Login = () => {
                                 登入
                             </Button>
                         </Form.Item>
-                        {/* 顯示客戶端 IP */}
                         <Text type="secondary" style={{ display: 'block', textAlign: 'center', marginTop: '10px' }}>
                             您目前的 IP 為 {clientIp}
                         </Text>

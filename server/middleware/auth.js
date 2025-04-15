@@ -11,29 +11,49 @@ const auth = async (req, res, next) => {
     }
 
     try {
-        //console.log('Token:', token);
+        console.log('Verifying token:', token.substring(0, 20) + '...');
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        //console.log('Decoded Token:', decoded);
+        console.log('Decoded Token:', decoded);
 
-        // 檢查嵌套的 id 字段
         const userId = decoded.user ? decoded.user.id : decoded.id;
         if (!userId) {
             throw new Error('Decoded token missing user.id or id');
         }
 
-        // 設置 req.user
         req.user = decoded.user ? decoded.user : { id: decoded.id };
 
         const user = await User.findById(userId).select('character_name role');
         if (!user) {
+            console.log('User not found for ID:', userId);
             return res.status(401).json({ msg: '用戶不存在' });
         }
 
         req.user = {
-            id: user._id,
+            id: user._id.toString(), // Ensure req.user.id is a string
             character_name: user.character_name,
             role: user.role || 'user',
         };
+
+        console.log('Authenticated user:', req.user);
+
+        // Ensure req.session exists, avoid throwing TypeError
+        if (req.session) {
+            console.log('Session data before setting userId:', req.session);
+            if (req.session.userId && req.session.userId !== req.user.id.toString()) {
+                console.log('Destroying session due to userId mismatch:', {
+                    existingUserId: req.session.userId,
+                    newUserId: req.user.id,
+                });
+                req.session.destroy(err => {
+                    if (err) console.error('Session destroy error:', err);
+                });
+            } else {
+                req.session.userId = req.user.id; // Store as string
+                console.log('Set req.session.userId:', req.session.userId);
+            }
+        } else {
+            console.warn('Session middleware not initialized, req.session is undefined');
+        }
 
         next();
     } catch (err) {
@@ -43,6 +63,13 @@ const auth = async (req, res, next) => {
             expiredAt: err.expiredAt,
             token: token ? token.substring(0, 20) + '...' : 'No token',
         });
+
+        if (err.name === 'TokenExpiredError' && req.session) {
+            req.session.destroy(err => {
+                if (err) console.error('Session destroy error:', err);
+            });
+        }
+
         res.status(401).json({ msg: 'Token 無效或已過期', detail: err.message });
     }
 };

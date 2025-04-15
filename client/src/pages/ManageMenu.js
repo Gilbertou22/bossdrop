@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { Tree, Button, Modal, Form, Input, Select, message, Spin, Row, Col, Popconfirm, Card, Space, Typography, Upload, Alert, Dropdown, Menu } from 'antd';
-import { DeleteOutlined, EditOutlined, PlusOutlined, UploadOutlined, MessageOutlined } from '@ant-design/icons';
-import { getIconMapping, getIconNames, IconRenderer } from '../components/IconMapping';
+import { PlusOutlined, UploadOutlined } from '@ant-design/icons';
+import { getIconMapping, getIconNames } from '../components/IconMapping';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { AuthContext } from '../AuthProvider';
@@ -33,20 +33,27 @@ const ManageMenu = () => {
             navigate('/login');
         } else {
             fetchMenuItems();
+
+            // 使用輪詢監聽菜單更新（簡單實現，建議使用 WebSocket）
+            const interval = setInterval(() => {
+                fetchMenuItems();
+            }, 30000); // 每 30 秒檢查一次
+
+            return () => clearInterval(interval);
         }
     }, [token, navigate]);
 
     // 監聽點擊和鍵盤事件以關閉右鍵菜單
     useEffect(() => {
         const handleClickOutside = (event) => {
-            if (contextMenuVisible && !event.target.closest('.ant-dropdown-menu')) {
+            if (contextMenuVisible && !event.target.closest('.ant-dropdown-menu') && !visible) {
                 setContextMenuVisible(false);
                 setContextNode(null);
             }
         };
 
         const handleEscKey = (event) => {
-            if (event.key === 'Escape' && contextMenuVisible) {
+            if (event.key === 'Escape' && contextMenuVisible && !visible) {
                 setContextMenuVisible(false);
                 setContextNode(null);
             }
@@ -59,7 +66,11 @@ const ManageMenu = () => {
             document.removeEventListener('click', handleClickOutside);
             document.removeEventListener('keydown', handleEscKey);
         };
-    }, [contextMenuVisible]);
+    }, [contextMenuVisible, visible]);
+
+    useEffect(() => {
+        console.log('Context node:', contextNode);
+    }, [contextNode]);
 
     const fetchMenuItems = async () => {
         setLoading(true);
@@ -156,13 +167,18 @@ const ManageMenu = () => {
             console.log('Final tree data:', finalTreeData); // 檢查最終樹狀數據
             setTreeData(finalTreeData.length > 0 ? finalTreeData : [{ key: '/', label: '首頁', children: [] }]);
         } catch (err) {
-            logger.error('Fetch session menu items error', { error: err.response?.data || err.message });
-            message.error({
-                content: '載入菜單項失敗',
-                duration: 3,
-                onClose: () => fetchMenuItems(),
-            });
-            setTreeData([{ key: '/', label: '首頁', children: [] }]); // 設置默認數據
+            if (err.response?.status === 401) {
+                // Token 過期，重新登錄
+                navigate('/login');
+            } else {
+                logger.error('Fetch session menu items error', { error: err.response?.data || err.message });
+                message.error({
+                    content: '載入菜單項失敗',
+                    duration: 3,
+                    onClose: () => fetchMenuItems(),
+                });
+                setTreeData([{ key: '/', label: '首頁', children: [] }]); // 設置默認數據
+            }
         } finally {
             setLoading(false);
         }
@@ -182,7 +198,15 @@ const ManageMenu = () => {
         }
         // 如果是新增子節點，設置 parentId
         if (contextNode && !editingItem) {
+            console.log('Setting parentId:', contextNode._id, 'for node:', contextNode.label);
+            if (!contextNode._id) {
+                message.error('父節點 ID 無效，請重新選擇');
+                setLoading(false);
+                return;
+            }
             formData.append('parentId', contextNode._id);
+        } else {
+            console.log('No parentId set, contextNode:', contextNode, 'editingItem:', editingItem);
         }
 
         try {
@@ -195,7 +219,6 @@ const ManageMenu = () => {
             } else {
                 response = await axios.post(`${BASE_URL}/api/menu`, formData, {
                     headers: { 'x-auth-token': token, 'Content-Type': 'multipart/form-data' },
-                    
                 });
                 message.success('菜單項創建成功');
             }
@@ -220,10 +243,17 @@ const ManageMenu = () => {
                 headers: { 'x-auth-token': token },
             });
             message.success('菜單項刪除成功');
-            fetchMenuItems();
+            fetchMenuItems(); // 刷新數據
             setSelectedNode(null);
         } catch (err) {
-            message.error(err.response?.data?.msg || '刪除失敗');
+            const errorMsg = err.response?.data?.msg || '刪除失敗';
+            if (err.response?.status === 404) {
+                message.warning('該菜單項已不存在，將刷新數據');
+                fetchMenuItems(); // 刷新數據
+                setSelectedNode(null);
+            } else {
+                message.error(errorMsg);
+            }
         } finally {
             setLoading(false);
         }
@@ -270,7 +300,7 @@ const ManageMenu = () => {
             });
         };
 
-        const data = [...treeData];
+        const data = JSON.parse(JSON.stringify(treeData)); // 深拷貝 treeData，避免修改原始數據
 
         let dragObj;
         loop(data, dragKey, (item, index, arr) => {
@@ -306,6 +336,27 @@ const ManageMenu = () => {
             }
         }
 
+        // 驗證 data 中的每個節點是否包含有效的 _id
+        const validateNode = (node) => {
+            if (!node._id || typeof node._id !== 'string' || node._id.length !== 24 || !/^[0-9a-fA-F]{24}$/.test(node._id)) {
+                throw new Error(`無效的 _id: ${JSON.stringify(node)}`);
+            }
+            if (node.children && Array.isArray(node.children)) {
+                node.children.forEach(child => validateNode(child));
+            }
+        };
+
+        try {
+            data.forEach(node => validateNode(node));
+        } catch (err) {
+            message.error('無效的菜單項數據，請刷新後重試');
+            console.error(err.message);
+            fetchMenuItems();
+            return;
+        }
+
+        console.log('Data before reorder:', JSON.stringify(data, null, 2)); // 添加日誌檢查
+
         setTreeData(data);
 
         try {
@@ -323,6 +374,12 @@ const ManageMenu = () => {
     const onSelect = (selectedKeys, info) => {
         if (selectedKeys.length > 0) {
             const node = info.node;
+            if (!node._id) {
+                console.warn('Selected node has no _id:', node);
+                setSelectedNode(null);
+                form.resetFields();
+                return;
+            }
             setSelectedNode(node);
             form.setFieldsValue({
                 key: node.key,
@@ -351,6 +408,10 @@ const ManageMenu = () => {
     };
 
     const handleAddChild = () => {
+        if (!contextNode) {
+            message.error('請選擇一個父節點進行新增子節點');
+            return;
+        }
         setVisible(true); // 顯示模態框
         setEditingItem(null); // 確保是新增模式
         form.resetFields(); // 重置表單
@@ -522,14 +583,20 @@ const ManageMenu = () => {
                                                     </Button>
                                                     <Popconfirm
                                                         title="確認刪除此菜單項？"
-                                                        onConfirm={() => handleDelete(selectedNode._id)}
+                                                        onConfirm={() => {
+                                                            if (!selectedNode || !selectedNode._id) {
+                                                                message.error('請選擇一個有效的菜單項進行刪除');
+                                                                return;
+                                                            }
+                                                            handleDelete(selectedNode._id);
+                                                        }}
                                                         okText="是"
                                                         cancelText="否"
-                                                        disabled={loading}
+                                                        disabled={loading || !selectedNode || !selectedNode._id}
                                                     >
                                                         <Button
                                                             danger
-                                                            disabled={loading}
+                                                            disabled={loading || !selectedNode || !selectedNode._id}
                                                             style={{ borderRadius: '8px' }}
                                                         >
                                                             刪除

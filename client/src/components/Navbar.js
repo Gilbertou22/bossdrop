@@ -1,22 +1,11 @@
 import React, { useState, useEffect, useCallback, useContext } from 'react';
-import { Menu, Layout, Dropdown, Avatar, Badge, Button, Popover, Drawer, Spin, message, Divider, Space, Typography } from 'antd';
+import { Menu, Layout, Dropdown, Avatar, Badge, Button, Popover, Drawer, Spin, message, Divider, Typography } from 'antd';
 import {
     LoginOutlined,
     UserAddOutlined,
-    FileDoneOutlined,
-    ShoppingOutlined,
-    BarChartOutlined,
     LogoutOutlined,
-    DollarOutlined,
     HomeOutlined,
-    TeamOutlined,
-    GiftOutlined,
-    CheckCircleOutlined,
-    UserOutlined,
     BellOutlined,
-    SketchOutlined,
-    AuditOutlined,
-    CloudUploadOutlined,
     MenuOutlined,
     EditOutlined,
 } from '@ant-design/icons';
@@ -38,12 +27,11 @@ const BASE_URL = process.env.REACT_APP_API_URL || '';
 const Navbar = () => {
     const navigate = useNavigate();
     const location = useLocation();
-    const { user, logout } = useContext(AuthContext);
+    const { user, token, logout, loading } = useContext(AuthContext);
     const { unreadCount, setUnreadCount, notifications, setNotifications } = useNotification();
-    const [token, setToken] = useState(localStorage.getItem('token')); // 本地監聽 token 變化
     const [profileVisible, setProfileVisible] = useState(false);
     const [pendingCount, setPendingCount] = useState(0);
-    const [loading, setLoading] = useState(false);
+    const [navbarLoading, setNavbarLoading] = useState(false);
     const [drawerVisible, setDrawerVisible] = useState(false);
     const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
     const [deferredPrompt, setDeferredPrompt] = useState(null);
@@ -63,84 +51,35 @@ const Navbar = () => {
             setDeferredPrompt(e);
         });
 
-        // 監聽 localStorage 的 token 變化
-        const handleStorageChange = () => {
-            const newToken = localStorage.getItem('token');
-            setToken(newToken);
-        };
-
-        window.addEventListener('storage', handleStorageChange);
-
         return () => {
             window.removeEventListener('resize', handleResize);
-            window.removeEventListener('storage', handleStorageChange);
         };
     }, []);
 
-    // 監聽 token 和 user 變化，重新加載菜單數據
-    useEffect(() => {
-        console.log('Token:', token);
-        console.log('User:', user);
-        if (!token) {
-            setMenuItems([{ key: '/', label: '首頁', icon: <HomeOutlined /> }]);
-            setNotifications([]);
-            setUnreadCount(0);
-        } else if (user) {
-            fetchNotifications();
-            fetchMenuItems();
-        }
-    }, [token, user]);
-
-    useEffect(() => {
-        if (user && (user.role === 'admin' || user.role === 'moderator')) {
-            fetchPendingCount();
-        }
-    }, [user]);
-
-    const handleInstallPWA = () => {
-        if (deferredPrompt) {
-            deferredPrompt.prompt();
-            deferredPrompt.userChoice.then((choiceResult) => {
-                if (choiceResult.outcome === 'accepted') {
-                    logger.info('User accepted the install prompt');
-                } else {
-                    logger.info('User dismissed the install prompt');
-                }
-                setDeferredPrompt(null);
-            });
-        }
-    };
-
-    const fetchPendingCount = useCallback(async () => {
-        try {
-            setLoading(true);
-            const res = await axios.get(`${BASE_URL}/api/auctions/pending-count`, {
-                headers: { 'x-auth-token': token },
-            });
-            setPendingCount(res.data.count);
-            logger.info('Fetched pending auctions count', { count: res.data.count });
-        } catch (err) {
-            logger.error('Fetch pending count error', { error: err.response?.data || err.message });
-            message.warning('無法獲取待處理拍賣數量');
-        } finally {
-            setLoading(false);
-        }
-    }, [token]);
-
     const fetchNotifications = useCallback(async () => {
+        if (!token) {
+            console.log('No token available, skipping fetchNotifications');
+            return;
+        }
         try {
-            setLoading(true);
+            setNavbarLoading(true);
+            console.log('Fetching notifications with token:', token.substring(0, 20) + '...');
             const res = await axios.get(`${BASE_URL}/api/notifications`, {
                 headers: { 'x-auth-token': token },
+                cache: 'no-store',
             });
+            console.log('Notifications response:', res.data);
             const enrichedNotifications = await Promise.all(res.data.notifications.slice(0, 5).map(async (notification) => {
                 let imageUrl = 'https://via.placeholder.com/50';
                 let isValidAuction = true;
                 if (notification.auctionId) {
                     try {
+                        console.log('Fetching auction for notification:', notification.auctionId);
                         const auctionRes = await axios.get(`${BASE_URL}/api/auctions/${notification.auctionId}`, {
                             headers: { 'x-auth-token': token },
+                            cache: 'no-store',
                         });
+                        console.log('Auction response:', auctionRes.data);
                         const auction = auctionRes.data;
                         if (auction && auction.itemId) {
                             const itemId = typeof auction.itemId === 'object' && auction.itemId._id
@@ -150,9 +89,12 @@ const Navbar = () => {
                                 logger.warn('Invalid itemId in auction', { auctionId: notification.auctionId, itemId });
                                 return { ...notification, imageUrl, isValidAuction };
                             }
+                            console.log('Fetching boss kill for item:', itemId);
                             const bossKillRes = await axios.get(`${BASE_URL}/api/boss-kills/${itemId}`, {
                                 headers: { 'x-auth-token': token },
+                                cache: 'no-store',
                             });
+                            console.log('Boss kill response:', bossKillRes.data);
                             const bossKill = bossKillRes.data;
                             if (bossKill && bossKill.screenshots?.length > 0) {
                                 imageUrl = bossKill.screenshots[0].startsWith('http')
@@ -189,61 +131,91 @@ const Navbar = () => {
             logger.info('Fetched notifications', { unreadCount: res.data.unreadCount, notificationCount: validNotifications.length });
         } catch (err) {
             logger.error('Fetch notifications error', { error: err.response?.data || err.message });
-            message.error('無法獲取通知，請重新登錄');
-            navigate('/login');
+            message.error('無法獲取通知');
         } finally {
-            setLoading(false);
+            setNavbarLoading(false);
         }
-    }, [token, navigate, setNotifications, setUnreadCount]);
-
+    }, [token, setNotifications, setUnreadCount]);
+    
     const fetchMenuItems = useCallback(async () => {
+        if (!token) return; // Avoid fetching if token is null
         try {
             const res = await axios.get(`${BASE_URL}/api/session/menu`, {
-                headers: { 'x-auth-token': token },                
+                headers: { 'x-auth-token': token },
                 withCredentials: true,
+                cache: 'no-store',
             });
 
-            console.log('Session menu response:', res.data); // 檢查 session 數據
+            console.log('Session menu response:', res.data);
 
-            // 獲取所有子菜單項的 ID
-            const allChildIds = new Set();
-            res.data.forEach(item => {
-                if (item.children && Array.isArray(item.children)) {
-                    item.children.forEach(child => {
-                        if (child && child._id) {
-                            allChildIds.add(child._id.toString());
-                        }
-                    });
-                }
-            });
-
-            // 過濾出第一層級菜單項（不包含已經作為子菜單的項）
-            const menuItems = res.data
+            const seenIds = new Set();
+            const allItems = res.data
                 .filter(item => {
                     if (!item._id) {
                         console.warn('Item with undefined _id:', item);
                         return false;
                     }
-                    return !allChildIds.has(item._id.toString());
+                    if (seenIds.has(item._id)) {
+                        console.warn('Duplicate _id found:', item._id);
+                        return false;
+                    }
+                    seenIds.add(item._id);
+                    return true;
                 })
                 .map(item => ({
                     key: item.key,
-                    label: item.label.includes('競標') && (user?.role === 'admin' || user?.role === 'moderator')
-                        ? `${item.label} (${pendingCount})`
-                        : item.label,
+                    label: item.label,
                     icon: item.customIcon ? <Avatar src={item.customIcon} size={20} /> : (getIconMapping()[item.icon] || null),
-                    children: item.children
-                        ? item.children.map(child => ({
-                            key: child.key,
-                            label: child.label,
-                            icon: child.customIcon ? <Avatar src={child.customIcon} size={20} /> : (getIconMapping()[child.icon] || null),
-                        }))
-                        : undefined,
+                    roles: item.roles,
+                    parentId: item.parentId,
+                    order: item.order,
+                    _id: item._id,
+                    children: [],
                 }));
 
-            console.log('Fetched menuItems:', menuItems); // 檢查過濾後的菜單項
+            const treeDataMap = {};
+            const treeData = [];
 
-            // 如果 menuItems 為空，設置默認菜單項
+            allItems.forEach(item => {
+                treeDataMap[item._id] = { ...item, children: [] };
+            });
+
+            allItems.forEach(item => {
+                if (item.parentId && treeDataMap[item.parentId]) {
+                    treeDataMap[item.parentId].children.push(treeDataMap[item._id]);
+                } else {
+                    treeData.push(treeDataMap[item._id]);
+                }
+            });
+
+            const topLevelIds = new Set(treeData.map(item => item._id));
+            const finalTreeData = treeData.filter(item => {
+                let isChild = false;
+                for (const topItem of treeData) {
+                    if (topItem._id === item._id) continue;
+                    const hasChild = (node) => {
+                        if (node.children.some(child => child._id === item._id)) {
+                            return true;
+                        }
+                        return node.children.some(child => hasChild(child));
+                    };
+                    if (hasChild(topItem)) {
+                        isChild = true;
+                        break;
+                    }
+                }
+                return !isChild;
+            });
+
+            const menuItems = finalTreeData.map(item => ({
+                ...item,
+                label: item.label.includes('競標') && (user?.role === 'admin' || user?.role === 'moderator')
+                    ? `${item.label} (${pendingCount})`
+                    : item.label,
+            }));
+
+            console.log('Fetched menuItems:', menuItems);
+
             if (menuItems.length === 0) {
                 setMenuItems([{ key: '/', label: '首頁', icon: <HomeOutlined /> }]);
             } else {
@@ -252,47 +224,101 @@ const Navbar = () => {
             logger.info('Fetched menu items from session', { menuItems });
         } catch (err) {
             logger.error('Fetch session menu items error', { error: err.response?.data || err.message });
+            // Remove direct logout call, let axios interceptor handle it
             message.error('無法獲取菜單項');
             setMenuItems([{ key: '/', label: '首頁', icon: <HomeOutlined /> }]);
         }
     }, [token, user, pendingCount]);
 
+    const fetchPendingCount = useCallback(async () => {
+        if (!token) return; // Avoid fetching if token is null
+        try {
+            setNavbarLoading(true);
+            const res = await axios.get(`${BASE_URL}/api/auctions/pending-count`, {
+                headers: { 'x-auth-token': token },
+                cache: 'no-store',
+            });
+            setPendingCount(res.data.count);
+            logger.info('Fetched pending auctions count', { count: res.data.count });
+        } catch (err) {
+            logger.error('Fetch pending count error', { error: err.response?.data || err.message });
+            // Remove direct logout call, let axios interceptor handle it
+            message.warning('無法獲取待處理拍賣數量');
+        } finally {
+            setNavbarLoading(false);
+        }
+    }, [token]);
+
+    useEffect(() => {
+        console.log('Token:', token);
+        console.log('User:', user);
+        console.log('Loading:', loading);
+        if (!token) {
+            setMenuItems([{ key: '/', label: '首頁', icon: <HomeOutlined /> }]);
+            setNotifications([]);
+            setUnreadCount(0);
+        } else {
+            fetchMenuItems();
+            if (user) {
+                fetchNotifications();
+            }
+        }
+    }, [token, user, fetchNotifications, fetchMenuItems]);
+
+    useEffect(() => {
+        if (user && (user.role === 'admin' || user.role === 'moderator')) {
+            fetchPendingCount();
+        }
+    }, [user, fetchPendingCount]);
+
+    const handleInstallPWA = () => {
+        if (deferredPrompt) {
+            deferredPrompt.prompt();
+            deferredPrompt.userChoice.then((choiceResult) => {
+                if (choiceResult.outcome === 'accepted') {
+                    logger.info('User accepted the install prompt');
+                } else {
+                    logger.info('User dismissed the install prompt');
+                }
+                setDeferredPrompt(null);
+            });
+        }
+    };
+
     const markAsRead = async (notificationId) => {
         try {
-            setLoading(true);
+            setNavbarLoading(true);
             await axios.put(
                 `${BASE_URL}/api/notifications/${notificationId}/read`,
                 {},
-                { headers: { 'x-auth-token': token } }
+                { headers: { 'x-auth-token': token }, cache: 'no-store' }
             );
             message.success('通知已標記為已讀');
             setNotifications(notifications.map(n => n._id === notificationId ? { ...n, read: true } : n));
             await fetchNotifications();
         } catch (err) {
             logger.error('Mark as read error', { notificationId, error: err.response?.data || err.message });
+            // Remove direct logout call, let axios interceptor handle it
             message.error('標記為已讀失敗');
         } finally {
-            setLoading(false);
+            setNavbarLoading(false);
         }
     };
 
     const handleLogout = () => {
-        logout(); // 使用 AuthContext 的 logout 函數
+        logout();
         setNotifications([]);
         setUnreadCount(0);
         setMenuItems([{ key: '/', label: '首頁', icon: <HomeOutlined /> }]);
         message.success('已登出');
     };
 
-    // 提取用戶名稱的第一個字節，處理多字節字符
     const getFirstCharacter = (name) => {
-        if (!name) return 'U'; // 如果名稱不存在，顯示默認字符 "U"
-        // 使用正則表達式提取第一個字符（支持多字節字符）
+        if (!name) return 'U';
         const firstChar = name.match(/./u)?.[0];
-        return firstChar || 'U'; // 如果提取失敗，返回默認字符 "U"
+        return firstChar || 'U';
     };
 
-    // 定義 handleMenuClick 函數
     const handleMenuClick = ({ key }) => {
         logger.info('Menu item clicked', { key });
         const menuItem = menuItems.find(item => item.key === key) ||
@@ -317,13 +343,11 @@ const Navbar = () => {
         }
     };
 
-    // 定義 onOpenChange 函數
     const onOpenChange = (keys) => {
         logger.info('Menu open keys changed', { keys });
         setOpenKeys(keys);
     };
 
-    // 定義 renderMenuItems 函數
     const renderMenuItems = (items) => {
         return items.map(item => {
             if (item.children && item.children.length > 0) {
@@ -345,9 +369,14 @@ const Navbar = () => {
         });
     };
 
-    // 優化彈出選單的內容
     const userMenu = (
-        <div style={{ width: '200px', padding: '8px' }}>
+        <div style={{
+            width: '200px',
+            padding: '8px',
+            backgroundColor: '#fff',
+            borderRadius: '8px',
+            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
+        }}>
             <div style={{ textAlign: 'center', marginBottom: '8px' }}>
                 <Avatar
                     size={48}
@@ -428,6 +457,30 @@ const Navbar = () => {
         </div>
     );
 
+    if (loading) {
+        return (
+            <Header
+                style={{
+                    background: '#001529',
+                    padding: '0 20px',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    height: '64px',
+                    position: 'fixed',
+                    top: 0,
+                    width: '100%',
+                    zIndex: 1000,
+                }}
+            >
+                <Spin />
+            </Header>
+        );
+    }
+
+    console.log('Rendering Navbar with token:', token);
+    console.log('Rendering Navbar with user:', user);
+
     return (
         <Header
             style={{
@@ -490,8 +543,8 @@ const Navbar = () => {
                         安裝應用
                     </Button>
                 )}
-                {token && user && (
-                    <Spin spinning={loading}>
+                {token && user ? (
+                    <Spin spinning={navbarLoading}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '8px' : '20px' }}>
                             <Popover content={notificationContent} trigger="click" placement="bottomRight">
                                 <Badge
@@ -517,13 +570,12 @@ const Navbar = () => {
                                     }}
                                     className="user-avatar"
                                 >
-                                    {getFirstCharacter(user?.character_name)}
+                                    {getFirstCharacter(user.character_name)}
                                 </Avatar>
                             </Dropdown>
                         </div>
                     </Spin>
-                )}
-                {!token && (
+                ) : (
                     <>
                         <Button
                             type="link"
@@ -544,7 +596,6 @@ const Navbar = () => {
                     </>
                 )}
             </div>
-            <UserProfile visible={profileVisible} onCancel={() => setProfileVisible(false)} />
             <style jsx="true">{`
                 @media (max-width: 768px) {
                     .ant-btn {
@@ -564,6 +615,7 @@ const Navbar = () => {
                 }
                 .ant-dropdown-menu {
                     padding: 0 !important;
+                    background-color: transparent !important;
                 }
                 .ant-dropdown-menu-item {
                     padding: 8px 16px !important;

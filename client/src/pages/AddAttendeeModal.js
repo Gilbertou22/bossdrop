@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { Modal, Button, Upload, Input, message, Image } from 'antd';
 import { UploadOutlined } from '@ant-design/icons';
 import axios from 'axios';
-import logger from '../utils/logger'; // 引入前端日誌工具
 
 const BASE_URL = process.env.REACT_APP_API_URL || '';
 
@@ -11,23 +10,37 @@ const AddAttendeeModal = ({ visible, onCancel, killId, token, onSubmit }) => {
     const [reason, setReason] = useState('');
     const [uploading, setUploading] = useState(false);
 
+    const handleBeforeUpload = ({ file, onSuccess, onError }) => {
+        // 檢查文件大小（20MB = 20 * 1024 * 1024 字節）
+        const maxSize = 20 * 1024 * 1024; // 20MB
+        if (file.size > maxSize) {
+            message.error('圖片大小超過限制（20MB）');
+            onError('圖片大小超過限制');
+            return false;
+        }
+        handleUpload({ file });
+        return false; // 阻止 Upload 組件的自動上傳
+    };
+
     const handleUpload = async ({ file }) => {
         setUploading(true);
         const formData = new FormData();
         formData.append('image', file);
-
+      
         try {
             const res = await axios.post(`${BASE_URL}/api/upload`, formData, {
                 headers: {
                     'x-auth-token': token,
-                    'Content-Type': 'multipart/form-data',
                 },
+                timeout: 30000, // 設置超時為 30 秒
             });
-            setProofImage(res.data.path); // 假設後端返回圖片路徑
+            const imageUrl = `${BASE_URL}${res.data.path}`;
+        
+            setProofImage(imageUrl);
             message.success('圖片上傳成功');
         } catch (err) {
+            message.error('圖片上傳失敗: ' + (err.response?.data?.msg || err.message));
             console.error('Upload error:', err);
-            message.error('圖片上傳失敗');
         } finally {
             setUploading(false);
         }
@@ -47,7 +60,6 @@ const AddAttendeeModal = ({ visible, onCancel, killId, token, onSubmit }) => {
             message.success(res.data.msg || '補單申請提交成功，等待管理員審核');
             onSubmit();
         } catch (err) {
-            console.error('Submit attendee request error:', err.response?.data || err);
             message.error(`補單申請提交失敗: ${err.response?.data?.msg || err.message}`);
         }
     };
@@ -69,7 +81,7 @@ const AddAttendeeModal = ({ visible, onCancel, killId, token, onSubmit }) => {
             <div style={{ marginBottom: '16px' }}>
                 <Upload
                     beforeUpload={() => false} // 阻止自動上傳
-                    onChange={handleUpload}
+                    onChange={handleBeforeUpload}
                     showUploadList={false}
                 >
                     <Button icon={<UploadOutlined />} loading={uploading}>

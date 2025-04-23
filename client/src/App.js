@@ -62,17 +62,17 @@ function App() {
                                         <Route path="/" element={<Home />} />
                                         <Route path="/register" element={<Register />} />
                                         <Route path="/login" element={<Login />} />
-                                        <Route path="/coming-soon" element={<ComingSoon />} />
-                                        <Route path="/manage-menu" element={<ManageMenu />} />
-                                        <Route path="/403" element={<Forbidden />} />
+                                        <Route path="/coming-soon" element={<ComingSoon />} />                                        
                                         <Route
-                                            path="/change-password"
+                                            path="/manage-menu"
                                             element={
-                                                <RoleRoute mustChangePasswordRedirect allowedRoles={['user', 'moderator', 'admin']}>
-                                                    <ChangePassword />
+                                                <RoleRoute allowedRoles={['admin']}>
+                                                    <ManageMenu />
                                                 </RoleRoute>
                                             }
                                         />
+                                        <Route path="/403" element={<Forbidden />} />
+                                        <Route path="/change-password" element={<ChangePassword />} />
                                         <Route path="/menu-logs" element={<MenuLogs />} />
                                         <Route
                                             path="/apply-item"
@@ -109,7 +109,7 @@ function App() {
                                         <Route
                                             path="/dkp/settings"
                                             element={
-                                                <RoleRoute allowedRoles={['user', 'moderator', 'admin']}>
+                                                <RoleRoute allowedRoles={['moderator', 'admin']}>
                                                     <DKPSettings />
                                                 </RoleRoute>
                                             }

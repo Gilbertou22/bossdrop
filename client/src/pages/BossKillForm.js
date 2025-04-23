@@ -124,7 +124,6 @@ const BossKillForm = () => {
                 guildCaptain, // 保存旅團部隊長
             });
         } catch (err) {
-            console.error('Fetch users error:', err);
             message.error('載入用戶失敗: ' + err.message);
             logger.error('Fetch users failed', { error: err.message, stack: err.stack });
         }
@@ -166,7 +165,6 @@ const BossKillForm = () => {
             setUploading(false);
             return false;
         } catch (err) {
-            console.error('Image compression error:', err);
             message.error('圖片壓縮失敗，請重試！');
             setUploading(false);
             return Upload.LIST_IGNORE;
@@ -175,6 +173,22 @@ const BossKillForm = () => {
 
     const handleRemove = (file) => {
         setFileList(fileList.filter(item => item.uid !== file.uid));
+    };
+
+    // 載入預設圖片並轉換為 File 對象
+    const getDefaultImage = async () => {
+        try {
+            const response = await fetch('/wp.jpg'); // 假設 wp.jpg 在 public 資料夾中
+            if (!response.ok) {
+                throw new Error('無法載入預設圖片');
+            }
+            const blob = await response.blob();
+            return new File([blob], 'wp.jpg', { type: 'image/jpeg' });
+        } catch (err) {
+            message.error('載入預設圖片失敗，請手動上傳圖片');
+            logger.error('Failed to load default image', { error: err.message });
+            return null;
+        }
     };
 
     // 解析旅團日誌並自動填寫表單
@@ -187,9 +201,17 @@ const BossKillForm = () => {
             const headerLine = lines[0]; // 消滅時間 地點 首領 總參與人數 旅團部隊長 分配方式
             const contentLine = lines[1]; // 2025.04.12-23.02.41 冰封瀑布 哀嘆的女王普蘭 10 伊莉斯 旅團部隊長獲得(英雄)
 
-            // 按 TAB 分隔表頭和內容
-            const headers = headerLine.split('\t').map(h => h.trim());
-            const contents = contentLine.split('\t').map(c => c.trim());
+            // 按 TAB 或 4 個空格分隔表頭和內容
+            const headers = headerLine.split(/\t| {4}/).map(h => h.trim());
+            const contents = contentLine.split(/\t| {4}/).map(c => c.trim());
+
+         
+
+            // 驗證字段數量
+            if (headers.length !== contents.length) {
+                message.error(`日誌格式錯誤：表頭字段數 (${headers.length}) 與內容字段數 (${contents.length}) 不一致`);
+                return;
+            }
 
             // 創建字段映射
             const logData = {};
@@ -285,7 +307,7 @@ const BossKillForm = () => {
                 const itemsLines = lines.slice(itemsStartIndex + 1);
                 const droppedItems = itemsLines
                     .map(line => {
-                        const parts = line.split('\t').map(part => part.trim());
+                        const parts = line.split(/\t| {4}/).map(part => part.trim());
                         if (parts.length >= 2) {
                             const itemName = parts[0]; // 戰利品名稱
                             return itemName;
@@ -306,17 +328,12 @@ const BossKillForm = () => {
 
             message.success('已自動填寫表單，請檢查並提交');
         } catch (err) {
-            console.error('Parse log error:', err);
             message.error('解析旅團日誌失敗，請檢查格式並重試');
         }
     };
 
     const onFinish = (values) => {
-        if (fileList.length === 0) {
-            message.error('請至少上傳一張圖片！');
-            return;
-        }
-
+        // 移除對 fileList 的必填檢查
         if (values.item_names && values.item_names.length > 0) {
             const itemsText = values.item_names.map(item => item.name).join(', ');
             if (window.confirm(
@@ -326,11 +343,9 @@ const BossKillForm = () => {
                 `- 掉落物品: ${itemsText}\n` +
                 `- 出席成員: ${Array.isArray(values.attendees) ? values.attendees.join(', ') : ''}\n` +
                 `- 物品持有人: ${values.itemHolder || '未分配'}\n` +
-                `- 補充圖片數量: ${fileList.length} 張`
+                `- 補充圖片數量: ${fileList.length > 0 ? fileList.length : '使用預設圖片 (wp.jpg)'}`
             )) {
                 handleSubmit(values);
-            } else {
-                // 用戶取消提交
             }
         } else {
             message.error('請至少選擇一個掉落物品！');
@@ -362,7 +377,21 @@ const BossKillForm = () => {
             const attendeesArray = Array.isArray(values.attendees) ? values.attendees : [];
             formData.append('attendees', JSON.stringify(attendeesArray));
             formData.append('itemHolder', values.itemHolder || '');
-            fileList.forEach(file => formData.append('screenshots', file.originFileObj));
+
+            // 如果用戶未上傳圖片，使用預設圖片 wp.jpg
+            if (fileList.length === 0) {
+                /*
+                const defaultImage = await getDefaultImage();
+                if (defaultImage) {
+                    formData.append('screenshots', defaultImage);
+                } else {
+                    setLoading(false);
+                    return; // 如果無法載入預設圖片，停止提交
+                }
+                */
+            } else {
+                fileList.forEach(file => formData.append('screenshots', file.originFileObj));
+            }
 
             try {
                 if (!token) {
@@ -386,7 +415,6 @@ const BossKillForm = () => {
 
                 logger.info('Boss kill recorded', { killId });
             } catch (err) {
-                console.error(`Submit error for ${item.name}:`, err);
                 message.error(`提交失敗 (${item.name}): ${err.response?.data?.msg || err.message}`);
                 if (err.response?.status === 401 || err.response?.status === 403) {
                     window.location.href = '/login';
@@ -637,8 +665,7 @@ const BossKillForm = () => {
                         </Row>
                         <Form.Item
                             name="screenshots"
-                            label="補充圖片（至少1張，最多5張）"
-                            rules={[{ required: true, message: '請至少上傳一張補充圖片！' }]}
+                            label="補充圖片（可選，最多5張，若未上傳則使用預設圖片）"
                             style={{ marginBottom: 16, marginTop: 16 }}
                         >
                             <Upload {...uploadProps}>

@@ -36,7 +36,7 @@ router.get('/transactions', auth, async (req, res) => {
             }
         }
 
-        // 查詢 WalletTransaction 和 DKPRecord，不進行分頁
+        // 查詢 WalletTransaction 和 DKPRecord
         const walletTransactions = await WalletTransaction.find(walletQuery)
             .sort({ [sortBy]: sortOrder === 'desc' ? -1 : 1 })
             .lean();
@@ -45,19 +45,28 @@ router.get('/transactions', auth, async (req, res) => {
             .sort({ [sortBy]: sortOrder === 'desc' ? -1 : 1 })
             .lean();
 
-        // 將 DKP 記錄轉換為錢包交易格式
+        // 將 DKP 記錄轉換為錢包交易格式，並統一描述
         const dkpTransactions = dkpRecords.map(record => ({
             _id: record._id,
             userId: record.userId,
             amount: record.amount,
             type: record.amount > 0 ? 'income' : 'expense',
             source: 'dkp',
-            description: record.description,
+            description: record.description.replace(/^DKP 點數變動：/, ''), // 移除 "DKP 點數變動：" 前綴
             timestamp: record.createdAt,
         }));
 
-        // 合併交易記錄並排序
+        // 合併交易記錄並去重（根據時間戳、金額、描述和來源）
+        const transactionMap = new Map();
         const allTransactions = [...walletTransactions, ...dkpTransactions]
+            .forEach(transaction => {
+                const key = `${transaction.timestamp}_${transaction.amount}_${transaction.description}_${transaction.source}`;
+                if (!transactionMap.has(key)) {
+                    transactionMap.set(key, transaction);
+                }
+            });
+
+        const uniqueTransactions = Array.from(transactionMap.values())
             .sort((a, b) => {
                 const dateA = new Date(a.timestamp);
                 const dateB = new Date(b.timestamp);
@@ -65,10 +74,10 @@ router.get('/transactions', auth, async (req, res) => {
             });
 
         // 計算總記錄數
-        const total = allTransactions.length;
+        const total = uniqueTransactions.length;
 
         // 分頁處理
-        const paginatedTransactions = allTransactions.slice((page - 1) * pageSize, page * pageSize);
+        const paginatedTransactions = uniqueTransactions.slice((page - 1) * pageSize, page * pageSize);
 
         res.json({
             transactions: paginatedTransactions,
@@ -128,14 +137,24 @@ router.get('/transactions/export', auth, async (req, res) => {
             amount: record.amount,
             type: record.amount > 0 ? 'income' : 'expense',
             source: 'dkp',
-            description: record.description,
+            description: record.description.replace(/^DKP 點數變動：/, ''), // 移除 "DKP 點數變動：" 前綴
             timestamp: record.createdAt,
         }));
 
+        // 合併並去重
+        const transactionMap = new Map();
         const allTransactions = [...walletTransactions, ...dkpTransactions]
+            .forEach(transaction => {
+                const key = `${transaction.timestamp}_${transaction.amount}_${transaction.description}_${transaction.source}`;
+                if (!transactionMap.has(key)) {
+                    transactionMap.set(key, transaction);
+                }
+            });
+
+        const uniqueTransactions = Array.from(transactionMap.values())
             .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
-        res.json({ transactions: allTransactions });
+        res.json({ transactions: uniqueTransactions });
     } catch (err) {
         console.error('Error exporting wallet transactions:', err);
         res.status(500).json({

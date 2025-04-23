@@ -6,15 +6,12 @@ const auth = async (req, res, next) => {
     const token = req.header('x-auth-token');
 
     if (!token) {
-        console.log('Received token in auth: No token');
+
         return res.status(401).json({ msg: '無權限，缺少 Token' });
     }
 
     try {
-        console.log('Verifying token:', token.substring(0, 20) + '...');
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        console.log('Decoded Token:', decoded);
-
         const userId = decoded.user ? decoded.user.id : decoded.id;
         if (!userId) {
             throw new Error('Decoded token missing user.id or id');
@@ -22,34 +19,46 @@ const auth = async (req, res, next) => {
 
         req.user = decoded.user ? decoded.user : { id: decoded.id };
 
-        const user = await User.findById(userId).select('character_name role');
+        const user = await User.findById(userId).select('character_name role mustChangePassword');
         if (!user) {
-            console.log('User not found for ID:', userId);
+            
             return res.status(401).json({ msg: '用戶不存在' });
         }
 
         req.user = {
-            id: user._id.toString(), // Ensure req.user.id is a string
+            id: user._id.toString(),
             character_name: user.character_name,
             role: user.role || 'user',
+            mustChangePassword: user.mustChangePassword,
         };
 
-        console.log('Authenticated user:', req.user);
-
-        // Ensure req.session exists, avoid throwing TypeError
-        if (req.session) {
-            console.log('Session data before setting userId:', req.session);
-            if (req.session.userId && req.session.userId !== req.user.id.toString()) {
-                console.log('Destroying session due to userId mismatch:', {
-                    existingUserId: req.session.userId,
-                    newUserId: req.user.id,
+        // Check if token is temporary
+        if (decoded.user && decoded.user.temporary) {
+            const allowedPaths = ['/api/users/me', '/api/users/change-password'];
+            // Construct the full path using req.baseUrl and req.path
+            const fullPath = (req.baseUrl || '') + req.path;
+          
+            if (!allowedPaths.includes(fullPath)) {
+                
+                return res.status(403).json({
+                    code: 403,
+                    msg: '臨時 Token 僅允許更改密碼',
+                    detail: '請更改密碼後重新登入',
                 });
+            }
+        }
+
+        // Ensure req.session exists
+        if (req.session) {
+          
+            if (req.session.userId && req.session.userId !== req.user.id.toString()) {
+          
                 req.session.destroy(err => {
                     if (err) console.error('Session destroy error:', err);
                 });
             } else {
-                req.session.userId = req.user.id; // Store as string
-                console.log('Set req.session.userId:', req.session.userId);
+                req.session.userId = req.user.id;
+           
             }
         } else {
             console.warn('Session middleware not initialized, req.session is undefined');

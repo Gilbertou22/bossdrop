@@ -25,7 +25,7 @@ const Header = () => {
                 headers: { 'x-auth-token': token },
             });
             const enrichedNotifications = await Promise.all(res.data.notifications.map(async (notification) => {
-                let imageUrl = 'https://via.placeholder.com/50';
+                let imageUrl = 'wp1.jpg';
                 if (notification.auctionId) {
                     const auctionRes = await axios.get(`${BASE_URL}/api/auctions/${notification.auctionId}`, {
                         headers: { 'x-auth-token': token },
@@ -37,7 +37,7 @@ const Header = () => {
                         });
                         const bossKill = bossKillRes.data;
                         if (bossKill && bossKill.dropped_items?.length) {
-                            imageUrl = bossKill.dropped_items[0].imageUrl || 'https://via.placeholder.com/50';
+                            imageUrl = bossKill.dropped_items[0].imageUrl || 'wp1.jpg';
                         }
                     }
                 }

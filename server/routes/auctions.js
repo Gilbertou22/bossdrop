@@ -230,8 +230,50 @@ router.post('/:kill_id/start', auth, async (req, res) => {
     const user = req.user;
 
     try {
-        // ... 其他代碼 ...
+        // 驗證 kill_id 是否為有效的 MongoDB ObjectId
+        if (!mongoose.Types.ObjectId.isValid(kill_id)) {
+            logger.warn('Invalid kill_id provided', { kill_id, userId: user.id });
+            return res.status(400).json({
+                code: 400,
+                msg: '無效的擊殺記錄 ID',
+                detail: `提供的 kill_id (${kill_id}) 不是有效的 MongoDB ObjectId。`,
+                suggestion: '請檢查擊殺記錄 ID 或聯繫管理員。',
+            });
+        }
+
+        // 查詢 BossKill 記錄
+        const bossKill = await BossKill.findById(kill_id).populate('dropped_items.level');
+        if (!bossKill) {
+            logger.warn('BossKill record not found', { kill_id, userId: user.id });
+            return res.status(404).json({
+                code: 404,
+                msg: '擊殺記錄不存在',
+                detail: `無法找到 ID 為 ${kill_id} 的擊殺記錄。`,
+                suggestion: '請檢查擊殺記錄是否存在或聯繫管理員。',
+            });
+        }
+
+        // 確保 dropped_items 存在且 itemIndex 有效
+        if (!bossKill.dropped_items || bossKill.dropped_items.length <= itemIndex) {
+            logger.warn('Dropped items not found or invalid itemIndex', { kill_id, itemIndex, droppedItems: bossKill.dropped_items, userId: user.id });
+            return res.status(400).json({
+                code: 400,
+                msg: '物品不存在',
+                detail: `擊殺記錄 ${kill_id} 中不存在索引為 ${itemIndex} 的物品。`,
+                suggestion: '請檢查物品索引或聯繫管理員。',
+            });
+        }
+
+        // 獲取物品信息
         const droppedItem = bossKill.dropped_items[itemIndex];
+
+        // 獲取物品持有人
+        let itemHolder = bossKill.itemHolder || user.character_name; // 如果 bossKill 中未指定 itemHolder，則使用創建者的 character_name
+        if (!itemHolder) {
+            logger.warn('Item holder not set, using default', { kill_id, userId: user.id, defaultHolder: user.character_name });
+        }
+
+        // 創建拍賣記錄
         const auction = new Auction({
             itemId: kill_id,
             auctionType,
@@ -251,14 +293,27 @@ router.post('/:kill_id/start', auth, async (req, res) => {
             itemName: droppedItem?.name || '未知物品', // 確保 itemName 始終有值
             imageUrl: droppedItem?.image_url || '',
         });
+
         await auction.save();
-        // ... 其他代碼 ...
+        logger.info('Auction created successfully', { auctionId: auction._id, kill_id, userId: user.id });
+
+        res.status(201).json({
+            code: 201,
+            msg: '競標創建成功',
+            auction: {
+                id: auction._id,
+                itemName: auction.itemName,
+                startingPrice: auction.startingPrice,
+                endTime: auction.endTime,
+            },
+        });
     } catch (err) {
-        console.error('Start auction error:', err);
+        logger.error('Start auction error', { kill_id, userId: user.id, error: err.message, stack: err.stack });
         res.status(500).json({
             code: 500,
             msg: '開始競標失敗',
             detail: err.message || '伺服器處理錯誤',
+            suggestion: '請稍後重試或聯繫管理員。',
         });
     }
 });

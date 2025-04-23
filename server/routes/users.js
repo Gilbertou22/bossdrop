@@ -338,11 +338,6 @@ router.post('/create-member', auth, adminOnly, upload.none(), async (req, res) =
             status: 'pending',
         });
 
-        logger.info('New user object:', user);
-
-        const salt = await bcrypt.genSalt(10);
-        user.password = await bcrypt.hash(finalPassword, salt);
-
         await user.save();
 
         res.status(201).json({
@@ -369,11 +364,11 @@ router.post('/change-password', auth, async (req, res) => {
     const userId = req.user.id;
 
     try {
-        if (!currentPassword || !newPassword) {
+        if (!newPassword) {
             return res.status(400).json({
                 code: 400,
                 msg: '缺少必填字段',
-                detail: '請提供當前密碼和新密碼',
+                detail: '請提供新密碼',
             });
         }
 
@@ -386,16 +381,26 @@ router.post('/change-password', auth, async (req, res) => {
             });
         }
 
-        const isMatch = await bcrypt.compare(currentPassword, user.password);
-        if (!isMatch) {
-            return res.status(400).json({
-                code: 400,
-                msg: '當前密碼錯誤',
-                detail: '請檢查輸入的當前密碼',
-            });
+        // 根據 mustChangePassword 決定是否需要 currentPassword
+        if (!user.mustChangePassword) {
+            if (!currentPassword) {
+                return res.status(400).json({
+                    code: 400,
+                    msg: '缺少當前密碼',
+                    detail: '請提供當前密碼',
+                });
+            }
+            const isMatch = await bcrypt.compare(currentPassword, user.password);
+            if (!isMatch) {
+                return res.status(400).json({
+                    code: 400,
+                    msg: '當前密碼錯誤',
+                    detail: '請檢查輸入的當前密碼',
+                });
+            }
         }
 
-        user.password = await bcrypt.hash(newPassword, 10);
+        user.password = newPassword;
         user.mustChangePassword = false;
         await user.save();
 

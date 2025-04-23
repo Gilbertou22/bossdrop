@@ -275,7 +275,7 @@ const ApplyItem = () => {
                                             <Option key={kill._id} value={kill._id}>
                                                 <Space style={{ display: 'flex', alignItems: 'center' }}>
                                                     <Avatar
-                                                        src={kill.bossId?.imageUrl || 'https://via.placeholder.com/32'}
+                                                        src={kill.bossId?.imageUrl || 'wp1.jpg'}
                                                         size={32}
                                                         style={{ marginRight: '8px' }}
                                                     />

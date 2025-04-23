@@ -1,15 +1,10 @@
-// components/AuctionList.js
 import React, { useState, useEffect } from 'react';
 import { Card, Button, Modal, Input, Tag, Image, Tooltip, Popconfirm, Table } from 'antd';
 import {
   InfoCircleOutlined,
-  SketchOutlined,
-  RiseOutlined,
-  ShoppingCartOutlined,
   DiscordOutlined,
   TrophyOutlined,
   GiftOutlined,
-  UserAddOutlined,
   HistoryOutlined,
   CheckCircleOutlined,
   DollarOutlined,
@@ -509,7 +504,7 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
                 cover={
                   <div style={{ position: 'relative', width: '100%', paddingTop: '66.67%' }}>
                     <Image
-                      src={auction.imageUrl}
+                      src={auction.imageUrl || '/wp.jpg'} // 如果 imageUrl 不存在，使用預設圖片
                       alt={auction.itemName}
                       style={{
                         position: 'absolute',
@@ -520,9 +515,8 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
                         objectFit: 'cover',
                       }}
                       onError={(e) => {
-                        logger.error('Image load error', { imageUrl: auction.imageUrl, error: e.message });
-                        setErrorMessage('圖片加載失敗，使用占位圖');
-                        setErrorModalVisible(true);
+                        logger.error('Image load error, using default image', { imageUrl: auction.imageUrl, error: e.message });
+                        e.target.src = '/wp.jpg'; // 加載失敗時使用預設圖片
                       }}
                     />
                     {auction.status === 'active' && (
@@ -640,25 +634,25 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
                         onClick={() => handleHistoryClick(auction._id)}
                       />
                     </Tooltip>,
-                      localUserRole === 'admin' && auction.status === 'pending' && (
-                        <Popconfirm
-                          key="settle"
-                          title="確認結算此拍賣？"
-                          onConfirm={() => handleSettleAuction(auction._id)}
-                          okText="是"
-                          cancelText="否"
-                          disabled={auction.status !== 'pending'}
-                        >
-                          <Tooltip title="結算">
-                            <Button
-                              type="default"
-                              shape="circle"
-                              icon={<DollarOutlined />}
-                              size="small"
-                              disabled={auction.status !== 'pending'}
-                            />
-                          </Tooltip>
-                        </Popconfirm>
+                    localUserRole === 'admin' && auction.status === 'pending' && (
+                      <Popconfirm
+                        key="settle"
+                        title="確認結算此拍賣？"
+                        onConfirm={() => handleSettleAuction(auction._id)}
+                        okText="是"
+                        cancelText="否"
+                        disabled={auction.status !== 'pending'}
+                      >
+                        <Tooltip title="結算">
+                          <Button
+                            type="default"
+                            shape="circle"
+                            icon={<DollarOutlined />}
+                            size="small"
+                            disabled={auction.status !== 'pending'}
+                          />
+                        </Tooltip>
+                      </Popconfirm>
                     ),
                     localUserRole === 'admin' && auction.status !== 'completed' && auction.status !== 'cancelled' && (
                       <Popconfirm
@@ -760,7 +754,7 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
                           </div>
                           {/* 物品持有人 */}
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <GiftOutlined style={{ color: '#000', fontSize: '16px' }} />
+                              <UserOutlined style={{ color: '#000', fontSize: '16px' }} />
                             <span style={{ fontSize: '16px' }}>{auction.itemHolder || auction.createdBy.character_name}</span>
                           </div>
                           {/* 分隔線 */}

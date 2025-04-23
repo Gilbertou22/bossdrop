@@ -14,56 +14,79 @@ export const AuthProvider = ({ children }) => {
 
     const fetchUser = async (token) => {
         try {
-            const res = await axios.get(`${BASE_URL}/api/auth/user`, {
+       
+            const res = await axios.get(`${BASE_URL}/api/users/me`, {
                 headers: { 'x-auth-token': token },
             });
-            console.log('Fetch User Response:', res.data);
-            return res.data.user;
+       
+            setUser(res.data);
+            setIsAuthenticated(true);
         } catch (err) {
-            logger.error('Fetch user error:', { error: err.response?.data || err.message });
-            return null;
+            console.error('Fetch user error:', err);
+            localStorage.removeItem('token');
+            setToken(null);
+            setUser(null);
+            setIsAuthenticated(false);
+        } finally {
+            setLoading(false);
         }
     };
 
     const initializeUser = async () => {
-        console.log('Executing initializeUser');
         setLoading(true);
         const storedToken = localStorage.getItem('token');
-        console.log('Stored Token:', storedToken);
+
         if (storedToken) {
-            const userData = await fetchUser(storedToken);
-            console.log('Fetched User Data:', userData);
-            if (userData) {
-                setToken(storedToken);
-                setUser(userData);
-                setIsAuthenticated(true);
-            } else {
-                console.log('User data fetch failed, maintaining current state');
-                // Do not reset state immediately; keep current token and user
-                // This prevents unnecessary redirect if the user is already authenticated
-                if (!isAuthenticated) {
-                    setIsAuthenticated(false);
-                    setToken(null);
-                    setUser(null);
-                }
-            }
+            await fetchUser(storedToken);
         } else {
-            console.log('No token found, resetting state');
             setIsAuthenticated(false);
             setToken(null);
             setUser(null);
+            setLoading(false);
         }
-        setLoading(false);
     };
 
     useEffect(() => {
         initializeUser();
+    }, []); // 初始加載時執行
 
+    // 監聽 token 變化以重新加載用戶
+    useEffect(() => {
+        if (token && !user) {
+        
+            fetchUser(token);
+        }
+    }, [token]);
+
+    const login = (userData, newToken) => {
+        
+        localStorage.setItem('token', newToken); // 確保 token 存入 localStorage
+        setToken(newToken); // 更新 token 狀態
+        setUser(userData); // 更新 user 狀態
+        setIsAuthenticated(true); // 更新 isAuthenticated 狀態
+    };
+
+    const logout = async () => {
+        try {
+            await axios.post(`${BASE_URL}/api/auth/logout`, {}, {
+                headers: { 'x-auth-token': token },
+            });
+        } catch (err) {
+            logger.error('Logout error:', { error: err.message });
+        } finally {
+            localStorage.removeItem('token');
+            setToken(null);
+            setUser(null);
+            setIsAuthenticated(false);
+        }
+    };
+
+    // Axios 攔截器保持不變
+    useEffect(() => {
         const interceptor = axios.interceptors.response.use(
             response => response,
             error => {
                 if (error.response?.status === 401 && isAuthenticated) {
-                    // Avoid logout for initial requests
                     if (
                         error.config.url.includes('/api/session/menu') ||
                         error.config.url.includes('/api/notifications') ||
@@ -102,41 +125,7 @@ export const AuthProvider = ({ children }) => {
         return () => {
             axios.interceptors.response.eject(interceptor);
         };
-    }, []);
-
-    const login = async (credentials) => {
-        try {
-            const res = await axios.post(`${BASE_URL}/api/auth/login`, credentials, {
-                withCredentials: true,
-            });
-            const { token, user } = res.data;
-            console.log('Login Response:', res.data);
-            localStorage.setItem('token', token);
-            setToken(token);
-            setUser(user);
-            setIsAuthenticated(true);
-            return true;
-        } catch (err) {
-            logger.error('Login error:', { error: err.response?.data || err.message });
-            throw err;
-        }
-    };
-
-    const logout = async () => {
-        console.log('Executing logout');
-        try {
-            await axios.post(`${BASE_URL}/api/auth/logout`, {}, {
-                headers: { 'x-auth-token': token },
-            });
-        } catch (err) {
-            logger.error('Logout error:', { error: err.message });
-        } finally {
-            localStorage.removeItem('token');
-            setToken(null);
-            setUser(null);
-            setIsAuthenticated(false);
-        }
-    };
+    }, [isAuthenticated, token, logout]);
 
     return (
         <AuthContext.Provider value={{ isAuthenticated, token, user, login, logout, loading }}>

@@ -21,7 +21,7 @@ router.get('/client-ip', (req, res) => {
 
 router.post('/register', async (req, res) => {
     const { world_name, character_name, password, guildPassword } = req.body;
-    console.log('Register request body:', req.body);
+    
 
     try {
         g
@@ -61,7 +61,7 @@ router.post('/register', async (req, res) => {
             mustChangePassword: false,
         });
 
-        console.log('User before save:', user);
+        
         await user.save();
 
         const payload = {
@@ -122,14 +122,37 @@ router.post('/login', async (req, res) => {
             });
         }
 
-        console.log('User found:', user.password, password);
+     
         const isMatch = await bcrypt.compare(password, user.password);
-        console.log('Password match:', isMatch);
+        
         if (!isMatch) {
             return res.status(400).json({
                 code: 400,
                 msg: '密碼錯誤',
                 detail: '請檢查密碼是否正確',
+            });
+        }
+
+        // 檢查 mustChangePassword
+        if (user.mustChangePassword) {
+            const tempPayload = {
+                user: {
+                    id: user._id,
+                    role: user.role,
+                    temporary: true, // 標記為臨時 token
+                },
+            };
+            const tempToken = jwt.sign(tempPayload, process.env.JWT_SECRET, { expiresIn: '5m' }); // 臨時 token 有效期 5 分鐘
+            return res.status(200).json({
+                code: 200,
+                msg: '需要更改密碼',
+                mustChangePassword: true,
+                tempToken, // 返回臨時 token
+                user: {
+                    id: user._id,
+                    character_name: user.character_name,
+                    role: user.role,
+                },
             });
         }
 
@@ -141,9 +164,8 @@ router.post('/login', async (req, res) => {
             })
             .sort({ order: 1 });
 
-        console.log('Raw menu items:', menuItems); // 檢查原始數據
+        
 
-        // 過濾菜單項，僅保留當前用戶角色有權訪問的節點
         const filterMenuItems = (items, userRole) => {
             return items
                 .filter(item => {
@@ -157,7 +179,7 @@ router.post('/login', async (req, res) => {
                         logger.warn('Failed to parse roles', { roles: item.roles, error: err.message });
                         roles = [];
                     }
-                    console.log('Filtering item:', item.label, 'Roles:', roles, 'User role:', userRole);
+             
                     return roles.includes(userRole);
                 })
                 .map(item => {
@@ -180,9 +202,9 @@ router.post('/login', async (req, res) => {
         };
 
         const filteredMenuItems = filterMenuItems(menuItems, user.role);
-        console.log('Filtered menu items:', filteredMenuItems); // 檢查過濾後數據
-        req.session.menuItems = filteredMenuItems; // 將過濾後的菜單數據存入 session
-        logger.info('Menu items stored in session', { userId: user._id, menuItems: filteredMenuItems });
+        
+        req.session.menuItems = filteredMenuItems;
+        
 
         const payload = {
             user: {
@@ -214,11 +236,10 @@ router.post('/login', async (req, res) => {
     }
 });
 
-
 // 登出路由
 router.post('/logout', (req, res) => {
     req.session.destroy(err => {
-        console.log('Session destroyed:', req.sessionID);
+        
         if (err) {
             console.error('Session destroy error:', err);
             return res.status(500).json({ msg: '登出失敗' });

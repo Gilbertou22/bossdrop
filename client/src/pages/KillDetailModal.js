@@ -279,7 +279,7 @@ const KillDetailModal = ({ visible, onCancel, killData, onUpdate, token, initial
             ]}
             width="90vw"
             style={{ maxWidth: '800px', top: '10px' }}
-            bodyStyle={{ maxHeight: '80vh', overflowY: 'hidden' }}
+            bodyStyle={{ maxHeight: '80vh', overflowY: 'auto' }}
         >
             <Spin spinning={loading}>
                 {editing ? (

@@ -5,7 +5,6 @@ import axios from 'axios';
 import formatNumber from '../utils/formatNumber';
 import moment from 'moment';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import logger from '../utils/logger';
 
 const { Option } = Select;
 

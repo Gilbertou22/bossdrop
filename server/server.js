@@ -13,6 +13,28 @@ const app = express();
 
 connectDB();
 
+// CORS 配置
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+    ? process.env.ALLOWED_ORIGINS.split(',')
+    : ['http://localhost:3000', 'https://103.195.4.189', 'https://www.gnmr.net'];
+
+app.use(cors({
+    origin: (origin, callback) => {
+        if (!origin || allowedOrigins.includes(origin)) {
+            callback(null, true);
+        } else {
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'x-auth-token'],
+    credentials: true,
+}));
+
+
+app.use('/api/upload', require('./routes/upload'));
+console.log('Upload route loaded');
+
 // 配置 multer 存儲
 const storage = multer.diskStorage({
     destination: './uploads/icons/',
@@ -31,6 +53,9 @@ const upload = multer({
         }
     },
 });
+
+
+
 
 // 確保 uploads/icons 目錄存在
 const fs = require('fs');
@@ -68,29 +93,10 @@ app.use(
     })
 );
 
-// CORS 配置
-const allowedOrigins = process.env.ALLOWED_ORIGINS
-    ? process.env.ALLOWED_ORIGINS.split(',')
-    : ['http://localhost:3000', 'https://103.195.4.189', 'https://www.gnmr.net'];
-
-app.use(cors({
-    origin: (origin, callback) => {
-        if (!origin || allowedOrigins.includes(origin)) {
-            callback(null, true);
-        } else {
-            callback(new Error('Not allowed by CORS'));
-        }
-    },
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'x-auth-token'],
-    credentials: true,
-}));
 
 
 // 檢查 session 中間件
-app.use((req, res, next) => {
-    console.log('Session ID:', req.sessionID);
-    console.log('Session data before request:', req.session);
+app.use((req, res, next) => {   
     next();
 });
 

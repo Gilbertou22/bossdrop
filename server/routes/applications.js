@@ -289,7 +289,7 @@ router.get('/user', auth, async (req, res) => {
                 populate: { path: 'bossId', select: 'name' },
                 select: 'bossId kill_time',
             });
-        console.log('Fetched applications from database:', applications);
+        
         if (!applications || applications.length === 0) {
             console.warn('No applications found for user:', req.user.id);
             return res.json([]);
@@ -321,7 +321,7 @@ router.get('/by-kill-and-item', auth, adminOnly, async (req, res) => {
             .select('user_id status created_at')
             .populate('user_id', 'character_name');
 
-        console.log(`Fetched applications for kill_id: ${kill_id}, item_id: ${item_id}:`, applications);
+        
         res.json(applications);
     } catch (err) {
         console.error('Fetch applications by kill and item error:', err);

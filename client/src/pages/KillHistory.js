@@ -1,4 +1,3 @@
-// pages/KillHistory.js
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Row, Col, Button, DatePicker, message, Image, Card, Spin, Alert, Tag, Tooltip, Popconfirm, Dropdown, Menu, Select, Table, Radio, Pagination, Input, Space } from 'antd';
 import { SearchOutlined, EditOutlined, PlusOutlined, CheckOutlined, MoreOutlined, InfoCircleOutlined, DeleteOutlined, UserOutlined, AppstoreOutlined, UnorderedListOutlined, DownloadOutlined } from '@ant-design/icons';
@@ -8,7 +7,6 @@ import Papa from 'papaparse';
 import KillDetailModal from './KillDetailModal';
 import AddAttendeeModal from './AddAttendeeModal';
 import statusTag from '../utils/statusTag';
-import logger from '../utils/logger';
 
 const { RangePicker } = DatePicker;
 const { Option } = Select;
@@ -57,12 +55,22 @@ const KillHistory = () => {
         fetchBosses();
     }, [token]);
 
+    // 負責觸發 fetchUserApplications
+    useEffect(() => {
+        const loadApplications = async () => {
+            if (currentUser !== null) {
+                await fetchUserApplications(); // 先獲取申請數據
+            }
+        };
+        loadApplications();
+    }, [currentUser]);
+
+    // 負責觸發 fetchHistory，依賴 userApplications
     useEffect(() => {
         if (currentUser !== null) {
             fetchHistory(pagination.current, pagination.pageSize);
-            fetchUserApplications();
         }
-    }, [currentUser, filters, pagination.current, pagination.pageSize, sort]);
+    }, [currentUser, filters, pagination.current, pagination.pageSize, sort, userApplications]); // 依賴 userApplications
 
     const fetchUserInfo = async () => {
         try {
@@ -70,10 +78,10 @@ const KillHistory = () => {
             const res = await axios.get(`${BASE_URL}/api/users/me`, {
                 headers: { 'x-auth-token': token },
             });
+          
             setRole(res.data.role);
             setCurrentUser(res.data.character_name);
             setUserId(res.data.id);
-        
         } catch (err) {
             console.error('Fetch user info error:', err);
             message.error('載入用戶信息失敗: ' + (err.response?.data?.msg || err.message));
@@ -89,7 +97,6 @@ const KillHistory = () => {
             });
             setApplyDeadlineHours(res.data.settings.applyDeadlineHours || 48);
         } catch (err) {
-           
             message.warning('載入旅團設定失敗，使用預設 48 小時補登期限');
         }
     };
@@ -99,7 +106,6 @@ const KillHistory = () => {
             const res = await axios.get(`${BASE_URL}/api/bosses`, {
                 headers: { 'x-auth-token': token },
             });
-     
             setBosses(res.data);
         } catch (err) {
             console.error('Fetch bosses error:', err);
@@ -107,34 +113,7 @@ const KillHistory = () => {
         }
     };
 
-    const fetchUserApplications = async () => {
-        try {
-            const res = await axios.get(`${BASE_URL}/api/applications/user`, {
-                headers: { 'x-auth-token': token },
-            });
-         
-            const activeApplications = res.data.filter(app => {
-                if (!app) {
-                    console.warn('Invalid application entry:', app);
-                    return false;
-                }
-                if (!app.item_id) {
-                    console.warn('Missing item_id in application:', app);
-                    return false;
-                }
-           
-                return app.status === 'pending' || app.status === 'approved';
-            });
-           
-            if (activeApplications.length === 0) {
-                console.warn('No active applications after filtering. Raw data:', res.data);
-            }
-            setUserApplications(activeApplications);
-        } catch (err) {
-            console.error('Fetch user applications error:', err.response?.data || err.message);
-            message.warning('無法載入申請記錄，申請中標示可能不準確');
-        }
-    };
+
 
     const fetchItemApplications = async (kill_id, item_id) => {
         try {
@@ -142,10 +121,8 @@ const KillHistory = () => {
                 headers: { 'x-auth-token': token },
                 params: { kill_id, item_id },
             });
-            
             return res.data || [];
         } catch (err) {
-            
             return [];
         }
     };
@@ -169,6 +146,39 @@ const KillHistory = () => {
         }
     };
 
+    const fetchUserApplications = async () => {
+        try {
+           
+            const res = await axios.get(`${BASE_URL}/api/applications/user`, {
+                headers: { 'x-auth-token': token },
+            });
+           
+            const activeApplications = res.data.filter(app => {
+                if (!app) {
+                    console.warn('Invalid application entry:', app);
+                    return false;
+                }
+                if (!app.item_id) {
+                    console.warn('Missing item_id in application:', app);
+                    return false;
+                }
+                const isActive = app.status === 'pending' || app.status === 'approved';
+               
+                return isActive;
+            });
+   
+            if (activeApplications.length === 0) {
+                console.warn('No active applications after filtering. Raw data:', res.data);
+            }
+            setUserApplications(activeApplications);
+   
+        } catch (err) {
+            console.error('Fetch user applications error:', err.response?.data || err.message);
+            message.warning('無法載入申請記錄，申請中標示可能不準確');
+            setUserApplications([]);
+        }
+    };
+
     const fetchHistory = useCallback(async (page = 1, pageSize = 10) => {
         try {
             setLoading(true);
@@ -187,7 +197,7 @@ const KillHistory = () => {
                 headers: { 'x-auth-token': token },
                 params,
             });
-         
+
             if (!res.data.data || res.data.data.length === 0) {
                 console.warn('No boss kills data returned from API.');
                 setHistory([]);
@@ -196,16 +206,17 @@ const KillHistory = () => {
                 return;
             }
 
-            // 檢查是否有 bossId 缺失的記錄
             res.data.data.forEach(record => {
                 if (!record.bossId) {
-                    
+                    console.warn(`Missing bossId in record ${record._id}`);
                 } else if (!record.bossId.name) {
-                    
+                    console.warn(`Missing bossId.name in record ${record._id}`);
                 }
             });
 
             const updatedHistory = res.data.data.map(record => {
+               
+
                 const applyingItems = record.dropped_items
                     ?.filter(item => {
                         const itemId = item._id || item.id;
@@ -213,15 +224,21 @@ const KillHistory = () => {
                             console.warn(`Missing item_id in dropped_items for record ${record._id}:`, item);
                             return false;
                         }
-                        return userApplications.some(app => {
+                        const hasApplication = userApplications.some(app => {
                             const appKillId = app.kill_id && app.kill_id._id ? app.kill_id._id.toString() : null;
-                            return appKillId === record._id.toString() &&
-                                app.item_id && app.item_id.toString() === itemId.toString() &&
+                            const appItemId = app.item_id ? app.item_id.toString() : null;
+                            const match = appKillId === record._id.toString() &&
+                                appItemId === itemId.toString() &&
                                 app.status === 'pending';
+                         
+                            return match;
                         });
+                        return hasApplication;
                     })
                     ?.map(item => item.name) || [];
-            
+
+             
+
                 return {
                     ...record,
                     applyingItems,
@@ -250,8 +267,8 @@ const KillHistory = () => {
                 return {
                     ...record,
                     screenshots: record.screenshots
-                        ? record.screenshots.map(src => (src ? `${BASE_URL}/${src.replace('./', '')}` : ''))
-                        : [],
+                        ? record.screenshots.map(src => (src ? `${BASE_URL}/${src.replace('./', '')}` : '/wp.jpg'))
+                        : ['/wp.jpg'],
                     isWithinDeadline,
                     remainingHours,
                 };
@@ -264,7 +281,6 @@ const KillHistory = () => {
                 total: res.data.pagination.total,
             });
         } catch (err) {
-            
             message.error(`載入擊殺歷史失敗: ${err.response?.data?.msg || err.message}`);
         } finally {
             setLoading(false);
@@ -390,13 +406,11 @@ const KillHistory = () => {
     };
 
     const getApplicationDetails = (killId, itemId) => {
-    
         const app = userApplications.find(app => {
             const appKillId = app.kill_id && app.kill_id._id ? app.kill_id._id.toString() : null;
             const match = appKillId === killId.toString() &&
                 app.item_id && app.item_id.toString() === itemId.toString() &&
                 app.status === 'pending';
-    
             return match;
         });
         return app;
@@ -427,7 +441,6 @@ const KillHistory = () => {
                 return;
             }
 
-     
             const res = await axios.post(
                 `${BASE_URL}/api/applications`,
                 {
@@ -437,7 +450,6 @@ const KillHistory = () => {
                 },
                 { headers: { 'x-auth-token': token } }
             );
-         
             message.success(res.data.msg || '申請提交成功！');
             await fetchUserApplications();
             fetchHistory(pagination.current, pagination.pageSize);
@@ -519,7 +531,9 @@ const KillHistory = () => {
     };
 
     const renderGridItem = (record) => {
-        const firstScreenshot = record.screenshots[0] || 'https://via.placeholder.com/300x200';
+        const firstScreenshot = record.screenshots && record.screenshots.length > 0 && record.screenshots[0]
+            ? record.screenshots[0]
+            : '/wp.jpg'; // 使用預設圖片
         const killTime = moment(record.kill_time).format('MM-DD HH:mm');
         const relativeTime = moment(record.kill_time).fromNow();
         const item = record.dropped_items && record.dropped_items.length > 0 ? record.dropped_items[0] : null;
@@ -536,8 +550,11 @@ const KillHistory = () => {
             return effectiveStatus === 'pending';
         });
 
+        // 檢查用戶是否已申請物品
+        const hasApplied = record.applyingItems && record.applyingItems.length > 0;
+        
         const moreMenu = (
-            <Menu>
+            <Menu className="kill-history-more-menu">
                 {role !== 'admin' && canAddAttendee && remainingTime !== '補登結束' && (
                     <Menu.Item key="addAttendee">
                         <Button
@@ -629,7 +646,7 @@ const KillHistory = () => {
                             left: '3px',
                             width: '30px',
                             height: '30px',
-                            background: 'red',
+                            background: hasApplied ? '#00cc00' : 'red', // 根據是否申請動態設置顏色
                             clipPath: 'polygon(0 0, 100% 0, 0 100%)',
                             display: 'flex',
                             justifyContent: 'center',
@@ -640,126 +657,126 @@ const KillHistory = () => {
                         <CheckOutlined style={{ position: 'absolute', color: 'white', fontSize: '13px', left: '3px', top: '3px' }} />
                     </div>
                 )}
-              
-                    <Card
-                        hoverable
-                        cover={
-                            <div style={{ position: 'relative', width: '100%', paddingTop: '66.67%' }}>
-                                <Image
-                                    src={firstScreenshot}
-                                    alt="擊殺截圖"
-                                    style={{
-                                        position: 'absolute',
-                                        top: 0,
-                                        left: 0,
-                                        width: '100%',
-                                        height: '100%',
-                                        objectFit: 'cover',
-                                    }}
-                                    onError={(e) => {
-                                        console.error(`Image load error for ${firstScreenshot}:`, e);
-                                        message.warning('截圖加載失敗，使用占位圖');
-                                    }}
-                                    loading="lazy"
-                                />
-                                {record.status === 'pending' && record.isWithinDeadline && (
-                                    <div
-                                        style={{
-                                            position: 'absolute',
-                                            bottom: '0px',
-                                            right: '0px',
-                                            backgroundColor: 'rgba(48, 189, 106, 0.93)',
-                                            color: 'white',
-                                            padding: '3px 6px',
-                                            borderRadius: '0px',
-                                            fontSize: '12px',
-                                            zIndex: 2,
-                                        }}
-                                    >
-                                        {remainingTime}
-                                    </div>
-                                )}
+                <Card
+                    hoverable
+                    cover={
+                        <div style={{ position: 'relative', width: '100%', paddingTop: '66.67%' }}>
+                            <Image
+                                src={firstScreenshot}
+                                alt="擊殺截圖"
+                                style={{
+                                    position: 'absolute',
+                                    top: 0,
+                                    left: 0,
+                                    width: '100%',
+                                    height: '100%',
+                                    objectFit: 'cover',
+                                }}
+                                onError={(e) => {
+                                    console.error(`Image load error for ${firstScreenshot}:`, e);
+                                    message.warning('截圖加載失敗，使用占位圖');
+                                    e.target.src = 'wp1.jpg'; // 占位圖
+                                }}
+                                loading="lazy"
+                            />
+                            {record.status === 'pending' && record.isWithinDeadline && (
                                 <div
                                     style={{
                                         position: 'absolute',
-                                        top: '50%',
-                                        left: '50%',
-                                        transform: 'translate(-50%, -50%)',
-                                        color: 'rgba(255, 255, 255, 0.97)',
-                                        fontSize: '18px',
-                                        fontWeight: 'bold',
-                                        background: 'rgba(0, 0, 0, 0.5)',
-                                        padding: '8px 16px',
-                                        borderRadius: '8px',
-                                        wordBreak: 'break-all',
-                                        lineHeight: '1.5',
-                                        width: '80%',
-                                        textShadow: '1px 1px 2px rgb(255, 255, 255)',
-                                        textAlign: 'center',
+                                        bottom: '0px',
+                                        right: '0px',
+                                        backgroundColor: 'rgba(48, 189, 106, 0.93)',
+                                        color: 'white',
+                                        padding: '3px 6px',
+                                        borderRadius: '0px',
+                                        fontSize: '12px',
+                                        zIndex: 2,
                                     }}
                                 >
-                                    [{killTime}]<br />
-                                    <span style={{ color: itemColor }}>{itemName}</span>
+                                    {remainingTime}
                                 </div>
+                            )}
+                            <div
+                                style={{
+                                    position: 'absolute',
+                                    top: '50%',
+                                    left: '50%',
+                                    transform: 'translate(-50%, -50%)',
+                                    color: 'rgba(255, 255, 255, 0.97)',
+                                    fontSize: '18px',
+                                    fontWeight: 'bold',
+                                    background: 'rgba(0, 0, 0, 0.5)',
+                                    padding: '8px 16px',
+                                    borderRadius: '8px',
+                                    wordBreak: 'break-all',
+                                    lineHeight: '1.5',
+                                    width: '80%',
+                                    textShadow: '1px 1px 2px rgb(255, 255, 255)',
+                                    textAlign: 'center',
+                                }}
+                            >
+                                [{killTime}]<br />
+                                <span style={{ color: itemColor }}>{itemName}</span>
                             </div>
-                        }
-                        actions={[
-                            <Tooltip title="查看詳情">
+                        </div>
+                    }
+                    actions={[
+                        <Tooltip title="查看詳情">
+                            <Button
+                                type="link"
+                                icon={<InfoCircleOutlined />}
+                                onClick={() => handleShowDetail(record._id, false)}
+                                style={{ padding: '0 8px' }}
+                            />
+                        </Tooltip>,
+                        role !== 'admin' && isAttendee && record.status === 'pending' && record.dropped_items.some(item => {
+                            const itemId = item._id || item.id;
+                            const appDetails = getApplicationDetails(record._id, itemId);
+                            const effectiveStatus = item.status ? item.status.toLowerCase() : 'pending';
+                            return !appDetails && effectiveStatus === 'pending';
+                        }) && (
+                            <Popconfirm
+                                title="確認申請此物品？"
+                                onConfirm={() => handleQuickApply(record._id, record.dropped_items[0]._id || record.dropped_items[0].id, record.dropped_items[0].name)}
+                                okText="是"
+                                cancelText="否"
+                            >
                                 <Button
                                     type="link"
-                                    icon={<InfoCircleOutlined />}
-                                    onClick={() => handleShowDetail(record._id, false)}
+                                    icon={<PlusOutlined />}
+                                    loading={applying}
+                                    disabled={applying}
                                     style={{ padding: '0 8px' }}
                                 />
-                            </Tooltip>,
-                            role !== 'admin' && isAttendee && record.status === 'pending' && record.dropped_items.some(item => {
-                                const itemId = item._id || item.id;
-                                const appDetails = getApplicationDetails(record._id, itemId);
-                                const effectiveStatus = item.status ? item.status.toLowerCase() : 'pending';
-                                return !appDetails && effectiveStatus === 'pending';
-                            }) && (
-                                <Popconfirm
-                                    title="確認申請此物品？"
-                                    onConfirm={() => handleQuickApply(record._id, record.dropped_items[0]._id || record.dropped_items[0].id, record.dropped_items[0].name)}
-                                    okText="是"
-                                    cancelText="否"
-                                >
-                                    <Button
-                                        type="link"
-                                        icon={<PlusOutlined />}
-                                        loading={applying}
-                                        disabled={applying}
-                                        style={{ padding: '0 8px' }}
-                                    />
-                                </Popconfirm>
-                            ),
-                            record.status === 'pending' && (
-                                <Dropdown overlay={moreMenu} trigger={['click']}>
-                                    <Button type="link" icon={<MoreOutlined />} style={{ padding: '0 8px' }} />
-                                </Dropdown>)
-                        ]}
-                    >
-                        <Card.Meta
-                            title={
-                                <>
-                                    <span style={{ fontSize: '12px', color: '#888' }}>{relativeTime}</span>
-                                    <br />
-                                    <span>{bossName}</span>
-                                </>
-                            }
-                            description={
-                                <>
-                                    <p>狀態: {statusTag(record.status)}</p>
-                                    <p>掉落物品: {record.dropped_items.map(item => item.name).join(', ') || '無'}</p>
-                                    <p style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                        <UserOutlined style={{ color: '#000', fontSize: '16px' }} />
-                                        物品持有人: {record.itemHolder || '未分配'}
-                                    </p>
-                                </>
-                            }
-                        />
-                    </Card>
-              
+                            </Popconfirm>
+                        ),
+                        record.status === 'pending' && (
+                            <Dropdown overlay={moreMenu} trigger={['click']}>
+                                <Button type="link" icon={<MoreOutlined />} style={{ padding: '0 8px' }} />
+                            </Dropdown>
+                        )
+                    ]}
+                >
+                    <Card.Meta
+                        title={
+                            <>
+                                <span style={{ fontSize: '12px', color: '#888' }}>{relativeTime}</span>
+                                <br />
+                                <span>{bossName}</span>
+                            </>
+                        }
+                        description={
+                            <>
+                                <p>狀態: {statusTag(record.status)}</p>
+                                <p>掉落物品: {record.dropped_items.map(item => item.name).join(', ') || '無'}</p>
+                                <p style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <UserOutlined style={{ color: '#000', fontSize: '16px' }} />
+                                    物品持有人: {record.itemHolder || '未分配'}
+                                </p>
+                            </>
+                        }
+                    />
+                </Card>
             </Col>
         );
     };
@@ -821,7 +838,7 @@ const KillHistory = () => {
                 });
 
                 const moreMenu = (
-                    <Menu>
+                    <Menu className="kill-history-more-menu">
                         {role !== 'admin' && canAddAttendee && remainingTime !== '補登結束' && (
                             <Menu.Item key="addAttendee">
                                 <Button
@@ -942,7 +959,7 @@ const KillHistory = () => {
                 bordered={false}
                 style={{ boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)', borderRadius: '8px' }}
                 extra={
-                    <Space>
+                    <Space wrap>
                         <Radio.Group
                             value={displayMode}
                             onChange={(e) => setDisplayMode(e.target.value)}
@@ -1133,6 +1150,43 @@ const KillHistory = () => {
                     .ant-btn-link {
                         padding: 0 6px !important;
                     }
+                    /* 調整 Card 的 title 和 extra 佈局 */
+                    .ant-card-head {
+                        display: flex;
+                        flex-direction: column; /* 垂直排列 */
+                        align-items: flex-start; /* 左對齊 */
+                        padding: 16px; /* 增加內邊距 */
+                    }
+                    .ant-card-head-title {
+                        flex: none; /* 防止標題被壓縮 */
+                        padding: 0 0 8px 0; /* 底部間距 */
+                        width: 100%; /* 確保標題佔滿寬度 */
+                        white-space: normal; /* 允許標題換行 */
+                        overflow: visible; /* 防止標題被截斷 */
+                    }
+                    .ant-card-extra {
+                        flex: none; /* 防止 extra 區域被壓縮 */
+                        width: 100%; /* 確保 extra 區域佔滿寬度 */
+                        display: flex;
+                        justify-content: flex-end; /* 按鈕右對齊 */
+                        margin-top: 8px; /* 與標題間距 */
+                    }
+                    .ant-space {
+                        flex-wrap: wrap; /* 允許按鈕換行 */
+                        gap: 8px; /* 按鈕間距 */
+                    }
+                }
+                /* 為 KillHistory 頁面的 moreMenu 設置不透明背景 */
+                .kill-history-more-menu {
+                    background-color: #fff !important; /* 不透明背景 */
+                    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15) !important; /* 添加陰影以提升可視性 */
+                }
+                .kill-history-more-menu .ant-dropdown-menu-item {
+                    padding: 8px 16px !important;
+                    transition: background-color 0.3s ease !important;
+                }
+                .kill-history-more-menu .ant-dropdown-menu-item:hover {
+                    background-color: #f0f0f0 !important;
                 }
             `}</style>
         </div>

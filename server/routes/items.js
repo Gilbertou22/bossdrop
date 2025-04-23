@@ -65,16 +65,16 @@ router.delete('/item-levels/:id', auth, adminOnly, async (req, res) => {
 
 // 獲取可競標物品（從 BossKill 表中，狀態為 expired 且 final_recipient 為 NULL，且未發起競標）
 router.get('/auctionable', auth, async (req, res) => {
-    console.log('Fetching auctionable items from BossKill for user:', req.user?.character_name);
+ 
     try {
         const query = {
             status: 'expired',
             'dropped_items.final_recipient': null,
         };
-        console.log('Initial Query:', JSON.stringify(query, null, 2));
+    
 
         const existingAuctions = await Auction.find().distinct('itemId');
-        console.log('Existing Auction itemIds:', existingAuctions);
+    
 
         const auctionableBossKills = await BossKill.find({
             ...query,
@@ -82,8 +82,6 @@ router.get('/auctionable', auth, async (req, res) => {
         })
             .populate('bossId', 'name')
             .lean();
-
-        console.log('Auctionable BossKills count:', auctionableBossKills.length, 'Data:', auctionableBossKills);
 
         const auctionableItems = auctionableBossKills.reduce((acc, bossKill) => {
             const items = (bossKill.dropped_items || [])
@@ -97,7 +95,7 @@ router.get('/auctionable', auth, async (req, res) => {
             return [...acc, ...items];
         }, []);
 
-        console.log('Mapped auctionable items:', auctionableItems);
+    
         res.json(auctionableItems);
     } catch (err) {
         console.error('Error fetching auctionable items from BossKill:', {

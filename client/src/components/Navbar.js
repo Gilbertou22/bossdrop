@@ -57,29 +57,24 @@ const Navbar = () => {
     }, []);
 
     const fetchNotifications = useCallback(async () => {
-        if (!token) {
-            console.log('No token available, skipping fetchNotifications');
-            return;
-        }
+        if (!token) return;
         try {
             setNavbarLoading(true);
-            console.log('Fetching notifications with token:', token.substring(0, 20) + '...');
             const res = await axios.get(`${BASE_URL}/api/notifications`, {
                 headers: { 'x-auth-token': token },
                 cache: 'no-store',
             });
-            console.log('Notifications response:', res.data);
+
             const enrichedNotifications = await Promise.all(res.data.notifications.slice(0, 5).map(async (notification) => {
-                let imageUrl = 'https://via.placeholder.com/50';
+                let imageUrl = 'wp1.jpg';
                 let isValidAuction = true;
                 if (notification.auctionId) {
                     try {
-                        console.log('Fetching auction for notification:', notification.auctionId);
                         const auctionRes = await axios.get(`${BASE_URL}/api/auctions/${notification.auctionId}`, {
                             headers: { 'x-auth-token': token },
                             cache: 'no-store',
                         });
-                        console.log('Auction response:', auctionRes.data);
+
                         const auction = auctionRes.data;
                         if (auction && auction.itemId) {
                             const itemId = typeof auction.itemId === 'object' && auction.itemId._id
@@ -89,12 +84,12 @@ const Navbar = () => {
                                 logger.warn('Invalid itemId in auction', { auctionId: notification.auctionId, itemId });
                                 return { ...notification, imageUrl, isValidAuction };
                             }
-                            console.log('Fetching boss kill for item:', itemId);
+
                             const bossKillRes = await axios.get(`${BASE_URL}/api/boss-kills/${itemId}`, {
                                 headers: { 'x-auth-token': token },
                                 cache: 'no-store',
                             });
-                            console.log('Boss kill response:', bossKillRes.data);
+
                             const bossKill = bossKillRes.data;
                             if (bossKill && bossKill.screenshots?.length > 0) {
                                 imageUrl = bossKill.screenshots[0].startsWith('http')
@@ -136,17 +131,15 @@ const Navbar = () => {
             setNavbarLoading(false);
         }
     }, [token, setNotifications, setUnreadCount]);
-    
+
     const fetchMenuItems = useCallback(async () => {
-        if (!token) return; // Avoid fetching if token is null
+        if (!token) return;
         try {
             const res = await axios.get(`${BASE_URL}/api/session/menu`, {
                 headers: { 'x-auth-token': token },
                 withCredentials: true,
                 cache: 'no-store',
             });
-
-            console.log('Session menu response:', res.data);
 
             const seenIds = new Set();
             const allItems = res.data
@@ -214,8 +207,6 @@ const Navbar = () => {
                     : item.label,
             }));
 
-            console.log('Fetched menuItems:', menuItems);
-
             if (menuItems.length === 0) {
                 setMenuItems([{ key: '/', label: '首頁', icon: <HomeOutlined /> }]);
             } else {
@@ -224,14 +215,13 @@ const Navbar = () => {
             logger.info('Fetched menu items from session', { menuItems });
         } catch (err) {
             logger.error('Fetch session menu items error', { error: err.response?.data || err.message });
-            // Remove direct logout call, let axios interceptor handle it
             message.error('無法獲取菜單項');
             setMenuItems([{ key: '/', label: '首頁', icon: <HomeOutlined /> }]);
         }
     }, [token, user, pendingCount]);
 
     const fetchPendingCount = useCallback(async () => {
-        if (!token) return; // Avoid fetching if token is null
+        if (!token) return;
         try {
             setNavbarLoading(true);
             const res = await axios.get(`${BASE_URL}/api/auctions/pending-count`, {
@@ -242,7 +232,6 @@ const Navbar = () => {
             logger.info('Fetched pending auctions count', { count: res.data.count });
         } catch (err) {
             logger.error('Fetch pending count error', { error: err.response?.data || err.message });
-            // Remove direct logout call, let axios interceptor handle it
             message.warning('無法獲取待處理拍賣數量');
         } finally {
             setNavbarLoading(false);
@@ -250,9 +239,7 @@ const Navbar = () => {
     }, [token]);
 
     useEffect(() => {
-        console.log('Token:', token);
-        console.log('User:', user);
-        console.log('Loading:', loading);
+   
         if (!token) {
             setMenuItems([{ key: '/', label: '首頁', icon: <HomeOutlined /> }]);
             setNotifications([]);
@@ -298,7 +285,6 @@ const Navbar = () => {
             await fetchNotifications();
         } catch (err) {
             logger.error('Mark as read error', { notificationId, error: err.response?.data || err.message });
-            // Remove direct logout call, let axios interceptor handle it
             message.error('標記為已讀失敗');
         } finally {
             setNavbarLoading(false);
@@ -477,9 +463,6 @@ const Navbar = () => {
             </Header>
         );
     }
-
-    console.log('Rendering Navbar with token:', token);
-    console.log('Rendering Navbar with user:', user);
 
     return (
         <Header

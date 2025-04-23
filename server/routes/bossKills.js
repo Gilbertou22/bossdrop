@@ -63,32 +63,7 @@ router.get('/', auth, async (req, res) => {
     }
 });
 
-// 獲取單個擊殺記錄詳情
-router.get('/:id', auth, async (req, res) => {
-    try {
-        const bossKill = await BossKill.findById(req.params.id)
-            .populate('bossId', 'name')
-            .populate('dropped_items.level')
-            .lean();
-        if (!bossKill) {
-            return res.status(404).json({
-                code: 404,
-                msg: '擊殺記錄不存在',
-                detail: `無法找到 ID 為 ${req.params.id} 的擊殺記錄。`,
-            });
-        }
-        logger.info('Fetched boss kill details', { userId: req.user.id, bossKillId: req.params.id });
-        res.json(bossKill);
-    } catch (err) {
-        logger.error('Error fetching boss kill by ID', { userId: req.user.id, bossKillId: req.params.id, error: err.message, stack: err.stack });
-        res.status(500).json({
-            msg: '獲取擊殺記錄詳情失敗',
-            error: err.message,
-        });
-    }
-});
-
-// 獲取過期物品
+// 獲取過期物品（移到更具體的路由之前）
 router.get('/expired-items', auth, async (req, res) => {
     try {
         const now = new Date();
@@ -216,13 +191,38 @@ router.get('/expired-items', auth, async (req, res) => {
     }
 });
 
+// 獲取單個擊殺記錄詳情（移到動態路由之後）
+router.get('/:id', auth, async (req, res) => {
+    try {
+        const bossKill = await BossKill.findById(req.params.id)
+            .populate('bossId', 'name')
+            .populate('dropped_items.level')
+            .lean();
+        if (!bossKill) {
+            return res.status(404).json({
+                code: 404,
+                msg: '擊殺記錄不存在',
+                detail: `無法找到 ID 為 ${req.params.id} 的擊殺記錄。`,
+            });
+        }
+        logger.info('Fetched boss kill details', { userId: req.user.id, bossKillId: req.params.id });
+        res.json(bossKill);
+    } catch (err) {
+        logger.error('Error fetching boss kill by ID', { userId: req.user.id, bossKillId: req.params.id, error: err.message, stack: err.stack });
+        res.status(500).json({
+            msg: '獲取擊殺記錄詳情失敗',
+            error: err.message,
+        });
+    }
+});
+
 // 獲取所有擊殺記錄（管理員專用）
 router.get('/all', auth, adminOnly, async (req, res) => {
     try {
         const { page = 1, limit = 10 } = req.query;
         const skip = (page - 1) * limit;
 
-        console.log('Fetching all boss kills for admin:', req.user?.character_name || 'Unknown');
+    
         const bossKills = await BossKill.find()
             .sort({ kill_time: -1 })
             .skip(skip)
@@ -262,7 +262,7 @@ router.get('/all', auth, adminOnly, async (req, res) => {
             };
         }));
 
-        console.log('Fetched all boss kills:', enrichedKills.length);
+   
         res.json({
             data: enrichedKills,
             total,
@@ -346,15 +346,13 @@ router.put('/:killId/items/:itemId', auth, adminOnly, async (req, res) => {
             });
         }
 
-        console.log('Before update - BossKill status:', bossKill.status);
+       
 
         bossKill.status = 'expired';
-        await bossKill.save();
-
-        console.log('After update - BossKill status:', bossKill.status);
+        await bossKill.save();       
 
         const updatedBossKill = await BossKill.findById(req.params.killId).lean();
-        console.log('Fetched updated bossKill:', updatedBossKill);
+       
         res.json({ msg: '物品狀態更新成功', bossKill: updatedBossKill });
     } catch (err) {
         console.error('Update item status error:', err);

@@ -14,7 +14,8 @@ const Login = () => {
     const [loading, setLoading] = useState(false);
     const [clientIp, setClientIp] = useState('正在獲取...');
     const navigate = useNavigate();
-    const { login } = useAuth();
+    const { login, user } = useAuth();
+    const [isLoggedIn, setIsLoggedIn] = useState(false);
 
     useEffect(() => {
         const fetchClientIp = async () => {
@@ -35,27 +36,72 @@ const Login = () => {
         fetchClientIp();
     }, []);
 
-    const handleSubmit = async (values) => {
-        setLoading(true);
+    useEffect(() => {
+        if (user) {
+        
+            navigate('/', { replace: true });
+        }
+    }, [user, navigate]);
+
+    const handleSubmit = async () => {
+        if (isLoggedIn) {
+        
+            return;
+        }
+
         try {
+            const values = await form.validateFields();
+            setLoading(true);
+
             const trimmedValues = {
                 character_name: values.character_name.trim(),
-                password: values.password,
+                password: values.password.trim(),
             };
 
-            await login(trimmedValues);
-            message.success('登入成功');
-            navigate('/'); // 直接導航到首頁
-        } catch (err) {
-            const errorMsg = err.response?.data?.msg || '登入失敗，請稍後重試';
-            logger.error('Login error:', {
-                message: err.message,
-                response: err.response?.data,
-                status: err.response?.status,
+            if (!trimmedValues.character_name || !trimmedValues.password) {
+                message.error('角色名稱和密碼不能為空！');
+                setLoading(false);
+                return;
+            }
+
+        
+            const res = await axios.post(`${BASE_URL}/api/auth/login`, trimmedValues, {
+                withCredentials: true,
             });
-            message.error(errorMsg);
+
+
+            if (res.data.mustChangePassword) {
+                message.warning('請更改您的密碼！');
+                localStorage.setItem('tempToken', res.data.tempToken);
+              
+                window.location.href = '/change-password';
+                sessionStorage.setItem('changePasswordState', JSON.stringify({ character_name: trimmedValues.character_name }));
+                return;
+            }
+
+            const { token, user } = res.data;
+       
+            setIsLoggedIn(true);
+            await login(user, token); // 傳遞 token 給 login 方法
+            form.resetFields();
+            message.success('登入成功');
+        } catch (err) {
+            if (err.errorFields) {
+        
+                message.error('請檢查表單欄位！');
+            } else {
+                const errorMsg = err.response?.data?.msg || '登入失敗，請稍後再試';
+                logger.error('Login error:', {
+                    message: err.message,
+                    response: err.response?.data,
+                    status: err.response?.status,
+                });
+              
+                message.error(errorMsg);
+            }
         } finally {
             setLoading(false);
+        
         }
     };
 
@@ -79,11 +125,11 @@ const Login = () => {
                                 { required: true, message: '請輸入角色名稱！' },
                                 {
                                     pattern: /^[a-zA-Z0-9_\u4e00-\u9fa5]+$/,
-                                    message: '角色名稱只能包含字母、數字、下劃線和中文！'
+                                    message: '角色名稱只能包含字母、數字、下劃線和中文！',
                                 },
                             ]}
                         >
-                            <Input placeholder="請輸入角色名稱" />
+                            <Input placeholder="請輸入角色名稱" disabled={loading || isLoggedIn} />
                         </Form.Item>
                         <Form.Item
                             name="password"
@@ -93,7 +139,7 @@ const Login = () => {
                                 { min: 3, message: '密碼長度至少為 3 個字符！' },
                             ]}
                         >
-                            <Input.Password placeholder="請輸入密碼" />
+                            <Input.Password placeholder="請輸入密碼" disabled={loading || isLoggedIn} />
                         </Form.Item>
                         <Form.Item>
                             <Button
@@ -102,6 +148,7 @@ const Login = () => {
                                 loading={loading}
                                 block
                                 className="login-button"
+                                disabled={loading || isLoggedIn}
                             >
                                 登入
                             </Button>
@@ -112,7 +159,6 @@ const Login = () => {
                     </Form>
                 </Card>
             </Spin>
-
             <style jsx global>{`
                 .login-container {
                     display: flex;

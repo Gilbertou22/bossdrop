@@ -6,7 +6,7 @@ const logger = require('../logger');
 
 router.get('/menu', auth, async (req, res) => {
     try {
-        console.log('Session data:', req.session);
+       
         // Ensure req.session exists before accessing menuItems
         let menuItems = req.session && req.session.menuItems ? req.session.menuItems : [];
         if (menuItems.length === 0) {
@@ -55,12 +55,12 @@ router.get('/menu', auth, async (req, res) => {
             // Only set req.session.menuItems if req.session exists
             if (req.session) {
                 req.session.menuItems = menuItems;
-                logger.info('Reloaded menu items into session', { userId: req.user.id, menuItems });
+                
             } else {
-                logger.warn('Cannot store menu items, req.session is undefined');
+                
             }
         }
-        logger.info('Fetched menu items from session', { userId: req.user.id, menuItems });
+        
         res.json(menuItems);
     } catch (err) {
         logger.error('Get session menu error', { error: err.message });

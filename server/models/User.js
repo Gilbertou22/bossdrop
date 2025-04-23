@@ -22,13 +22,11 @@ const UserSchema = new mongoose.Schema({
 // 在保存用戶前哈希密碼
 UserSchema.pre('save', async function (next) {
     try {
-        console.log('Pre-save hook triggered for user:', this.character_name);
-        console.log('Password modified:', this.isModified('password'));
-        console.log('Password before hash:', this.password);
+     
         if (this.isModified('password')) {
             const salt = await bcrypt.genSalt(10);
             this.password = await bcrypt.hash(this.password, salt);
-            console.log('Hashed password in pre-save:', this.password);
+     
         }
         next();
     } catch (err) {

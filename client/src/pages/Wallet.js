@@ -1,4 +1,3 @@
-// pages/Wallet.js
 import React, { useState, useEffect, useCallback } from 'react';
 import { Table, Tag, Card, message, Select, DatePicker, Button, Space, Modal, Descriptions, Image, Row, Col, Tabs } from 'antd';
 import axios from 'axios';
@@ -36,13 +35,13 @@ const Wallet = () => {
     const [filters, setFilters] = useState({
         type: null,
         dateRange: null,
-        source: null, // 新增來源篩選
+        source: null,
     });
     const [modalVisible, setModalVisible] = useState(false);
     const [selectedTransaction, setSelectedTransaction] = useState(null);
     const [auctionDetails, setAuctionDetails] = useState(null);
     const [trendData, setTrendData] = useState([]);
-    const [trendRange, setTrendRange] = useState('all'); // 趨勢圖時間範圍
+    const [trendRange, setTrendRange] = useState('all');
 
     const fetchUserInfo = useCallback(async () => {
         try {
@@ -78,10 +77,20 @@ const Wallet = () => {
                 headers: { 'x-auth-token': localStorage.getItem('token') },
                 params,
             });
-            setTransactions(res.data.transactions);
-            setPagination(res.data.pagination);
 
-            const trend = res.data.transactions.reduce((acc, transaction) => {
+            // 過濾掉描述中包含 "DKP 點數變動" 的記錄
+            const filteredTransactions = res.data.transactions.filter(transaction =>
+                !transaction.description.includes('DKP 點數變動')
+            );
+
+            setTransactions(filteredTransactions);
+            setPagination({
+                current: res.data.pagination.current,
+                pageSize: res.data.pagination.pageSize,
+                total: filteredTransactions.length,
+            });
+
+            const trend = filteredTransactions.reduce((acc, transaction) => {
                 const date = moment(transaction.timestamp).format('YYYY-MM-DD');
                 const lastEntry = acc.length > 0 ? acc[acc.length - 1] : { diamonds: diamonds, dkpPoints: dkpPoints };
                 const newDiamonds = transaction.source !== 'dkp' ? lastEntry.diamonds + transaction.amount : lastEntry.diamonds;
@@ -125,7 +134,12 @@ const Wallet = () => {
                 params,
             });
 
-            const data = res.data.transactions.map((transaction) => ({
+            // 過濾掉描述中包含 "DKP 點數變動" 的記錄
+            const filteredTransactions = res.data.transactions.filter(transaction =>
+                !transaction.description.includes('DKP 點數變動')
+            );
+
+            const data = filteredTransactions.map((transaction) => ({
                 時間: moment(transaction.timestamp).format('YYYY-MM-DD HH:mm:ss'),
                 類型: transaction.type === 'income' ? '收入' : '支出',
                 異動: `${transaction.amount > 0 ? '▲' : '▼'}${formatNumber(Math.abs(transaction.amount))} ${transaction.source === 'dkp' ? '' : '💎'}`,

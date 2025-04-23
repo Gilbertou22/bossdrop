@@ -128,8 +128,7 @@ router.post('/', auth, adminOnly, async (req, res) => {
 
 router.put('/reorder', auth, adminOnly, async (req, res) => {
     const { treeData } = req.body;
-
-    console.log('reorder - Received treeData:', treeData); // 添加日誌檢查
+    
     try {
 
 
@@ -140,7 +139,7 @@ router.put('/reorder', auth, adminOnly, async (req, res) => {
 
         // 遍歷 treeData，驗證每個節點的 _id
         const validateNode = (node) => {
-            console.log('Validating node:', node); // 添加日誌檢查
+            
             if (!node._id || !mongoose.Types.ObjectId.isValid(node._id)) {
                 throw new Error('ID 必須是有效的 ObjectId.');
             }
@@ -160,7 +159,7 @@ router.put('/reorder', auth, adminOnly, async (req, res) => {
                 ? new mongoose.Types.ObjectId(parentId)
                 : null;
 
-            console.log('Updating node:', { _id: node._id, order, parentId: parentIdObj }); // 添加日誌檢查
+            
             try {
                 await MenuItem.updateOne(
                     { _id: new mongoose.Types.ObjectId(node._id) },

@@ -53,7 +53,7 @@ const Home = () => {
                 headers: { 'x-auth-token': token },
             });
             const enrichedAuctions = await Promise.all(auctionsRes.data.slice(0, 3).map(async (auction) => {
-                let imageUrl = 'https://via.placeholder.com/50';
+                let imageUrl = 'wp1.jpg';
                 if (auction.itemId) {
                     const itemId = typeof auction.itemId === 'object' && auction.itemId._id
                         ? auction.itemId._id
@@ -67,7 +67,7 @@ const Home = () => {
                     });
                     const bossKill = bossKillRes.data;
                     if (bossKill && bossKill.dropped_items?.length) {
-                        imageUrl = bossKill.dropped_items[0].imageUrl || 'https://via.placeholder.com/50';
+                        imageUrl = bossKill.dropped_items[0].imageUrl || 'wp1.jpg';
                     }
                 }
                 return { ...auction, imageUrl };
@@ -79,9 +79,9 @@ const Home = () => {
                 headers: { 'x-auth-token': token },
             });
             const enrichedBossKills = await Promise.all(bossKillsRes.data.slice(0, 3).map(async (kill) => {
-                let imageUrl = 'https://via.placeholder.com/50';
+                let imageUrl = 'wp1.jpg';
                 if (kill.dropped_items?.length) {
-                    imageUrl = kill.dropped_items[0].imageUrl || 'https://via.placeholder.com/50';
+                    imageUrl = kill.dropped_items[0].imageUrl || 'wp1.jpg';
                 }
                 return { ...kill, imageUrl };
             }));

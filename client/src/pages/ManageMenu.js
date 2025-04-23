@@ -69,7 +69,7 @@ const ManageMenu = () => {
     }, [contextMenuVisible, visible]);
 
     useEffect(() => {
-        console.log('Context node:', contextNode);
+      
     }, [contextNode]);
 
     const fetchMenuItems = async () => {
@@ -80,8 +80,7 @@ const ManageMenu = () => {
                 withCredentials: true,
             });
 
-            console.log('Session menu response:', res.data); // 檢查 session 數據
-
+          
             // 處理後端返回的數據，根據 parentId 構建樹狀結構
             const seenIds = new Set();
             const allItems = res.data
@@ -164,7 +163,7 @@ const ManageMenu = () => {
                 return !isChild;
             });
 
-            console.log('Final tree data:', finalTreeData); // 檢查最終樹狀數據
+           
             setTreeData(finalTreeData.length > 0 ? finalTreeData : [{ key: '/', label: '首頁', children: [] }]);
         } catch (err) {
             if (err.response?.status === 401) {
@@ -198,7 +197,7 @@ const ManageMenu = () => {
         }
         // 如果是新增子節點，設置 parentId
         if (contextNode && !editingItem) {
-            console.log('Setting parentId:', contextNode._id, 'for node:', contextNode.label);
+          
             if (!contextNode._id) {
                 message.error('父節點 ID 無效，請重新選擇');
                 setLoading(false);
@@ -206,7 +205,7 @@ const ManageMenu = () => {
             }
             formData.append('parentId', contextNode._id);
         } else {
-            console.log('No parentId set, contextNode:', contextNode, 'editingItem:', editingItem);
+         
         }
 
         try {
@@ -353,9 +352,7 @@ const ManageMenu = () => {
             console.error(err.message);
             fetchMenuItems();
             return;
-        }
-
-        console.log('Data before reorder:', JSON.stringify(data, null, 2)); // 添加日誌檢查
+        }    
 
         setTreeData(data);
 
@@ -397,7 +394,7 @@ const ManageMenu = () => {
 
     const onRightClick = (info) => {
         const node = info.node;
-        console.log('Right-clicked node:', node.label, 'parentId:', node.parentId);
+     
         if (!node.parentId || node.parentId === '' || node.parentId === null) {
             setContextNode(node);
             setContextMenuVisible(true); // 顯示右鍵菜單

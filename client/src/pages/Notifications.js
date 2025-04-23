@@ -1,11 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { Card, Avatar, List, Badge, message, Spin, Button, Select, Pagination, Row, Col, Alert } from 'antd';
-import { SearchOutlined, CheckCircleOutlined } from '@ant-design/icons';
+import { Card, Avatar, List, Badge, message, Spin, Button, Select, Pagination, Alert } from 'antd';
+import {  CheckCircleOutlined } from '@ant-design/icons';
 import axios from 'axios';
 import moment from 'moment';
 import { useNavigate } from 'react-router-dom';
 import { useNotification } from '../components/NotificationContext';
-import logger from '../utils/logger'; // 引入前端日誌工具
 
 const { Option } = Select;
 const BASE_URL = process.env.REACT_APP_API_URL || '';
@@ -35,7 +34,7 @@ const Notifications = () => {
                 headers: { 'x-auth-token': token },
             });
             let enrichedNotifications = await Promise.all(res.data.notifications.map(async (notification) => {
-                let imageUrl = 'https://via.placeholder.com/50';
+                let imageUrl = 'wp1.jpg';
                 if (notification.auctionId) {
                     try {
                         const auctionRes = await axios.get(`${BASE_URL}/api/auctions/${notification.auctionId}`, {
@@ -48,7 +47,7 @@ const Notifications = () => {
                             });
                             const bossKill = bossKillRes.data;
                             if (bossKill && bossKill.dropped_items?.length) {
-                                imageUrl = bossKill.dropped_items[0].imageUrl || 'https://via.placeholder.com/50';
+                                imageUrl = bossKill.dropped_items[0].imageUrl || 'wp1.jpg';
                             }
                         }
                     } catch (err) {

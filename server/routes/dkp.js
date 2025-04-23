@@ -306,13 +306,20 @@ router.post('/distribute/:killId', auth, adminOnly, async (req, res) => {
                 return null;
             }
 
-            try {
-                user.dkpPoints = (user.dkpPoints || 0) + dkpPoints;
-                await user.save();
-            } catch (err) {
-                console.error(`Failed to save user ${attendee} during DKP distribution:`, err);
+            // 檢查是否已存在相同的 DKP 記錄
+            const existingRecord = await DKPRecord.findOne({
+                userId: user._id,
+                bossKillId: bossKill._id,
+                description: `參與討伐 ${bossKill.bossId.name}`
+            });
+
+            if (existingRecord) {
+                console.warn(`Duplicate DKP record found for user ${attendee} and bossKill ${bossKill._id}. Skipping.`);
                 return null;
             }
+
+            user.dkpPoints = (user.dkpPoints || 0) + dkpPoints;
+            await user.save();
 
             const dkpRecord = new DKPRecord({
                 userId: user._id,
@@ -322,17 +329,6 @@ router.post('/distribute/:killId', auth, adminOnly, async (req, res) => {
                 bossKillId: bossKill._id,
             });
             await dkpRecord.save();
-
-            // 創建對應的 WalletTransaction 記錄
-            const walletTransaction = new WalletTransaction({
-                userId: user._id,
-                amount: dkpPoints,
-                type: dkpPoints > 0 ? 'income' : 'expense',
-                source: 'dkp',
-                description: `DKP 點數變動：${dkpRecord.description}`,
-                timestamp: dkpRecord.createdAt,
-            });
-            await walletTransaction.save();
 
             return dkpRecord;
         }));

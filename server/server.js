@@ -8,6 +8,7 @@ const path = require('path');
 const startAuctionCron = require('./utils/auctionCron');
 const startItemExpirationCron = require('./utils/itemExpirationCron'); // 新增
 const cors = require('cors');
+const csurf = require('csurf');
 const multer = require('multer');
 const app = express();
 
@@ -34,6 +35,14 @@ app.use(cors({
 
 app.use('/api/upload', require('./routes/upload'));
 console.log('Upload route loaded');
+
+// 配置 csurf 中間件
+const csrfProtection = csurf({ cookie: true });
+
+// 提供 CSRF Token 的端點
+app.get('/csrf-token', csrfProtection, (req, res) => {
+    res.json({ csrfToken: req.csrfToken() });
+});
 
 // 配置 multer 存儲
 const storage = multer.diskStorage({
@@ -96,7 +105,7 @@ app.use(
 
 
 // 檢查 session 中間件
-app.use((req, res, next) => {   
+app.use((req, res, next) => {
     next();
 });
 
@@ -154,6 +163,8 @@ app.use('/api/menu', upload.single('customIcon'), menuRoutes); // 添加 upload 
 console.log('Menu route loaded');
 app.use('/api/session', require('./routes/session'));
 console.log('Session route loaded');
+app.use('/api/professions', require('./routes/professions'));
+console.log('Professions route loaded');
 
 try {
     startAuctionCron();

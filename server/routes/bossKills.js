@@ -283,6 +283,70 @@ router.get('/all', auth, adminOnly, async (req, res) => {
     }
 });
 
+// 同步擊殺記錄中的物品分配狀態
+router.post('/sync-items-status', auth, adminOnly, async (req, res) => {
+    try {
+        const bossKills = await BossKill.find({}).lean();
+        let updatedCount = 0;
+
+        for (const bossKill of bossKills) {
+            let needsUpdate = false;
+            const updatedItems = await Promise.all(bossKill.dropped_items.map(async (item) => {
+                const itemId = item._id || item.id;
+                const auction = await Auction.findOne({ itemId }).lean();
+                const application = await Application.findOne({ item_id: itemId, status: 'approved' }).lean();
+
+                let newStatus = item.status || 'pending';
+                let newFinalRecipient = item.final_recipient || null;
+
+                if (auction && auction.highestBidder) {
+                    newStatus = 'assigned';
+                    newFinalRecipient = auction.highestBidder.character_name;
+                } else if (application && application.user_id) {
+                    newStatus = 'assigned';
+                    newFinalRecipient = application.user_id.character_name;
+                } else if (newStatus === 'pending' && item.apply_deadline && new Date(item.apply_deadline) < new Date()) {
+                    newStatus = 'expired';
+                }
+
+                // 如果頂層的 final_recipient 存在，同步到 dropped_items
+                if (bossKill.final_recipient && !newFinalRecipient) {
+                    newFinalRecipient = bossKill.final_recipient;
+                    newStatus = bossKill.status || 'assigned';
+                }
+
+                if (newStatus !== item.status || newFinalRecipient !== item.final_recipient) {
+                    needsUpdate = true;
+                }
+
+                return {
+                    ...item,
+                    status: newStatus,
+                    final_recipient: newFinalRecipient,
+                };
+            }));
+
+            if (needsUpdate) {
+                await BossKill.updateOne(
+                    { _id: bossKill._id },
+                    { $set: { dropped_items: updatedItems } }
+                );
+                updatedCount++;
+            }
+        }
+
+        res.json({ msg: `同步完成，共更新 ${updatedCount} 條擊殺記錄` });
+    } catch (err) {
+        console.error('Sync items status error:', err);
+        res.status(500).json({
+            code: 500,
+            msg: '同步物品狀態失敗',
+            detail: err.message,
+            suggestion: '請稍後重試或聯繫管理員',
+        });
+    }
+});
+
 // 更新擊殺記錄
 router.put('/:id', auth, adminOnly, async (req, res) => {
     const { status, final_recipient, attendees, dropped_items, itemHolder } = req.body;
@@ -346,13 +410,32 @@ router.put('/:killId/items/:itemId', auth, adminOnly, async (req, res) => {
             });
         }
 
-       
+        // 檢查是否有拍賣或申請記錄
+        const auction = await Auction.findOne({ itemId: req.params.itemId }).lean();
+        const application = await Application.findOne({ item_id: req.params.itemId, status: 'approved' }).lean();
 
+        // 更新物品狀態和最終分配者
+        bossKill.dropped_items[itemIndex].status = 'expired'; // 設置為已過期
+        if (auction && auction.highestBidder) {
+            bossKill.dropped_items[itemIndex].final_recipient = auction.highestBidder.character_name;
+            bossKill.dropped_items[itemIndex].status = 'assigned'; // 如果有拍賣，設置為已分配
+        } else if (application && application.user_id) {
+            bossKill.dropped_items[itemIndex].final_recipient = application.user_id.character_name;
+            bossKill.dropped_items[itemIndex].status = 'assigned'; // 如果有批准的申請，設置為已分配
+        }
+
+        // 如果頂層的 final_recipient 存在，同步到 dropped_items
+        if (bossKill.final_recipient) {
+            bossKill.dropped_items[itemIndex].final_recipient = bossKill.final_recipient;
+            bossKill.dropped_items[itemIndex].status = bossKill.status || 'assigned';
+        }
+
+        // 設置 bossKill 整體狀態
         bossKill.status = 'expired';
-        await bossKill.save();       
+        bossKill.markModified('dropped_items'); // 標記 dropped_items 已修改
+        await bossKill.save();
 
         const updatedBossKill = await BossKill.findById(req.params.killId).lean();
-       
         res.json({ msg: '物品狀態更新成功', bossKill: updatedBossKill });
     } catch (err) {
         console.error('Update item status error:', err);
@@ -364,7 +447,6 @@ router.put('/:killId/items/:itemId', auth, adminOnly, async (req, res) => {
         });
     }
 });
-
 // 創建擊殺記錄
 router.post('/', auth, adminOnly, upload.array('screenshots', 5), async (req, res) => {
     const { bossId, kill_time, dropped_items, attendees, final_recipient, status, apply_deadline_days, itemHolder } = req.body;

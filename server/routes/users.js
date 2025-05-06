@@ -2,12 +2,15 @@ const express = require('express');
 const router = express.Router();
 const User = require('../models/User');
 const Guild = require('../models/Guild');
+const BossKill = require('../models/BossKill');
+const Auction = require('../models/Auction');
+const Profession = require('../models/Profession'); // 新增 Profession 模型
 const multer = require('multer');
 const bcrypt = require('bcryptjs');
 const path = require('path');
 const jsonwebtoken = require('jsonwebtoken');
 const { auth, adminOnly } = require('../middleware/auth');
-const logger = require('../logger'); // 假設你有一個 logger 工具
+const logger = require('../logger');
 
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
@@ -37,6 +40,7 @@ router.use((req, res, next) => {
     next();
 });
 
+// 獲取用戶統計數據（總用戶數和活躍用戶數，管理員專用）
 router.get('/stats', auth, async (req, res) => {
     try {
         if (!req.user) {
@@ -54,12 +58,64 @@ router.get('/stats', auth, async (req, res) => {
     }
 });
 
+// 獲取用戶個人統計數據（參與擊殺次數和拍賣成功次數）
+router.get('/personal-stats', auth, async (req, res) => {
+    try {
+        const user = req.user;
+        if (!user || !user.character_name) {
+            return res.status(401).json({
+                code: 401,
+                msg: '無法識別用戶身份',
+                detail: '請確保已正確登錄並提供有效的 Token。',
+            });
+        }
+
+        // 計算參與擊殺次數（不區分大小寫比較）
+        const participationCount = await BossKill.countDocuments({
+            attendees: { $regex: `^${user.character_name}$`, $options: 'i' },
+        });
+
+        // 計算拍賣成功次數
+        const auctionSuccessCount = await Auction.countDocuments({
+            highestBidder: user.id,
+            status: 'closed',
+        });
+
+        res.json({
+            participationCount,
+            auctionSuccessCount,
+        });
+    } catch (err) {
+        logger.error('Error fetching personal stats:', {
+            userId: req.user?.id,
+            error: err.message,
+            stack: err.stack,
+        });
+        res.status(500).json({
+            code: 500,
+            msg: '獲取個人統計數據失敗',
+            detail: err.message || '伺服器處理錯誤',
+            suggestion: '請稍後重試或聯繫管理員。',
+        });
+    }
+});
+
+// 註冊新用戶
 router.post('/register', upload.single('screenshot'), async (req, res) => {
-    const { world_name, character_name, discord_id, raid_level, password, guildId } = req.body;
+    const { world_name, character_name, discord_id, raid_level, password, guildId, profession } = req.body;
     try {
         let user = await User.findOne({ character_name });
         if (user) {
             return res.status(400).json({ msg: '用戶名已存在' });
+        }
+
+        // 驗證 profession 是否存在
+        const professionExists = await Profession.findById(profession);
+        if (!professionExists) {
+            return res.status(400).json({
+                msg: '無效的職業',
+                detail: `無法找到 ID 為 ${profession} 的職業`,
+            });
         }
 
         const screenshot = req.file ? req.file.path : null;
@@ -74,6 +130,7 @@ router.post('/register', upload.single('screenshot'), async (req, res) => {
             status: 'pending',
             guildId: guildId || null,
             mustChangePassword: false,
+            profession: profession || null, // 新增 profession 字段
         });
 
         await user.save();
@@ -85,9 +142,13 @@ router.post('/register', upload.single('screenshot'), async (req, res) => {
     }
 });
 
+// 獲取所有用戶列表（管理員專用）
 router.get('/', auth, adminOnly, async (req, res) => {
     try {
-        const users = await User.find().select('world_name character_name discord_id raid_level diamonds status screenshot role guildId mustChangePassword createdAt updatedAt');
+        const users = await User.find()
+            .populate('guildId', 'name') // 填充 guildId 字段
+            .populate('profession', 'name icon') // 填充 profession 字段
+            .select('world_name character_name discord_id raid_level diamonds status screenshot role guildId mustChangePassword profession createdAt updatedAt');
         res.json(users);
     } catch (err) {
         logger.error('Error fetching users:', err.message);
@@ -95,12 +156,15 @@ router.get('/', auth, adminOnly, async (req, res) => {
     }
 });
 
+// 獲取用戶個人資料
 router.get('/profile', auth, async (req, res) => {
     try {
         if (!req.user || !req.user.id) {
             return res.status(401).json({ msg: '無效的用戶身份' });
         }
-        const user = await User.findById(req.user.id).select('character_name world_name discord_id raid_level diamonds status screenshot role guildId mustChangePassword');
+        const user = await User.findById(req.user.id)
+            .populate('profession', 'name icon') // 填充 profession 字段
+            .select('character_name world_name discord_id raid_level diamonds status screenshot role guildId mustChangePassword profession');
         if (!user) {
             return res.status(404).json({ msg: '用戶不存在' });
         }
@@ -111,8 +175,9 @@ router.get('/profile', auth, async (req, res) => {
     }
 });
 
+// 更新用戶個人資料
 router.put('/profile', auth, async (req, res) => {
-    const { world_name, discord_id, raid_level, guildId } = req.body;
+    const { world_name, discord_id, raid_level, guildId, profession } = req.body;
     try {
         if (!req.user || !req.user.id) {
             return res.status(401).json({ msg: '無效的用戶身份' });
@@ -124,6 +189,7 @@ router.put('/profile', auth, async (req, res) => {
         user.discord_id = discord_id || user.discord_id;
         user.raid_level = raid_level !== undefined ? parseInt(raid_level) : user.raid_level;
         user.guildId = guildId || user.guildId;
+        user.profession = profession !== undefined ? profession : user.profession; // 新增 profession 字段
 
         await user.save();
         res.json({ msg: '用戶資料更新成功' });
@@ -133,6 +199,7 @@ router.put('/profile', auth, async (req, res) => {
     }
 });
 
+// 刪除單個用戶（管理員專用）
 router.delete('/:id', auth, adminOnly, async (req, res) => {
     logger.info(`DELETE /api/users/:id called with id: ${req.params.id}, user: ${req.user?.id}`);
     try {
@@ -153,7 +220,8 @@ router.delete('/:id', auth, adminOnly, async (req, res) => {
     }
 });
 
-router.delete('/api/users/batch-delete', auth, adminOnly, async (req, res) => {
+// 批量刪除用戶（管理員專用）
+router.delete('/batch-delete', auth, adminOnly, async (req, res) => {
     const { ids } = req.body;
     logger.info(`DELETE /api/users/batch-delete called with ids: ${ids}, user: ${req.user?.id}`);
     try {
@@ -175,8 +243,9 @@ router.delete('/api/users/batch-delete', auth, adminOnly, async (req, res) => {
     }
 });
 
+// 更新用戶（管理員專用）
 router.put('/:id', auth, adminOnly, upload.single('screenshot'), async (req, res) => {
-    const { world_name, character_name, discord_id, raid_level, diamonds, status, role, password, guildId, mustChangePassword } = req.body;
+    const { world_name, character_name, discord_id, raid_level, diamonds, status, role, password, guildId, mustChangePassword, profession } = req.body;
     try {
         const user = await User.findById(req.params.id);
         if (!user) {
@@ -196,6 +265,7 @@ router.put('/:id', auth, adminOnly, upload.single('screenshot'), async (req, res
         user.screenshot = req.file ? req.file.path : user.screenshot;
         user.role = role || user.role;
         user.guildId = guildId || user.guildId;
+        user.profession = profession !== undefined ? profession : user.profession; // 新增 profession 字段
         if (password) {
             const salt = await bcrypt.genSalt(10);
             user.password = await bcrypt.hash(password, salt);
@@ -210,12 +280,15 @@ router.put('/:id', auth, adminOnly, upload.single('screenshot'), async (req, res
     }
 });
 
+// 獲取當前用戶信息
 router.get('/me', auth, async (req, res) => {
     try {
         if (!req.user || !req.user.id) {
             return res.status(401).json({ msg: '無效的用戶身份' });
         }
-        const user = await User.findById(req.user.id).select('character_name world_name discord_id raid_level diamonds status screenshot role _id guildId mustChangePassword');
+        const user = await User.findById(req.user.id)
+            .populate('profession', 'name icon') // 填充 profession 字段
+            .select('character_name world_name discord_id raid_level diamonds status screenshot role _id guildId mustChangePassword profession');
         if (!user) {
             return res.status(404).json({ msg: '用戶不存在' });
         }
@@ -231,6 +304,7 @@ router.get('/me', auth, async (req, res) => {
             screenshot: user.screenshot ? `${req.protocol}://${req.get('host')}/${user.screenshot.replace('./', '')}` : null,
             guildId: user.guildId,
             mustChangePassword: user.mustChangePassword,
+            profession: user.profession, // 包含填充後的 profession 數據
         });
     } catch (err) {
         logger.error('Error fetching user:', err.message);
@@ -238,6 +312,7 @@ router.get('/me', auth, async (req, res) => {
     }
 });
 
+// 獲取用戶增長趨勢（管理員專用）
 router.get('/growth', auth, async (req, res) => {
     try {
         if (req.user.role !== 'admin') {
@@ -269,8 +344,9 @@ router.get('/growth', auth, async (req, res) => {
     }
 });
 
+// 創建新成員（管理員專用）
 router.post('/create-member', auth, adminOnly, upload.none(), async (req, res) => {
-    const { character_name, password, guildId, useGuildPassword, world_name } = req.body;
+    const { character_name, password, guildId, useGuildPassword, world_name, profession } = req.body;
 
     try {
         if (!character_name || !guildId) {
@@ -336,6 +412,7 @@ router.post('/create-member', auth, adminOnly, upload.none(), async (req, res) =
             guildId,
             mustChangePassword: true,
             status: 'pending',
+            profession: profession || null, // 新增 profession 字段
         });
 
         await user.save();
@@ -347,6 +424,7 @@ router.post('/create-member', auth, adminOnly, upload.none(), async (req, res) =
                 character_name: user.character_name,
                 guildId: user.guildId,
                 mustChangePassword: user.mustChangePassword,
+                profession: user.profession,
             },
         });
     } catch (err) {
@@ -359,6 +437,7 @@ router.post('/create-member', auth, adminOnly, upload.none(), async (req, res) =
     }
 });
 
+// 更改密碼
 router.post('/change-password', auth, async (req, res) => {
     const { currentPassword, newPassword } = req.body;
     const userId = req.user.id;

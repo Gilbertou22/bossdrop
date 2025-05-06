@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Table, Button, Modal, Form, Input, Select, message, Spin, Alert, Pagination, Row, Col, Popconfirm, Card, Space, Typography } from 'antd';
+import { Table, Button, Modal, Form, Input, Select, message, Spin, Alert, Pagination, Row, Col, Popconfirm, Card, Space, Typography, InputNumber } from 'antd';
 import { SearchOutlined, DeleteOutlined, EditOutlined, PlusOutlined, RedoOutlined } from '@ant-design/icons';
 import axios from 'axios';
 
@@ -27,6 +27,19 @@ class ErrorBoundary extends React.Component {
         return this.props.children;
     }
 }
+
+// 獲取 CSRF Token 的函數
+const fetchCsrfToken = async () => {
+    try {
+        const res = await axios.get(`${BASE_URL}/csrf-token`, {
+            withCredentials: true, // 確保發送 Cookie
+        });
+        return res.data.csrfToken;
+    } catch (err) {
+        console.error('Error fetching CSRF token:', err);
+        return null;
+    }
+};
 
 const ManageBosses = () => {
     const [bosses, setBosses] = useState([]);
@@ -104,19 +117,45 @@ const ManageBosses = () => {
         }
     };
 
+    const fetchDKPSetting = async (bossId) => {
+        try {
+            const res = await axios.get(`${BASE_URL}/api/dkp/${bossId}`, {
+                headers: { 'x-auth-token': localStorage.getItem('token') },
+            });
+            return res.data.dkpPoints || 0;
+        } catch (err) {
+            console.error('Error fetching DKP setting:', err);
+            return 0; // 如果未找到 DKP 設定，默認為 0
+        }
+    };
+
     const handleCreateOrUpdate = async (values) => {
         const token = localStorage.getItem('token');
         setLoading(true);
         try {
             if (editingBoss) {
-                await axios.put(`${BASE_URL}/api/bosses/${editingBoss._id}`, values, {
+                // 更新首領和 DKP 點數
+                await axios.put(`${BASE_URL}/api/bosses/${editingBoss._id}`, {
+                    name: values.name,
+                    description: values.description,
+                    difficulty: values.difficulty,
+                    dkpPoints: values.dkpPoints, // 將 DKP 點數一起發送
+                }, {
                     headers: { 'x-auth-token': token },
                 });
+
                 message.success('首領更新成功');
             } else {
-                await axios.post(`${BASE_URL}/api/bosses`, values, {
+                // 創建首領並設置 DKP 點數
+                await axios.post(`${BASE_URL}/api/bosses`, {
+                    name: values.name,
+                    description: values.description,
+                    difficulty: values.difficulty,
+                    dkpPoints: values.dkpPoints,
+                }, {
                     headers: { 'x-auth-token': token },
                 });
+
                 message.success('首領創建成功');
             }
             fetchBosses();
@@ -176,6 +215,20 @@ const ManageBosses = () => {
         setCurrentPage(1);
     };
 
+    const handleEdit = async (record) => {
+        setEditingBoss(record);
+        setVisible(true);
+
+        // 獲取當前首領的 DKP 點數
+        const dkpPoints = await fetchDKPSetting(record._id);
+
+        // 填充表單數據
+        form.setFieldsValue({
+            ...record,
+            dkpPoints,
+        });
+    };
+
     const rowSelection = {
         selectedRowKeys,
         onChange: (selectedKeys) => setSelectedRowKeys(selectedKeys),
@@ -184,7 +237,6 @@ const ManageBosses = () => {
     const columns = [
         { title: '名稱', dataIndex: 'name', key: 'name', sorter: true, width: 150 },
         { title: '描述', dataIndex: 'description', key: 'description', width: 200 },
-        // 移除「難度」欄位
         {
             title: '操作',
             key: 'action',
@@ -192,11 +244,7 @@ const ManageBosses = () => {
                 <Row gutter={[8, 8]} justify="center">
                     <Col>
                         <Button
-                            onClick={() => {
-                                setEditingBoss(record);
-                                setVisible(true);
-                                form.setFieldsValue(record);
-                            }}
+                            onClick={() => handleEdit(record)}
                             disabled={loading}
                             type="primary"
                             shape="round"
@@ -417,6 +465,20 @@ const ManageBosses = () => {
                                 <Option value="medium">中等</Option>
                                 <Option value="hard">困難</Option>
                             </Select>
+                        </Form.Item>
+                        <Form.Item
+                            name="dkpPoints"
+                            label="DKP 點數"
+                            rules={[
+                                { required: true, message: '請輸入 DKP 點數！' },
+                                {
+                                    type: 'number',
+                                    min: 0,
+                                    message: 'DKP 點數必須是非負數！',
+                                },
+                            ]}
+                        >
+                            <InputNumber style={{ width: '100%' }} />
                         </Form.Item>
                         <Form.Item>
                             <Button type="primary" htmlType="submit" loading={loading} style={{ borderRadius: '8px' }}>

@@ -1,4 +1,3 @@
-// routes/applications.js
 const express = require('express');
 const router = express.Router();
 const Application = require('../models/Application');
@@ -7,6 +6,7 @@ const Notification = require('../models/Notification');
 const { auth, adminOnly } = require('../middleware/auth');
 const moment = require('moment');
 
+// 獲取待審核申請數量
 router.get('/pending-count', auth, async (req, res) => {
     try {
         if (req.user.role !== 'admin') {
@@ -15,11 +15,16 @@ router.get('/pending-count', auth, async (req, res) => {
         const pendingCount = await Application.countDocuments({ status: 'pending' });
         res.json({ pendingCount });
     } catch (err) {
-        console.error('Error fetching pending applications:', err);
+        console.error('Error fetching pending applications:', {
+            userId: req.user.id,
+            error: err.message,
+            stack: err.stack,
+        });
         res.status(500).json({ code: 500, msg: '獲取待審核申請失敗' });
     }
 });
 
+// 提交申請
 router.post('/', auth, async (req, res) => {
     const { kill_id, item_id, item_name } = req.body;
     const user = req.user;
@@ -137,7 +142,13 @@ router.post('/', auth, async (req, res) => {
             application_id: application._id,
         });
     } catch (err) {
-        console.error('Application error:', err);
+        console.error('Application error:', {
+            userId: user?.id,
+            killId: kill_id,
+            itemId: item_id,
+            error: err.message,
+            stack: err.stack,
+        });
         if (err.name === 'ValidationError') {
             return res.status(400).json({
                 code: 400,
@@ -155,9 +166,13 @@ router.post('/', auth, async (req, res) => {
     }
 });
 
-router.put('/:id/approve', auth, adminOnly, async (req, res) => {
+// 批准申請
+router.post('/:id/approve', auth, adminOnly, async (req, res) => {
     const { id } = req.params;
+    console.log('Approving application with ID:', id);
+    console.log('User:', req.user);
     try {
+        // 查找申請記錄
         const application = await Application.findById(id)
             .populate('user_id', 'character_name')
             .populate({
@@ -180,16 +195,46 @@ router.put('/:id/approve', auth, adminOnly, async (req, res) => {
                 suggestion: '請檢查申請狀態。',
             });
         }
+
+        // 更新申請狀態
         application.status = 'approved';
         await application.save();
 
+        // 查找對應的 BossKill 記錄
         const bossKill = await BossKill.findById(application.kill_id);
-        if (bossKill) {
-            bossKill.final_recipient = application.user_id.character_name;
-            bossKill.status = 'assigned';
-            await bossKill.save();
+        if (!bossKill) {
+            return res.status(404).json({
+                code: 404,
+                msg: '擊殺記錄不存在',
+                detail: `無法找到 ID 為 ${application.kill_id} 的擊殺記錄。`,
+                suggestion: '請檢查擊殺記錄 ID 或聯繫管理員。',
+            });
         }
 
+        // 找到 dropped_items 中對應的物品
+        const itemIndex = bossKill.dropped_items.findIndex(i => (i._id || i.id).toString() === application.item_id.toString());
+        if (itemIndex === -1) {
+            return res.status(404).json({
+                code: 404,
+                msg: '物品不存在於擊殺記錄中',
+                detail: `item_id (${application.item_id}) 不在擊殺記錄 ${application.kill_id} 的掉落列表中。`,
+                suggestion: '請檢查 item_id 或聯繫管理員。',
+            });
+        }
+
+        // 更新頂層字段
+        bossKill.final_recipient = application.user_id.character_name;
+        bossKill.status = 'assigned';
+
+        // 更新 dropped_items 中的對應物品
+        bossKill.dropped_items[itemIndex].final_recipient = application.user_id.character_name;
+        bossKill.dropped_items[itemIndex].status = 'assigned';
+
+        // 標記 dropped_items 已修改
+        bossKill.markModified('dropped_items');
+        await bossKill.save();
+
+        // 創建通知
         await Notification.create({
             userId: application.user_id._id,
             message: `您的申請已通過，您獲得了 ${application.item_name}！`,
@@ -202,7 +247,12 @@ router.put('/:id/approve', auth, adminOnly, async (req, res) => {
             detail: `申請 ID: ${id} 已審批，分配給 ${application.user_id.character_name}。`,
         });
     } catch (err) {
-        console.error('Approve application error:', err);
+        console.error('Approve application error:', {
+            applicationId: id,
+            user: req.user,
+            error: err.message,
+            stack: err.stack,
+        });
         res.status(500).json({
             code: 500,
             msg: '審批申請失敗',
@@ -212,8 +262,11 @@ router.put('/:id/approve', auth, adminOnly, async (req, res) => {
     }
 });
 
+// 拒絕申請
 router.put('/:id/reject', auth, adminOnly, async (req, res) => {
     const { id } = req.params;
+    console.log('Rejecting application with ID:', id);
+    console.log('User:', req.user);
     try {
         const application = await Application.findById(id);
         if (!application) {
@@ -241,6 +294,12 @@ router.put('/:id/reject', auth, adminOnly, async (req, res) => {
             detail: `申請 ID: ${id} 已拒絕。`,
         });
     } catch (err) {
+        console.error('Reject application error:', {
+            applicationId: id,
+            user: req.user,
+            error: err.message,
+            stack: err.stack,
+        });
         res.status(500).json({
             code: 500,
             msg: '拒絕申請失敗',
@@ -250,6 +309,7 @@ router.put('/:id/reject', auth, adminOnly, async (req, res) => {
     }
 });
 
+// 獲取所有申請（管理員）
 router.get('/', auth, adminOnly, async (req, res) => {
     try {
         const { status, search } = req.query;
@@ -270,6 +330,12 @@ router.get('/', auth, adminOnly, async (req, res) => {
             });
         res.json(applications);
     } catch (err) {
+        console.error('Fetch applications error:', {
+            userId: req.user.id,
+            query,
+            error: err.message,
+            stack: err.stack,
+        });
         res.status(500).json({
             code: 500,
             msg: '獲取申請列表失敗',
@@ -279,6 +345,7 @@ router.get('/', auth, adminOnly, async (req, res) => {
     }
 });
 
+// 獲取用戶的申請記錄
 router.get('/user', auth, async (req, res) => {
     try {
         const applications = await Application.find({ user_id: req.user.id })
@@ -289,22 +356,59 @@ router.get('/user', auth, async (req, res) => {
                 populate: { path: 'bossId', select: 'name' },
                 select: 'bossId kill_time',
             });
-        
+
         if (!applications || applications.length === 0) {
             console.warn('No applications found for user:', req.user.id);
             return res.json([]);
         }
         res.json(applications);
     } catch (err) {
-        console.error('Fetch applications error:', err);
-        res.status(500).json({ msg: '獲取申請記錄失敗', error: err.message });
+        console.error('Fetch user applications error:', {
+            userId: req.user.id,
+            error: err.message,
+            stack: err.stack,
+        });
+        res.status(500).json({
+            code: 500,
+            msg: '獲取申請記錄失敗',
+            error: err.message,
+        });
     }
 });
 
+// 獲取與某個 kill_id 相關的所有申請
+router.get('/by-kill/:killId', auth, async (req, res) => {
+    try {
+        console.log('Fetching applications for killId:', req.params.killId);
+        console.log('User:', req.user);
+        const applications = await Application.find({ kill_id: req.params.killId })
+            .populate('user_id', 'character_name')
+            .lean();
+        console.log('Found applications:', applications);
+        res.json(applications);
+    } catch (err) {
+        console.error('Fetch applications by killId error:', {
+            killId: req.params.killId,
+            user: req.user,
+            error: err.message,
+            stack: err.stack,
+        });
+        res.status(500).json({
+            code: 500,
+            msg: '獲取申請記錄失敗',
+            detail: err.message,
+            suggestion: '請稍後重試或聯繫管理員',
+        });
+    }
+});
+
+// 獲取與某個 kill_id 和 item_id 相關的申請（管理員）
 router.get('/by-kill-and-item', auth, adminOnly, async (req, res) => {
     const { kill_id, item_id } = req.query;
 
     try {
+        console.log('Fetching applications for kill_id:', kill_id, 'item_id:', item_id);
+        console.log('User:', req.user);
         if (!kill_id || !item_id) {
             return res.status(400).json({
                 code: 400,
@@ -321,14 +425,51 @@ router.get('/by-kill-and-item', auth, adminOnly, async (req, res) => {
             .select('user_id status created_at')
             .populate('user_id', 'character_name');
 
-        
+        console.log('Found applications by kill and item:', applications);
         res.json(applications);
     } catch (err) {
-        console.error('Fetch applications by kill and item error:', err);
-        res.status(500).json({ msg: '獲取申請記錄失敗', error: err.message });
+        console.error('Fetch applications by kill and item error:', {
+            killId: kill_id,
+            itemId: item_id,
+            user: req.user,
+            error: err.message,
+            stack: err.stack,
+        });
+        res.status(500).json({
+            code: 500,
+            msg: '獲取申請記錄失敗',
+            error: err.message,
+        });
     }
 });
 
+// 獲取與某個 item_id 相關的申請（管理員）
+router.get('/by-item/:itemId', auth, adminOnly, async (req, res) => {
+    try {
+        console.log('Fetching applications for itemId:', req.params.itemId);
+        console.log('User:', req.user);
+        const applications = await Application.find({ item_id: req.params.itemId })
+            .populate('user_id', 'character_name')
+            .lean();
+        console.log('Found applications by item:', applications);
+        res.json(applications);
+    } catch (err) {
+        console.error('Fetch applications by itemId error:', {
+            itemId: req.params.itemId,
+            user: req.user,
+            error: err.message,
+            stack: err.stack,
+        });
+        res.status(500).json({
+            code: 500,
+            msg: '獲取申請記錄失敗',
+            detail: err.message,
+            suggestion: '請稍後重試或聯繫管理員',
+        });
+    }
+});
+
+// 獲取申請趨勢（管理員）
 router.get('/trend', auth, async (req, res) => {
     try {
         if (req.user.role !== 'admin') {
@@ -356,7 +497,12 @@ router.get('/trend', auth, async (req, res) => {
         ]);
         res.json(trendData);
     } catch (err) {
-        console.error('Error fetching application trend:', err);
+        console.error('Error fetching application trend:', {
+            userId: req.user.id,
+            range,
+            error: err.message,
+            stack: err.stack,
+        });
         res.status(500).json({ code: 500, msg: '獲取申請趨勢失敗' });
     }
 });

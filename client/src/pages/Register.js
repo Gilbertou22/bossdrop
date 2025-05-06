@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { Form, Input, InputNumber, Upload, Button, message, Modal, Card, Typography, Space, Alert, Progress } from 'antd';
+import { Form, Input, InputNumber, Upload, Button, message, Modal, Card, Typography, Space, Alert, Progress, Select } from 'antd';
 import { UploadOutlined, CheckCircleOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import logger from '../utils/logger';
 import { motion } from 'framer-motion';
+import { icons } from '../assets/icons'; // 導入職業圖標
 
 const { Title, Text } = Typography;
+const { Option } = Select;
 const BASE_URL = process.env.REACT_APP_API_URL || '';
 
 const fadeIn = {
@@ -37,6 +39,7 @@ const Register = () => {
     const [successMessage, setSuccessMessage] = useState('');
     const [deferredPrompt, setDeferredPrompt] = useState(null);
     const [passwordStrength, setPasswordStrength] = useState(0);
+    const [professions, setProfessions] = useState([]); // 新增職業列表
 
     useEffect(() => {
         const handleOnline = () => {
@@ -59,11 +62,24 @@ const Register = () => {
             logger.info('PWA install prompt available');
         });
 
+        // 獲取職業列表
+        fetchProfessions();
+
         return () => {
             window.removeEventListener('online', handleOnline);
             window.removeEventListener('offline', handleOffline);
         };
     }, []);
+
+    const fetchProfessions = async () => {
+        try {
+            const res = await axios.get(`${BASE_URL}/api/professions`);
+            setProfessions(res.data);
+        } catch (err) {
+            logger.error('Fetch professions error:', err);
+            message.error('無法載入職業列表，請稍後重試');
+        }
+    };
 
     useEffect(() => {
         form.setFieldsValue({ world_name: '修連03' });
@@ -90,6 +106,7 @@ const Register = () => {
         formData.append('discord_id', values.discord_id || '');
         formData.append('raid_level', values.raid_level || 0);
         formData.append('password', values.password);
+        formData.append('profession', values.profession); // 新增職業字段
         if (fileList.length > 0) {
             formData.append('screenshot', fileList[0].originFileObj);
         }
@@ -205,6 +222,22 @@ const Register = () => {
                         </Form.Item>
                         <Form.Item name="raid_level" label="討伐等級">
                             <InputNumber min={0} max={100} placeholder="討伐等級" style={{ width: '100%' }} autoComplete="off" />
+                        </Form.Item>
+                        <Form.Item
+                            name="profession"
+                            label="職業"
+                            rules={[{ required: true, message: '請選擇職業！' }]}
+                        >
+                            <Select placeholder="選擇職業">
+                                {professions.map(prof => (
+                                    <Option key={prof._id} value={prof._id}>
+                                        <Space>
+                                            <img src={icons[prof.icon]} alt={prof.name} style={{ width: 24, height: 24 }} />
+                                            <span>{prof.name}</span>
+                                        </Space>
+                                    </Option>
+                                ))}
+                            </Select>
                         </Form.Item>
                         <Form.Item
                             name="password"

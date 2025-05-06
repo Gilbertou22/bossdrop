@@ -33,6 +33,8 @@ import ComingSoon from './pages/ComingSoon';
 import ManageMenu from './pages/ManageMenu';
 import Forbidden from './pages/Forbidden';
 import MenuLogs from './pages/MenuLogs';
+import ProfessionManage from './pages/ProfessionManage';
+
 
 const { Content, Footer } = Layout;
 const { Text } = Typography;
@@ -62,7 +64,7 @@ function App() {
                                         <Route path="/" element={<Home />} />
                                         <Route path="/register" element={<Register />} />
                                         <Route path="/login" element={<Login />} />
-                                        <Route path="/coming-soon" element={<ComingSoon />} />                                        
+                                        <Route path="/coming-soon" element={<ComingSoon />} />
                                         <Route
                                             path="/manage-menu"
                                             element={
@@ -87,6 +89,14 @@ function App() {
                                             element={
                                                 <RoleRoute allowedRoles={['user', 'moderator', 'admin']}>
                                                     <Auction />
+                                                </RoleRoute>
+                                            }
+                                        />
+                                        <Route
+                                            path="/manage-professions"
+                                            element={
+                                                <RoleRoute allowedRoles={['admin']}>
+                                                    <ProfessionManage />
                                                 </RoleRoute>
                                             }
                                         />

@@ -1,11 +1,19 @@
 {
   "files": {
     "main.css": "/static/css/main.ff477401.css",
-    "main.js": "/static/js/main.a9743109.js",
+    "main.js": "/static/js/main.b8856554.js",
+    "static/media/icon_class_5.svg": "/static/media/icon_class_5.eac89c88fb5819e9cc43696c9d390081.svg",
+    "static/media/icon_class_all.svg": "/static/media/icon_class_all.be67b7e9e2a3c00b2592a785bfb0ef30.svg",
+    "static/media/icon_class_2.svg": "/static/media/icon_class_2.dcffa8394dc2ef76ee345e75cc0a421b.svg",
+    "static/media/icon_class_1.svg": "/static/media/icon_class_1.ce7bc36b4e13309cec635062b920aeb5.svg",
+    "static/media/icon_class_3.svg": "/static/media/icon_class_3.5e8646f2e91d81dcddbc2a69e8489c9f.svg",
+    "static/media/icon_class_4.svg": "/static/media/icon_class_4.2ac6f332bbcfe51c9581d5f847a6f481.svg",
+    "static/media/icon_guildmark.svg": "/static/media/icon_guildmark.bd574056dd0e68cc27f34d65da88e858.svg",
+    "static/media/icon_crown.svg": "/static/media/icon_crown.7aadeff464ab885d6b5e0153cf9a8bd3.svg",
     "index.html": "/index.html"
   },
   "entrypoints": [
     "static/css/main.ff477401.css",
-    "static/js/main.a9743109.js"
+    "static/js/main.b8856554.js"
   ]
 }

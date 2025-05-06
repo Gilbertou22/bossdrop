@@ -78,7 +78,9 @@ const Home = () => {
             const bossKillsRes = await axios.get(`${BASE_URL}/api/boss-kills`, {
                 headers: { 'x-auth-token': token },
             });
-            const enrichedBossKills = await Promise.all(bossKillsRes.data.slice(0, 3).map(async (kill) => {
+            // 修正：從 bossKillsRes.data.data 中提取擊殺記錄
+            const killData = Array.isArray(bossKillsRes.data.data) ? bossKillsRes.data.data : [];
+            const enrichedBossKills = await Promise.all(killData.slice(0, 3).map(async (kill) => {
                 let imageUrl = 'wp1.jpg';
                 if (kill.dropped_items?.length) {
                     imageUrl = kill.dropped_items[0].imageUrl || 'wp1.jpg';
@@ -382,13 +384,13 @@ const Home = () => {
                                             avatar={<Avatar src={kill.imageUrl} style={{ borderRadius: '50%' }} loading="lazy" />}
                                             title={
                                                 <Space>
-                                                    <Text strong>首領: {kill.boss_name}</Text>
+                                                    <Text strong>首領: {kill.bossId?.name || '未知首領'}</Text>
                                                     {statusTag(kill.status)}
                                                 </Space>
                                             }
                                             description={
                                                 <div>
-                                                    <Text>擊殺時間: {moment(kill.kill_date).format('YYYY-MM-DD HH:mm:ss')}</Text><br />
+                                                    <Text>擊殺時間: {moment(kill.kill_time).format('YYYY-MM-DD HH:mm:ss')}</Text><br />
                                                     <Text type="secondary">掉落物品: {kill.dropped_items?.map(item => item.name).join(', ') || '無'}</Text>
                                                 </div>
                                             }

@@ -5,6 +5,7 @@ import axios from 'axios';
 import formatNumber from '../utils/formatNumber';
 import moment from 'moment';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { icons } from '../assets/icons';
 
 const { Option } = Select;
 
@@ -28,6 +29,7 @@ const ManageUsers = () => {
     const [stats, setStats] = useState({ totalUsers: 0, activeUsers: 0 });
     const [growthData, setGrowthData] = useState([]);
     const [guilds, setGuilds] = useState([]);
+    const [professions, setProfessions] = useState([]);
     const [useGuildPassword, setUseGuildPassword] = useState(false);
     const token = localStorage.getItem('token');
     const [online, setOnline] = useState(navigator.onLine);
@@ -45,6 +47,7 @@ const ManageUsers = () => {
 
     useEffect(() => {
         fetchGuilds();
+        fetchProfessions();
     }, []);
 
     const fetchGuilds = async () => {
@@ -59,14 +62,26 @@ const ManageUsers = () => {
         }
     };
 
+    const fetchProfessions = async () => {
+        try {
+            const res = await axios.get(`${BASE_URL}/api/professions`, {
+                headers: { 'x-auth-token': token },
+            });
+            setProfessions(res.data);
+        } catch (err) {
+            console.error('Fetch professions error:', err);
+            message.error('載入職業列表失敗');
+        }
+    };
+
     const handleInstallPWA = () => {
         if (deferredPrompt) {
             deferredPrompt.prompt();
             deferredPrompt.userChoice.then((choiceResult) => {
                 if (choiceResult.outcome === 'accepted') {
-               
+                    // 用戶接受了安裝
                 } else {
-               
+                    // 用戶拒絕了安裝
                 }
                 setDeferredPrompt(null);
             });
@@ -90,9 +105,7 @@ const ManageUsers = () => {
             if (Array.isArray(res.data)) {
                 setUsers(res.data);
                 setFilteredUsers(res.data);
-              
             } else {
-              
                 setUsers([]);
                 setFilteredUsers([]);
                 message.warning('API 返回數據格式不正確');
@@ -172,6 +185,7 @@ const ManageUsers = () => {
             role: user?.role || 'user',
             guildId: user?.guildId || null,
             mustChangePassword: user?.mustChangePassword || false,
+            profession: user?.profession?._id || null,
             password: '',
             confirm_password: '',
             useGuildPassword: false,
@@ -222,7 +236,6 @@ const ManageUsers = () => {
             for (let [key, value] of formData.entries()) {
                 formDataEntries[key] = value;
             }
-      
 
             const url = editingUser ? `/api/users/${editingUser._id}` : '/api/users/create-member';
             const method = editingUser ? 'put' : 'post';
@@ -235,7 +248,6 @@ const ManageUsers = () => {
             setIsModalVisible(false);
             fetchUsers();
         } catch (err) {
-           
             if (err.response) {
                 message.error(`盟友${editingUser ? '更新' : '創建'}失敗: ${err.response.data?.msg || err.message}`);
             } else if (err.request) {
@@ -410,11 +422,23 @@ const ManageUsers = () => {
     };
 
     const columns = [
-        { title: '世界名稱', dataIndex: 'world_name', key: 'world_name', width: 150 },
         { title: '角色名稱', dataIndex: 'character_name', key: 'character_name', width: 150 },
-        { title: 'Discord ID', dataIndex: 'discord_id', key: 'discord_id', width: 150 },
         { title: '戰鬥等級', dataIndex: 'raid_level', key: 'raid_level', width: 120 },
         { title: '鑽石數', dataIndex: 'diamonds', key: 'diamonds', render: (text) => formatNumber(text), width: 120 },
+        {
+            title: '職業',
+            dataIndex: 'profession',
+            key: 'profession',
+            width: 150,
+            render: (profession) => (
+                profession ? (
+                    <Space>
+                        <img src={icons[profession.icon]} alt={profession.name} style={{ width: 24, height: 24 }} />
+                        <span>{profession.name}</span>
+                    </Space>
+                ) : '無'
+            ),
+        },
         {
             title: '狀態',
             dataIndex: 'status',
@@ -430,28 +454,7 @@ const ManageUsers = () => {
                 </Button>
             ),
         },
-        {
-            title: '截圖',
-            dataIndex: 'screenshot',
-            key: 'screenshot',
-            render: (text) => text ? <a href={text} target="_blank" rel="noopener noreferrer">查看</a> : '無',
-            width: 100,
-        },
         { title: '角色', dataIndex: 'role', key: 'role', width: 120 },
-        {
-            title: '旅團',
-            dataIndex: 'guildId',
-            key: 'guildId',
-            width: 150,
-            render: (guildId) => guilds.find(g => g._id === guildId)?.name || '無',
-        },
-        {
-            title: '是否需更改密碼',
-            dataIndex: 'mustChangePassword',
-            key: 'mustChangePassword',
-            width: 120,
-            render: (mustChangePassword) => (mustChangePassword ? '是' : '否'),
-        },
         {
             title: '操作',
             key: 'action',
@@ -753,6 +756,21 @@ const ManageUsers = () => {
                                     ))}
                                 </Select>
                             </Form.Item>
+                            <Form.Item
+                                name="profession"
+                                label="職業"
+                            >
+                                <Select placeholder="選擇職業" allowClear>
+                                    {professions.map(prof => (
+                                        <Option key={prof._id} value={prof._id}>
+                                            <Space>
+                                                <img src={icons[prof.icon]} alt={prof.name} style={{ width: 24, height: 24 }} />
+                                                <span>{prof.name}</span>
+                                            </Space>
+                                        </Option>
+                                    ))}
+                                </Select>
+                            </Form.Item>
                             {!editingUser && (
                                 <>
                                     <Form.Item
@@ -811,6 +829,14 @@ const ManageUsers = () => {
                         <Descriptions.Item label="Discord ID">{selectedUser.discord_id || '無'}</Descriptions.Item>
                         <Descriptions.Item label="戰鬥等級">{selectedUser.raid_level}</Descriptions.Item>
                         <Descriptions.Item label="鑽石數">{formatNumber(selectedUser.diamonds)}💎</Descriptions.Item>
+                        <Descriptions.Item label="職業">
+                            {selectedUser.profession ? (
+                                <Space>
+                                    <img src={icons[selectedUser.profession.icon]} alt={selectedUser.profession.name} style={{ width: 24, height: 24 }} />
+                                    <span>{selectedUser.profession.name}</span>
+                                </Space>
+                            ) : '無'}
+                        </Descriptions.Item>
                         <Descriptions.Item label="狀態">{selectedUser.status}</Descriptions.Item>
                         <Descriptions.Item label="截圖">
                             {selectedUser.screenshot ? (
@@ -818,7 +844,7 @@ const ManageUsers = () => {
                             ) : '無'}
                         </Descriptions.Item>
                         <Descriptions.Item label="角色">{selectedUser.role}</Descriptions.Item>
-                        <Descriptions.Item label="旅團">{guilds.find(g => g._id === selectedUser.guildId)?.name || '無'}</Descriptions.Item>
+                        <Descriptions.Item label="旅團">{selectedUser.guildId?.name || '無'}</Descriptions.Item>
                         <Descriptions.Item label="是否需更改密碼">{selectedUser.mustChangePassword ? '是' : '否'}</Descriptions.Item>
                         <Descriptions.Item label="創建時間">{moment(selectedUser.createdAt).format('YYYY-MM-DD HH:mm:ss')}</Descriptions.Item>
                         <Descriptions.Item label="更新時間">{moment(selectedUser.updatedAt).format('YYYY-MM-DD HH:mm:ss')}</Descriptions.Item>

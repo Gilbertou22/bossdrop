@@ -134,7 +134,12 @@ router.post('/', auth, adminOnly, async (req, res) => {
         }
         const item = new Item({ name, type, description, imageUrl, level });
         await item.save();
-        res.status(201).json(item);
+
+        const populatedItem = await Item.findById(item._id)
+            .populate('level', 'level color')
+            .lean();
+
+        res.status(201).json(populatedItem);
     } catch (err) {
         res.status(400).json({ msg: err.message });
     }

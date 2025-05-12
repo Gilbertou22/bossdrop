@@ -78,7 +78,6 @@ const Home = () => {
             const bossKillsRes = await axios.get(`${BASE_URL}/api/boss-kills`, {
                 headers: { 'x-auth-token': token },
             });
-            // 修正：從 bossKillsRes.data.data 中提取擊殺記錄
             const killData = Array.isArray(bossKillsRes.data.data) ? bossKillsRes.data.data : [];
             const enrichedBossKills = await Promise.all(killData.slice(0, 3).map(async (kill) => {
                 let imageUrl = 'wp1.jpg';
@@ -96,7 +95,7 @@ const Home = () => {
             setUserStats(userStatsRes.data);
 
             // 管理員數據
-            if (token && fetchedUser && fetchedUser.role === 'admin') {
+            if (token && fetchedUser && fetchedUser.roles && fetchedUser.roles.includes('admin')) {
                 const requests = [
                     axios.get(`${BASE_URL}/api/users/stats`, { headers: { 'x-auth-token': token } }).catch(err => ({ error: err })),
                     axios.get(`${BASE_URL}/api/auctions/pending-count`, { headers: { 'x-auth-token': token } }).catch(err => ({ error: err })),
@@ -323,7 +322,7 @@ const Home = () => {
                                 dataSource={auctions}
                                 renderItem={(auction) => {
                                     const timeLeft = moment(auction.endTime).diff(moment(), 'seconds');
-                                    const progress = Math.max(0, (timeLeft / (24 * 60 * 60)) * 100); // 假設 24 小時為總時長
+                                    const progress = Math.max(0, (timeLeft / (24 * 60 * 60)) * 100);
                                     return (
                                         <List.Item
                                             onClick={() => navigate(`/auction/${auction._id}`)}
@@ -409,7 +408,7 @@ const Home = () => {
                     </Card>
 
                     {/* 管理員 Dashboard 模塊 */}
-                    {user && user.role === 'admin' && adminStats && (
+                    {user && user.roles && user.roles.includes('admin') && adminStats && (
                         <>
                             <Divider style={{ margin: '24px 0' }}>
                                 <Title level={4} style={{ color: '#1890ff' }}>管理員控制台</Title>

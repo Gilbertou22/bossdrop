@@ -65,56 +65,58 @@ const Navbar = () => {
                 cache: 'no-store',
             });
 
-            const enrichedNotifications = await Promise.all(res.data.notifications.slice(0, 5).map(async (notification) => {
-                let imageUrl = 'wp1.jpg';
-                let isValidAuction = true;
-                if (notification.auctionId) {
-                    try {
-                        const auctionRes = await axios.get(`${BASE_URL}/api/auctions/${notification.auctionId}`, {
-                            headers: { 'x-auth-token': token },
-                            cache: 'no-store',
-                        });
-
-                        const auction = auctionRes.data;
-                        if (auction && auction.itemId) {
-                            const itemId = typeof auction.itemId === 'object' && auction.itemId._id
-                                ? auction.itemId._id
-                                : auction.itemId;
-                            if (typeof itemId !== 'string') {
-                                logger.warn('Invalid itemId in auction', { auctionId: notification.auctionId, itemId });
-                                return { ...notification, imageUrl, isValidAuction };
-                            }
-
-                            const bossKillRes = await axios.get(`${BASE_URL}/api/boss-kills/${itemId}`, {
+            const enrichedNotifications = await Promise.all(
+                res.data.notifications.slice(0, 5).map(async (notification) => {
+                    let imageUrl = 'wp1.jpg';
+                    let isValidAuction = true;
+                    if (notification.auctionId) {
+                        try {
+                            const auctionRes = await axios.get(`${BASE_URL}/api/auctions/${notification.auctionId}`, {
                                 headers: { 'x-auth-token': token },
                                 cache: 'no-store',
                             });
 
-                            const bossKill = bossKillRes.data;
-                            if (bossKill && bossKill.screenshots?.length > 0) {
-                                imageUrl = bossKill.screenshots[0].startsWith('http')
-                                    ? bossKill.screenshots[0]
-                                    : `${BASE_URL}/${bossKill.screenshots[0].replace(/\\/g, '/')}`;
+                            const auction = auctionRes.data;
+                            if (auction && auction.itemId) {
+                                const itemId = typeof auction.itemId === 'object' && auction.itemId._id
+                                    ? auction.itemId._id
+                                    : auction.itemId;
+                                if (typeof itemId !== 'string') {
+                                    logger.warn('Invalid itemId in auction', { auctionId: notification.auctionId, itemId });
+                                    return { ...notification, imageUrl, isValidAuction };
+                                }
+
+                                const bossKillRes = await axios.get(`${BASE_URL}/api/boss-kills/${itemId}`, {
+                                    headers: { 'x-auth-token': token },
+                                    cache: 'no-store',
+                                });
+
+                                const bossKill = bossKillRes.data;
+                                if (bossKill && bossKill.screenshots?.length > 0) {
+                                    imageUrl = bossKill.screenshots[0].startsWith('http')
+                                        ? bossKill.screenshots[0]
+                                        : `${BASE_URL}/${bossKill.screenshots[0].replace(/\\/g, '/')}`;
+                                }
+                            }
+                        } catch (err) {
+                            if (err.response?.status === 404) {
+                                logger.warn('Auction not found for notification', {
+                                    notificationId: notification._id,
+                                    auctionId: notification.auctionId,
+                                    error: err.response?.data || err.message,
+                                });
+                                isValidAuction = false;
+                            } else {
+                                logger.warn('Error fetching auction or boss kill for notification', {
+                                    notificationId: notification._id,
+                                    error: err.response?.data || err.message,
+                                });
                             }
                         }
-                    } catch (err) {
-                        if (err.response?.status === 404) {
-                            logger.warn('Auction not found for notification', {
-                                notificationId: notification._id,
-                                auctionId: notification.auctionId,
-                                error: err.response?.data || err.message,
-                            });
-                            isValidAuction = false;
-                        } else {
-                            logger.warn('Error fetching auction or boss kill for notification', {
-                                notificationId: notification._id,
-                                error: err.response?.data || err.message,
-                            });
-                        }
                     }
-                }
-                return { ...notification, imageUrl, isValidAuction };
-            }));
+                    return { ...notification, imageUrl, isValidAuction };
+                })
+            );
             const validNotifications = enrichedNotifications.filter(notification => {
                 if (notification.auctionId) {
                     return notification.isValidAuction;
@@ -141,15 +143,22 @@ const Navbar = () => {
                 cache: 'no-store',
             });
 
+            // 檢查返回的數據是否為陣列
+            if (!Array.isArray(res.data)) {
+                logger.error('Menu items response is not an array', { response: res.data });
+                throw new Error('菜單項數據格式錯誤');
+            }
+
+            // 過濾掉無效數據並構建樹形結構
             const seenIds = new Set();
             const allItems = res.data
                 .filter(item => {
-                    if (!item._id) {
-                        console.warn('Item with undefined _id:', item);
+                    if (!item._id || !item.key || !item.label) {
+                        logger.warn('Invalid menu item', { item });
                         return false;
                     }
                     if (seenIds.has(item._id)) {
-                        console.warn('Duplicate _id found:', item._id);
+                        logger.warn('Duplicate _id found:', item._id);
                         return false;
                     }
                     seenIds.add(item._id);
@@ -163,9 +172,10 @@ const Navbar = () => {
                     parentId: item.parentId,
                     order: item.order,
                     _id: item._id,
-                    children: [],
+                    children: item.children || [],
                 }));
 
+            // 構建樹形結構
             const treeDataMap = {};
             const treeData = [];
 
@@ -181,6 +191,7 @@ const Navbar = () => {
                 }
             });
 
+            // 過濾重複的頂級菜單項
             const topLevelIds = new Set(treeData.map(item => item._id));
             const finalTreeData = treeData.filter(item => {
                 let isChild = false;
@@ -200,13 +211,15 @@ const Navbar = () => {
                 return !isChild;
             });
 
+            // 根據 pendingCount 更新競標相關菜單項的標籤
             const menuItems = finalTreeData.map(item => ({
                 ...item,
-                label: item.label.includes('競標') && (user?.role === 'admin' || user?.role === 'moderator')
+                label: item.label.includes('競標') && user?.roles && (user.roles.includes('admin') || user.roles.includes('moderator'))
                     ? `${item.label} (${pendingCount})`
                     : item.label,
             }));
 
+            // 如果菜單項為空，設置默認首頁
             if (menuItems.length === 0) {
                 setMenuItems([{ key: '/', label: '首頁', icon: <HomeOutlined /> }]);
             } else {
@@ -239,7 +252,6 @@ const Navbar = () => {
     }, [token]);
 
     useEffect(() => {
-   
         if (!token) {
             setMenuItems([{ key: '/', label: '首頁', icon: <HomeOutlined /> }]);
             setNotifications([]);
@@ -253,7 +265,7 @@ const Navbar = () => {
     }, [token, user, fetchNotifications, fetchMenuItems]);
 
     useEffect(() => {
-        if (user && (user.role === 'admin' || user.role === 'moderator')) {
+        if (user && user.roles && (user.roles.includes('admin') || user.roles.includes('moderator'))) {
             fetchPendingCount();
         }
     }, [user, fetchPendingCount]);
@@ -380,7 +392,9 @@ const Navbar = () => {
                 </Avatar>
                 <Text strong>{user?.character_name || '未知用戶'}</Text>
                 <br />
-                <Text type="secondary">{user?.role ? user.role.charAt(0).toUpperCase() + user.role.slice(1) : '未知角色'}</Text>
+                <Text type="secondary">
+                    {user?.roles?.length > 0 ? user.roles.map(role => role.charAt(0).toUpperCase() + role.slice(1)).join(', ') : '未知角色'}
+                </Text>
             </div>
             <Divider style={{ margin: '8px 0' }} />
             <Menu onClick={handleMenuClick} selectable={false}>
@@ -532,7 +546,7 @@ const Navbar = () => {
                             <Popover content={notificationContent} trigger="click" placement="bottomRight">
                                 <Badge
                                     count={unreadCount > 9 ? '9+' : unreadCount}
-                                    offset={[-10, 0]}
+                                    offset={[0, 0]}
                                     style={{ backgroundColor: '#ff4d4f', boxShadow: '0 0 5px rgba(0, 0, 0, 0.3)' }}
                                 >
                                     <BellOutlined style={{ fontSize: '20px', color: '#fff', cursor: 'pointer' }} />
@@ -608,6 +622,7 @@ const Navbar = () => {
                     background-color: #f0f0f0 !important;
                 }
             `}</style>
+            <UserProfile visible={profileVisible} onCancel={() => setProfileVisible(false)} />
         </Header>
     );
 };

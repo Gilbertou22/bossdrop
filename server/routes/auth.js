@@ -2,11 +2,12 @@ const express = require('express');
 const router = express.Router();
 const User = require('../models/User');
 const Guild = require('../models/Guild');
-const MenuItem = require('../models/MenuItem'); // 引入 MenuItem 模型
+const MenuItem = require('../models/MenuItem');
+const LoginRecord = require('../models/LoginRecord');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const logger = require('../logger');
-const { auth } = require('../middleware/auth');
+const { auth, adminOnly } = require('../middleware/auth');
 require('dotenv').config();
 
 // 獲取客戶端 IP 地址
@@ -19,17 +20,17 @@ router.get('/client-ip', (req, res) => {
     }
 });
 
+// 註冊路由
 router.post('/register', async (req, res) => {
-    const { world_name, character_name, password, guildPassword } = req.body;
-    
+    const { world_name, character_name, password, guildPassword, discord_id, raid_level, profession } = req.body;
 
     try {
-        g
-        if (!world_name || !character_name || !password) {
+        // 驗證必填字段
+        if (!world_name || !character_name || !password || !guildPassword || !profession) {
             return res.status(400).json({
                 code: 400,
                 msg: '缺少必填字段',
-                detail: '請提供 world_name、character_name、password',
+                detail: '請提供 world_name、character_name、password、guildPassword、profession',
             });
         }
 
@@ -51,23 +52,34 @@ router.post('/register', async (req, res) => {
             });
         }
 
+        const userRole = await Role.findOne({ name: 'user' });
+        if (!userRole) {
+            return res.status(500).json({
+                code: 500,
+                msg: '伺服器錯誤',
+                detail: '無法找到 user 角色',
+            });
+        }
+
         user = new User({
             world_name,
             character_name,
-            password, // 密碼將由 pre-save 中間件哈希
-            role: 'user',
+            password,
+            roles: [userRole._id],
+            discord_id: discord_id || null,
+            raid_level: raid_level ? parseInt(raid_level) : 0,
             diamonds: 0,
             guildId: guild._id,
             mustChangePassword: false,
+            profession,
         });
 
-        
         await user.save();
 
         const payload = {
             user: {
                 id: user._id,
-                role: user.role,
+                roles: [userRole.name],
             },
         };
 
@@ -78,7 +90,7 @@ router.post('/register', async (req, res) => {
                 user: {
                     id: user._id,
                     character_name: user.character_name,
-                    role: user.role,
+                    roles: [userRole.name],
                     mustChangePassword: user.mustChangePassword,
                 },
                 msg: '註冊成功！',
@@ -94,11 +106,18 @@ router.post('/register', async (req, res) => {
     }
 });
 
-
-
 // 獲取當前用戶信息
-router.get('/user', auth, (req, res) => {
-    res.json({ user: req.user });
+router.get('/user', auth, async (req, res) => {
+    const user = await User.findById(req.user.id)
+        .populate('roles', 'name');
+    res.json({
+        user: {
+            id: user._id,
+            character_name: user.character_name,
+            roles: user.roles.map(role => role.name),
+            mustChangePassword: user.mustChangePassword,
+        },
+    });
 });
 
 router.post('/login', async (req, res) => {
@@ -113,7 +132,8 @@ router.post('/login', async (req, res) => {
             });
         }
 
-        const user = await User.findOne({ character_name });
+        const user = await User.findOne({ character_name })
+            .populate('roles', 'name');
         if (!user) {
             return res.status(400).json({
                 code: 400,
@@ -122,9 +142,7 @@ router.post('/login', async (req, res) => {
             });
         }
 
-     
         const isMatch = await bcrypt.compare(password, user.password);
-        
         if (!isMatch) {
             return res.status(400).json({
                 code: 400,
@@ -133,30 +151,49 @@ router.post('/login', async (req, res) => {
             });
         }
 
-        // 檢查 mustChangePassword
+        if (user.status === 'disabled') {
+            return res.status(403).json({
+                code: 403,
+                msg: '帳號已被禁用',
+                detail: '請聯繫管理員',
+            });
+        }
+
+        const ipAddress = req.headers['x-forwarded-for'] || req.ip || 'unknown';
+        const loginRecord = new LoginRecord({
+            userId: user._id,
+            characterName: user.character_name,
+            ipAddress,
+            userAgent: req.headers['user-agent'] || '',
+        });
+        await loginRecord.save();
+
+        user.lastLogin = new Date();
+        await user.save();
+
         if (user.mustChangePassword) {
             const tempPayload = {
                 user: {
                     id: user._id,
-                    role: user.role,
-                    temporary: true, // 標記為臨時 token
+                    roles: user.roles.map(role => role.name),
+                    temporary: true,
                 },
             };
-            const tempToken = jwt.sign(tempPayload, process.env.JWT_SECRET, { expiresIn: '5m' }); // 臨時 token 有效期 5 分鐘
+            const tempToken = jwt.sign(tempPayload, process.env.JWT_SECRET, { expiresIn: '5m' });
             return res.status(200).json({
                 code: 200,
                 msg: '需要更改密碼',
                 mustChangePassword: true,
-                tempToken, // 返回臨時 token
+                tempToken,
                 user: {
                     id: user._id,
                     character_name: user.character_name,
-                    role: user.role,
+                    roles: user.roles.map(role => role.name),
+                    mustChangePassword: user.mustChangePassword,
                 },
             });
         }
 
-        // 生成菜單數據並存入 session
         const menuItems = await MenuItem.find()
             .populate({
                 path: 'children',
@@ -164,9 +201,7 @@ router.post('/login', async (req, res) => {
             })
             .sort({ order: 1 });
 
-        
-
-        const filterMenuItems = (items, userRole) => {
+        const filterMenuItems = (items, userRoles) => {
             return items
                 .filter(item => {
                     let roles;
@@ -175,12 +210,15 @@ router.post('/login', async (req, res) => {
                         while (typeof roles === 'string') {
                             roles = JSON.parse(roles);
                         }
+                        const hasPermission = roles.some(role => userRoles.includes(role));
+                        if (hasPermission) {
+                            logger.info(`Role match found for menu item: ${item.label}`, { roles: item.roles, userRoles });
+                        }
+                        return hasPermission;
                     } catch (err) {
                         logger.warn('Failed to parse roles', { roles: item.roles, error: err.message });
-                        roles = [];
+                        return false;
                     }
-             
-                    return roles.includes(userRole);
                 })
                 .map(item => {
                     const filteredItem = {
@@ -194,22 +232,21 @@ router.post('/login', async (req, res) => {
                         _id: item._id.toString(),
                     };
                     if (item.children && item.children.length > 0) {
-                        filteredItem.children = filterMenuItems(item.children, userRole);
+                        filteredItem.children = filterMenuItems(item.children, userRoles);
                     }
                     return filteredItem;
                 })
                 .filter(item => item.children ? item.children.length > 0 : true);
         };
 
-        const filteredMenuItems = filterMenuItems(menuItems, user.role);
-        
+        const userRoles = user.roles.map(role => role.name);
+        const filteredMenuItems = filterMenuItems(menuItems, userRoles);
         req.session.menuItems = filteredMenuItems;
-        
 
         const payload = {
             user: {
                 id: user._id,
-                role: user.role || 'user',
+                roles: userRoles,
             },
         };
 
@@ -222,7 +259,7 @@ router.post('/login', async (req, res) => {
             user: {
                 id: user._id,
                 character_name: user.character_name,
-                role: user.role,
+                roles: userRoles,
                 mustChangePassword: user.mustChangePassword,
             },
         });
@@ -236,15 +273,85 @@ router.post('/login', async (req, res) => {
     }
 });
 
+// 查詢可疑登入記錄（管理員專用）
+router.get('/suspicious-logins', auth, adminOnly, async (req, res) => {
+    try {
+        const fortyFiveDaysAgo = new Date(Date.now() - 45 * 24 * 60 * 60 * 1000);
+
+        const suspiciousLogins = await LoginRecord.aggregate([
+            {
+                $match: {
+                    loginTime: { $gte: fortyFiveDaysAgo },
+                },
+            },
+            {
+                $lookup: {
+                    from: 'users',
+                    localField: 'userId',
+                    foreignField: '_id',
+                    as: 'user',
+                },
+            },
+            {
+                $unwind: '$user',
+            },
+            {
+                $match: {
+                    'user.status': { $ne: 'disabled' },
+                },
+            },
+            {
+                $group: {
+                    _id: '$ipAddress',
+                    userIds: { $addToSet: '$userId' },
+                    characterNames: { $addToSet: '$characterName' },
+                    loginRecords: {
+                        $push: {
+                            characterName: '$characterName',
+                            loginTime: '$loginTime',
+                            userAgent: '$userAgent',
+                        },
+                    },
+                },
+            },
+            {
+                $match: {
+                    $expr: { $gt: [{ $size: '$userIds' }, 1] },
+                },
+            },
+            {
+                $project: {
+                    ipAddress: '$_id',
+                    userCount: { $size: '$userIds' },
+                    characterNames: 1,
+                    loginRecords: 1,
+                    _id: 0,
+                },
+            },
+            {
+                $sort: { userCount: -1 },
+            },
+        ]);
+
+        res.json(suspiciousLogins);
+    } catch (err) {
+        logger.error('Error fetching suspicious logins:', err.message);
+        res.status(500).json({
+            code: 500,
+            msg: '獲取可疑登入記錄失敗',
+            detail: err.message,
+        });
+    }
+});
+
 // 登出路由
 router.post('/logout', (req, res) => {
     req.session.destroy(err => {
-        
         if (err) {
             console.error('Session destroy error:', err);
             return res.status(500).json({ msg: '登出失敗' });
         }
-        res.clearCookie('connect.sid'); // 假設使用 express-session
+        res.clearCookie('connect.sid');
         res.json({ msg: '登出成功' });
     });
 });

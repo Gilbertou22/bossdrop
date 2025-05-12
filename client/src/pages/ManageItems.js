@@ -87,9 +87,8 @@ const ManageItems = () => {
                 },
             });
 
-            let newItems = res.data || []; // 確保新數據為陣列
+            let newItems = res.data || [];
 
-            // 前端排序（如果後端未處理）
             if (sort.field && sort.order) {
                 newItems = [...newItems].sort((a, b) => {
                     const valueA = a[sort.field] || '';
@@ -105,14 +104,11 @@ const ManageItems = () => {
             setItems(newItems);
             setFilteredItems(newItems);
 
-            // 確保 pageSize 是有效數字
             const validPageSize = Number(pageSize) || 10;
 
-            // 如果數據為空，重置頁碼
             if (newItems.length === 0) {
                 setCurrentPage(1);
             } else {
-                // 確保當前頁碼有效
                 const maxPage = Math.ceil(newItems.length / validPageSize);
                 const validCurrentPage = Number(currentPage) || 1;
                 if (validCurrentPage > maxPage) {
@@ -367,7 +363,6 @@ const ManageItems = () => {
     const handleTableChange = (pagination, _, sorter) => {
         const newCurrentPage = Number(pagination.current) || 1;
         setCurrentPage(newCurrentPage);
-        // 不再從 pagination.pageSize 更新 pageSize，保持當前值
         if (sorter.field && sorter.order) {
             setSort({
                 field: sorter.field,
@@ -397,6 +392,9 @@ const ManageItems = () => {
                                 placeholder="搜索物品名稱或描述"
                                 value={filters.search}
                                 onChange={(e) => setFilters(prev => ({ ...prev, search: e.target.value }))}
+                                onSearch={() => fetchItems()}
+                                allowClear
+                                onClear={() => setFilters(prev => ({ ...prev, search: '' }))}
                                 style={{ width: '100%' }}
                                 enterButton={<SearchOutlined />}
                             />

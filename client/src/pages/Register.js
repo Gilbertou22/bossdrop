@@ -5,7 +5,7 @@ import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import logger from '../utils/logger';
 import { motion } from 'framer-motion';
-import { icons } from '../assets/icons'; // 導入職業圖標
+import { icons } from '../assets/icons';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
@@ -39,7 +39,8 @@ const Register = () => {
     const [successMessage, setSuccessMessage] = useState('');
     const [deferredPrompt, setDeferredPrompt] = useState(null);
     const [passwordStrength, setPasswordStrength] = useState(0);
-    const [professions, setProfessions] = useState([]); // 新增職業列表
+    const [professions, setProfessions] = useState([]);
+    const [rolesList, setRolesList] = useState([]);
 
     useEffect(() => {
         const handleOnline = () => {
@@ -62,8 +63,8 @@ const Register = () => {
             logger.info('PWA install prompt available');
         });
 
-        // 獲取職業列表
         fetchProfessions();
+        fetchRoles();
 
         return () => {
             window.removeEventListener('online', handleOnline);
@@ -78,6 +79,21 @@ const Register = () => {
         } catch (err) {
             logger.error('Fetch professions error:', err);
             message.error('無法載入職業列表，請稍後重試');
+        }
+    };
+
+    const fetchRoles = async () => {
+        try {
+            const res = await axios.get(`${BASE_URL}/api/roles`);
+            setRolesList(res.data);
+            // 設置默認角色為 user
+            const userRole = res.data.find(role => role.name === 'user')?._id;
+            if (userRole) {
+                form.setFieldsValue({ roles: userRole });
+            }
+        } catch (err) {
+            logger.error('Fetch roles error:', err);
+            message.error('無法載入角色列表，請稍後重試');
         }
     };
 
@@ -106,7 +122,8 @@ const Register = () => {
         formData.append('discord_id', values.discord_id || '');
         formData.append('raid_level', values.raid_level || 0);
         formData.append('password', values.password);
-        formData.append('profession', values.profession); // 新增職業字段
+        formData.append('profession', values.profession);
+        formData.append('roles', JSON.stringify([values.roles])); // 傳遞角色 _id 陣列
         if (fileList.length > 0) {
             formData.append('screenshot', fileList[0].originFileObj);
         }
@@ -235,6 +252,19 @@ const Register = () => {
                                             <img src={icons[prof.icon]} alt={prof.name} style={{ width: 24, height: 24 }} />
                                             <span>{prof.name}</span>
                                         </Space>
+                                    </Option>
+                                ))}
+                            </Select>
+                        </Form.Item>
+                        <Form.Item
+                            name="roles"
+                            label="角色"
+                            rules={[{ required: true, message: '請選擇角色！' }]}
+                        >
+                            <Select placeholder="選擇角色">
+                                {rolesList.map(role => (
+                                    <Option key={role._id} value={role._id}>
+                                        {role.name}
                                     </Option>
                                 ))}
                             </Select>

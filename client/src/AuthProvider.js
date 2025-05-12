@@ -14,11 +14,10 @@ export const AuthProvider = ({ children }) => {
 
     const fetchUser = async (token) => {
         try {
-       
             const res = await axios.get(`${BASE_URL}/api/users/me`, {
                 headers: { 'x-auth-token': token },
             });
-       
+            console.log('Fetched user data in AuthProvider:', res.data); // 添加日誌
             setUser(res.data);
             setIsAuthenticated(true);
         } catch (err) {
@@ -48,22 +47,19 @@ export const AuthProvider = ({ children }) => {
 
     useEffect(() => {
         initializeUser();
-    }, []); // 初始加載時執行
+    }, []);
 
-    // 監聽 token 變化以重新加載用戶
     useEffect(() => {
         if (token && !user) {
-        
             fetchUser(token);
         }
     }, [token]);
 
     const login = (userData, newToken) => {
-        
-        localStorage.setItem('token', newToken); // 確保 token 存入 localStorage
-        setToken(newToken); // 更新 token 狀態
-        setUser(userData); // 更新 user 狀態
-        setIsAuthenticated(true); // 更新 isAuthenticated 狀態
+        localStorage.setItem('token', newToken);
+        setToken(newToken);
+        setUser(userData);
+        setIsAuthenticated(true);
     };
 
     const logout = async () => {
@@ -81,7 +77,6 @@ export const AuthProvider = ({ children }) => {
         }
     };
 
-    // Axios 攔截器保持不變
     useEffect(() => {
         const interceptor = axios.interceptors.response.use(
             response => response,

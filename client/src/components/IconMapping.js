@@ -20,7 +20,8 @@ import {
     DislikeOutlined, DisconnectOutlined, FieldNumberOutlined, FolderViewOutlined, FlagOutlined, FrownOutlined, HddOutlined, HeartOutlined,
     InsuranceOutlined, LikeOutlined, LinkOutlined, MoonOutlined, MoneyCollectOutlined, OneToOneOutlined, PercentageOutlined, PushpinOutlined,
     QrcodeOutlined, SafetyOutlined, SkinOutlined, TableOutlined, ToolOutlined, TrademarkOutlined, ToTopOutlined, SplitCellsOutlined,
-    MedicineBoxOutlined, LineOutlined, HourglassOutlined, HolderOutlined, FunctionOutlined, ForkOutlined, ExportOutlined
+    MedicineBoxOutlined, LineOutlined, HourglassOutlined, HolderOutlined, FunctionOutlined, ForkOutlined, ExportOutlined, RocketOutlined, RestOutlined,
+    SignatureOutlined, UngroupOutlined, SendOutlined, ShakeOutlined,
 } from '@ant-design/icons';
 
 // 圖標映射表
@@ -166,7 +167,12 @@ const iconMapping = {
     WindowsOutlined: <WindowsOutlined />,
     WomanOutlined: <WomanOutlined />,
     YoutubeOutlined: <YoutubeOutlined />,
-
+    RestOutlined: <RestOutlined />,
+    RocketOutlined: <RocketOutlined />,
+    UngroupOutlined: <UngroupOutlined />,
+    ShakeOutlined: <ShakeOutlined />,
+    SendOutlined: <SendOutlined />,
+    SignatureOutlined: <SignatureOutlined />,
 };
 
 const { Text } = Typography;

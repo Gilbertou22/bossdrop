@@ -7,15 +7,15 @@ const UserSchema = new mongoose.Schema({
     discord_id: { type: String, default: null },
     raid_level: { type: Number, default: 0 },
     diamonds: { type: Number, default: 0 },
-    status: { type: String, enum: ['pending', 'active'], default: 'pending' },
+    status: { type: String, enum: ['pending', 'active', 'disabled'], default: 'pending' }, // 添加 disabled 狀態
     screenshot: { type: String, default: null },
-    role: { type: String, enum: ['user', 'moderator', 'admin', 'guild'], default: 'user' },
+    roles: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Role', default: [] }],
     password: { type: String, required: true },
     guildId: { type: mongoose.Schema.Types.ObjectId, ref: 'Guild', default: null },
     mustChangePassword: { type: Boolean, default: false },
     dkpPoints: { type: Number, default: 0 },
-    // 新增 profession 字段，引用 Profession 模型
     profession: { type: mongoose.Schema.Types.ObjectId, ref: 'Profession', default: null },
+    lastLogin: { type: Date }, // 新增字段記錄最後登入時間
 });
 
 // 在保存用戶前哈希密碼

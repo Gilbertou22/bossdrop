@@ -26,15 +26,15 @@ const KillDetailModal = ({ visible, onCancel, killData, onUpdate, token, initial
     const [allUsers, setAllUsers] = useState([]);
     const [currentUser, setCurrentUser] = useState(null);
     const [updatedKillData, setUpdatedKillData] = useState(killData);
-    const [role, setRole] = useState(null); // 存儲用戶角色
-    const [applications, setApplications] = useState([]); // 存儲物品的申請記錄
+    const [role, setRole] = useState(null);
+    const [applications, setApplications] = useState([]);
 
     useEffect(() => {
         if (visible) {
             fetchCurrentUser();
             if (killData && killData._id) {
                 fetchKillData(killData._id);
-                fetchApplications(killData._id); // 獲取物品的申請記錄
+                fetchApplications(killData._id);
             }
         }
     }, [visible, killData]);
@@ -73,7 +73,7 @@ const KillDetailModal = ({ visible, onCancel, killData, onUpdate, token, initial
                 headers: { 'x-auth-token': token },
             });
             setCurrentUser(res.data.character_name);
-            setRole(res.data.role); // 獲取用戶角色
+            setRole(res.data.role);
         } catch (err) {
             message.error('無法獲取當前用戶信息');
         }
@@ -168,8 +168,8 @@ const KillDetailModal = ({ visible, onCancel, killData, onUpdate, token, initial
                 headers: { 'x-auth-token': token },
             });
             message.success(res.data.msg);
-            fetchKillData(updatedKillData._id); // 刷新擊殺數據
-            fetchApplications(updatedKillData._id); // 刷新申請記錄
+            fetchKillData(updatedKillData._id);
+            fetchApplications(updatedKillData._id);
         } catch (err) {
             message.error(`批准申請失敗: ${err.response?.data?.msg || err.message}`);
         } finally {
@@ -240,6 +240,7 @@ const KillDetailModal = ({ visible, onCancel, killData, onUpdate, token, initial
                                         fontSize: '11px',
                                         borderRadius: '4px',
                                         color: isCurrentUser ? '#669126' : undefined,
+                                        border: isCurrentUser ? '1px solid #669126' : undefined,
                                     }}
                                 >
                                     {attendee}
@@ -257,7 +258,6 @@ const KillDetailModal = ({ visible, onCancel, killData, onUpdate, token, initial
                         const effectiveStatus = item.status ? item.status.toLowerCase() : 'pending';
                         const finalRecipient = item.final_recipient || updatedKillData.final_recipient || '未分配';
 
-                        // 查找與該物品相關的申請
                         const itemApplications = applications.filter(app =>
                             (app.item_id.toString() === (item._id || item.id).toString())
                         );

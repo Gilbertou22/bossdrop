@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Form, Button, Upload, Select, message, DatePicker, Input, Row, Col, Alert, Spin, Card, Space, Typography } from 'antd';
+import { Form, Button, Upload, Select, message, DatePicker, Input, Row, Col, Alert, Spin, Card, Space, Typography, Modal, Tag } from 'antd';
 import { UploadOutlined, UserOutlined, PlusOutlined, DeleteOutlined } from '@ant-design/icons';
 import axios from 'axios';
 import moment from 'moment';
@@ -30,20 +30,33 @@ const BossKillForm = () => {
     const [userOptions, setUserOptions] = useState({
         attendees: [],
         itemHolder: [],
-        guildCaptain: null, // 儲存旅團部隊長
+        guildCaptain: null,
     });
     const [date, setDate] = useState(null);
     const [uploading, setUploading] = useState(false);
     const [loading, setLoading] = useState(false);
+    const [rolesLoading, setRolesLoading] = useState(true);
     const [online, setOnline] = useState(navigator.onLine);
     const [deferredPrompt, setDeferredPrompt] = useState(null);
-    const [logText, setLogText] = useState(''); // 儲存旅團日誌內容
+    const [logText, setLogText] = useState('');
+    const [userRoles, setUserRoles] = useState([]);
+    const [addItemModalVisible, setAddItemModalVisible] = useState(false); // 新增物品模態框
+    const [itemForm] = Form.useForm(); // 新增物品表單
+    const [itemLevels, setItemLevels] = useState([]); // 物品等級選項
     const token = localStorage.getItem('token');
 
     useEffect(() => {
+        if (!token) {
+            message.error('請先登入！');
+            window.location.href = '/login';
+            return;
+        }
+
+        fetchUserRoles();
         fetchBosses();
         fetchItems();
         fetchUsers();
+        fetchItemLevels(); // 獲取物品等級
         form.setFieldsValue({ kill_time: null });
 
         window.addEventListener('beforeinstallprompt', (e) => {
@@ -54,6 +67,33 @@ const BossKillForm = () => {
         window.addEventListener('online', () => setOnline(true));
         window.addEventListener('offline', () => setOnline(false));
     }, []);
+
+    const fetchUserRoles = async () => {
+        try {
+            setRolesLoading(true);
+            const res = await axios.get(`${BASE_URL}/api/users/me`, {
+                headers: { 'x-auth-token': token },
+            });
+            setUserRoles(res.data.roles || []);
+            console.log('Fetched user roles:', res.data.roles);
+        } catch (err) {
+            message.error('無法載入用戶信息，請重新登入');
+            window.location.href = '/login';
+        } finally {
+            setRolesLoading(false);
+        }
+    };
+
+    const fetchItemLevels = async () => {
+        try {
+            const res = await axios.get(`${BASE_URL}/api/items/item-levels`, {
+                headers: { 'x-auth-token': token },
+            });
+            setItemLevels(res.data);
+        } catch (err) {
+            message.error('載入物品等級失敗');
+        }
+    };
 
     const handleInstallPWA = () => {
         if (deferredPrompt) {
@@ -101,18 +141,15 @@ const BossKillForm = () => {
                 throw new Error('後端返回的用戶數據格式不正確');
             }
 
-            // 過濾出席成員：排除 role 為 GUILD 和 ADMIN 的用戶
             const filteredAttendees = res.data
-                .filter(user => user.role !== 'guild' && user.role !== 'admin')
+                .filter(user => !user.roles.includes('guild') && !user.roles.includes('admin'))
                 .map(user => user.character_name);
 
-            // 過濾物品持有人：只排除 role 為 GUILD 的用戶
             const filteredItemHolders = res.data
-                .filter(user => user.role !== 'guild')
+                .filter(user => !user.roles.includes('guild'))
                 .map(user => user.character_name);
 
-            // 提取旅團部隊長（假設 role 為 admin）
-            const guildCaptain = res.data.find(user => user.role === 'admin')?.character_name;
+            const guildCaptain = res.data.find(user => user.roles.includes('admin'))?.character_name;
 
             setUsers(res.data.map(user => user.character_name));
             setUserOptions({
@@ -121,7 +158,7 @@ const BossKillForm = () => {
                     ...filteredAttendees.map(name => ({ value: name, label: name }))
                 ],
                 itemHolder: filteredItemHolders.map(name => ({ value: name, label: name })),
-                guildCaptain, // 保存旅團部隊長
+                guildCaptain,
             });
         } catch (err) {
             message.error('載入用戶失敗: ' + err.message);
@@ -175,10 +212,9 @@ const BossKillForm = () => {
         setFileList(fileList.filter(item => item.uid !== file.uid));
     };
 
-    // 載入預設圖片並轉換為 File 對象
     const getDefaultImage = async () => {
         try {
-            const response = await fetch('/wp.jpg'); // 假設 wp.jpg 在 public 資料夾中
+            const response = await fetch('/wp.jpg');
             if (!response.ok) {
                 throw new Error('無法載入預設圖片');
             }
@@ -191,45 +227,36 @@ const BossKillForm = () => {
         }
     };
 
-    // 解析旅團日誌並自動填寫表單
     const parseLogAndFillForm = () => {
         try {
-            // 按行分割日誌
             const lines = logText.split('\n').map(line => line.trim()).filter(line => line);
 
-            // 解析第一行（表頭）和第二行（內容）
-            const headerLine = lines[0]; // 消滅時間 地點 首領 總參與人數 旅團部隊長 分配方式
-            const contentLine = lines[1]; // 2025.04.12-23.02.41 冰封瀑布 哀嘆的女王普蘭 10 伊莉斯 旅團部隊長獲得(英雄)
+            const headerLine = lines[0];
+            const contentLine = lines[1];
 
-            // 按 TAB 或 4 個空格分隔表頭和內容
             const headers = headerLine.split(/\t| {4}/).map(h => h.trim());
             const contents = contentLine.split(/\t| {4}/).map(c => c.trim());
 
-         
-
-            // 驗證字段數量
             if (headers.length !== contents.length) {
                 message.error(`日誌格式錯誤：表頭字段數 (${headers.length}) 與內容字段數 (${contents.length}) 不一致`);
                 return;
             }
 
-            // 創建字段映射
             const logData = {};
             headers.forEach((header, index) => {
                 logData[header] = contents[index];
             });
 
-            // 提取消滅時間
-            const timeStr = logData['消滅時間']; // 2025.04.12-23.02.41
+            const timeStr = logData['消滅時間'];
             let killTime = null;
             if (timeStr) {
                 const timeRegex = /(\d{4}\.\d{2}\.\d{2})[- ](\d{2}\.\d{2}\.\d{2}|\d{2}:\d{2}:\d{2})/;
                 const match = timeStr.match(timeRegex);
                 if (match) {
-                    const datePart = match[1]; // 2025.04.12
-                    let timePart = match[2]; // 23.02.41 或 23:02:41
-                    timePart = timePart.replace(/\./g, ':'); // 將 23.02.41 轉為 23:02:41
-                    const formattedTime = `${datePart.replace(/\./g, '-')} ${timePart}`; // 2025-04-12 23:02:41
+                    const datePart = match[1];
+                    let timePart = match[2];
+                    timePart = timePart.replace(/\./g, ':');
+                    const formattedTime = `${datePart.replace(/\./g, '-')} ${timePart}`;
                     killTime = moment(formattedTime, 'YYYY-MM-DD HH:mm:ss');
                     if (!killTime.isValid()) {
                         message.warning('消滅時間格式無效，請手動選擇');
@@ -244,8 +271,7 @@ const BossKillForm = () => {
                 message.warning('未找到消滅時間，請手動選擇');
             }
 
-            // 提取首領
-            const bossName = logData['首領']; // 哀嘆的女王普蘭
+            const bossName = logData['首領'];
             if (bossName) {
                 const boss = bosses.find(b => b.name === bossName);
                 if (boss) {
@@ -255,11 +281,9 @@ const BossKillForm = () => {
                 }
             }
 
-            // 提取分配方式（物品持有人）
-            const distribution = logData['分配方式']; // 旅團部隊長獲得(英雄)
-            const guildCaptainName = logData['旅團部隊長']; // 伊莉斯
+            const distribution = logData['分配方式'];
+            const guildCaptainName = logData['旅團部隊長'];
             if (distribution) {
-                // 檢查是否為旅團部隊長獲得
                 if (distribution.includes('旅團部隊長獲得')) {
                     if (guildCaptainName && users.includes(guildCaptainName)) {
                         form.setFieldsValue({ itemHolder: guildCaptainName });
@@ -268,10 +292,9 @@ const BossKillForm = () => {
                         message.warning('未找到旅團部隊長或旅團部隊長不在用戶列表中，請手動選擇物品持有人');
                     }
                 } else {
-                    // 嘗試匹配具體的物品持有人
                     const holderMatch = distribution.match(/物品持有人,\s*([^ ]+)/);
                     if (holderMatch) {
-                        const itemHolder = holderMatch[1]; // 伊莉斯
+                        const itemHolder = holderMatch[1];
                         if (users.includes(itemHolder)) {
                             form.setFieldsValue({ itemHolder });
                         } else {
@@ -285,7 +308,6 @@ const BossKillForm = () => {
                 message.warning('未找到分配方式，請手動選擇物品持有人');
             }
 
-            // 提取戰鬥參與者
             const attendeesStartIndex = lines.findIndex(line => line.startsWith('戰鬥參與者'));
             const attendeesEndIndex = lines.findIndex(line => line.startsWith('旅團部隊成員'));
             if (attendeesStartIndex !== -1 && attendeesEndIndex !== -1) {
@@ -301,7 +323,6 @@ const BossKillForm = () => {
                 }
             }
 
-            // 提取戰利品
             const itemsStartIndex = lines.findIndex(line => line.startsWith('戰利品'));
             if (itemsStartIndex !== -1) {
                 const itemsLines = lines.slice(itemsStartIndex + 1);
@@ -309,7 +330,7 @@ const BossKillForm = () => {
                     .map(line => {
                         const parts = line.split(/\t| {4}/).map(part => part.trim());
                         if (parts.length >= 2) {
-                            const itemName = parts[0]; // 戰利品名稱
+                            const itemName = parts[0];
                             return itemName;
                         }
                         return null;
@@ -333,7 +354,6 @@ const BossKillForm = () => {
     };
 
     const onFinish = (values) => {
-        // 移除對 fileList 的必填檢查
         if (values.item_names && values.item_names.length > 0) {
             const itemsText = values.item_names.map(item => item.name).join(', ');
             if (window.confirm(
@@ -378,7 +398,6 @@ const BossKillForm = () => {
             formData.append('attendees', JSON.stringify(attendeesArray));
             formData.append('itemHolder', values.itemHolder || '');
 
-            // 如果用戶未上傳圖片，使用預設圖片 wp.jpg
             if (fileList.length === 0) {
                 /*
                 const defaultImage = await getDefaultImage();
@@ -386,7 +405,7 @@ const BossKillForm = () => {
                     formData.append('screenshots', defaultImage);
                 } else {
                     setLoading(false);
-                    return; // 如果無法載入預設圖片，停止提交
+                    return;
                 }
                 */
             } else {
@@ -427,10 +446,42 @@ const BossKillForm = () => {
             alert(`擊殺記錄成功！ID: ${successIds}`);
             form.resetFields();
             setFileList([]);
-            setLogText(''); // 清空日誌輸入框
+            setLogText('');
             form.setFieldsValue({ kill_time: null });
         }
         setLoading(false);
+    };
+
+    const handleAddItem = async (values) => {
+        try {
+            setLoading(true);
+            const newItem = {
+                name: values.name,
+                type: values.type,
+                level: values.level,
+                description: values.description || '',
+                imageUrl: values.imageUrl || '',
+            };
+            const res = await axios.post(`${BASE_URL}/api/items`, newItem, {
+                headers: { 'x-auth-token': token },
+            });
+            const addedItem = res.data;
+            setItems([...items, addedItem]); // 更新本地 items 狀態
+            message.success('新物品添加成功！');
+
+            // 自動將新物品添加到表單
+            const currentItems = form.getFieldValue('item_names') || [];
+            form.setFieldsValue({
+                item_names: [...currentItems, { name: addedItem.name }],
+            });
+
+            setAddItemModalVisible(false);
+            itemForm.resetFields();
+        } catch (err) {
+            message.error(`添加新物品失敗: ${err.response?.data?.msg || err.message}`);
+        } finally {
+            setLoading(false);
+        }
     };
 
     const uploadProps = {
@@ -484,6 +535,27 @@ const BossKillForm = () => {
         );
     };
 
+    if (rolesLoading) {
+        return (
+            <div style={{ textAlign: 'center', padding: '50px' }}>
+                <Spin size="large" tip="正在載入權限信息..." />
+            </div>
+        );
+    }
+
+    if (!userRoles.includes('admin') && !userRoles.includes('moderator')) {
+        return (
+            <div style={{ textAlign: 'center', padding: '50px' }}>
+                <Alert
+                    message="權限不足"
+                    description="只有管理員或版主可以訪問此頁面。"
+                    type="error"
+                    showIcon
+                />
+            </div>
+        );
+    }
+
     return (
         <div style={{
             padding: '20px',
@@ -516,7 +588,6 @@ const BossKillForm = () => {
                         initialValues={{ kill_time: null }}
                         requiredMark={true}
                     >
-                        {/* 旅團日誌輸入框 */}
                         <Form.Item
                             label={
                                 <span>
@@ -590,6 +661,21 @@ const BossKillForm = () => {
                                                             <Select
                                                                 placeholder="選擇戰利品"
                                                                 allowClear
+                                                                dropdownRender={(menu) => (
+                                                                    <>
+                                                                        {menu}
+                                                                        <Space style={{ padding: '8px', borderTop: '1px solid #e8e8e8' }}>
+                                                                            <Button
+                                                                                type="link"
+                                                                                icon={<PlusOutlined />}
+                                                                                onClick={() => setAddItemModalVisible(true)}
+                                                                                style={{ width: '100%', textAlign: 'left' }}
+                                                                            >
+                                                                                新增物品
+                                                                            </Button>
+                                                                        </Space>
+                                                                    </>
+                                                                )}
                                                             >
                                                                 {items.map(item => renderItemOption(item))}
                                                             </Select>
@@ -691,6 +777,73 @@ const BossKillForm = () => {
                     )}
                 </Spin>
             </Card>
+
+            {/* 新增物品模態框 */}
+            <Modal
+                title="新增物品"
+                open={addItemModalVisible}
+                onCancel={() => {
+                    setAddItemModalVisible(false);
+                    itemForm.resetFields();
+                }}
+                footer={null}
+            >
+                <Form
+                    form={itemForm}
+                    layout="vertical"
+                    onFinish={handleAddItem}
+                >
+                    <Form.Item
+                        name="name"
+                        label="物品名稱"
+                        rules={[{ required: true, message: '請輸入物品名稱！' }]}
+                    >
+                        <Input placeholder="輸入物品名稱" />
+                    </Form.Item>
+                    <Form.Item
+                        name="type"
+                        label="類型"
+                        rules={[{ required: true, message: '請選擇物品類型！' }]}
+                    >
+                        <Select placeholder="選擇類型">
+                            <Option value="equipment">裝備</Option>
+                            <Option value="skill">技能</Option>
+                        </Select>
+                    </Form.Item>
+                    <Form.Item
+                        name="level"
+                        label="等級"
+                        rules={[{ required: true, message: '請選擇物品等級！' }]}
+                    >
+                        <Select placeholder="選擇等級">
+                            {itemLevels.map(level => (
+                                <Option key={level._id} value={level._id}>
+                                    <Tag color={colorMapping[level.color]}>{level.level}</Tag>
+                                </Option>
+                            ))}
+                        </Select>
+                    </Form.Item>
+                    <Form.Item
+                        name="description"
+                        label="描述（可選）"
+                    >
+                        <Input.TextArea placeholder="輸入描述" />
+                    </Form.Item>
+                    <Form.Item
+                        name="imageUrl"
+                        label="圖片 URL（可選）"
+                        rules={[{ type: 'url', message: '請輸入有效的 URL 地址' }]}
+                    >
+                        <Input placeholder="輸入圖片 URL" />
+                    </Form.Item>
+                    <Form.Item>
+                        <Button type="primary" htmlType="submit" loading={loading}>
+                            提交
+                        </Button>
+                    </Form.Item>
+                </Form>
+            </Modal>
+
             <style jsx>{`
                 .ant-upload-list-picture-card .ant-upload-list-item {
                     margin: 12px;

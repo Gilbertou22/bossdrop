@@ -7,6 +7,7 @@ const connectDB = require('./config/db');
 const path = require('path');
 const startAuctionCron = require('./utils/auctionCron');
 const startItemExpirationCron = require('./utils/itemExpirationCron'); // 新增
+const startDisabledUserCron = require('./utils/disabledUserCron'); // 新增
 const cors = require('cors');
 const csurf = require('csurf');
 const multer = require('multer');
@@ -165,16 +166,46 @@ app.use('/api/session', require('./routes/session'));
 console.log('Session route loaded');
 app.use('/api/professions', require('./routes/professions'));
 console.log('Professions route loaded');
+app.use('/api/roles', require('./routes/roles'));
+console.log('Roles route loaded');
 
 try {
     startAuctionCron();
     console.log('Auction cron started');
     startItemExpirationCron();
     console.log('Item expiration cron started');
+    startDisabledUserCron();
+    console.log('Disabled user cron started');
 } catch (err) {
     console.error('Error starting cron jobs:', err);
 }
 
+
+const Role = require('./models/Role');
+
+async function initializeRoles() {
+    const defaultRoles = [
+        { name: 'user', description: '普通用戶，具有基本權限' },
+        { name: 'moderator', description: '版主，可以管理部分內容' },
+        { name: 'admin', description: '系統管理員，擁有所有權限' },
+        { name: 'guild', description: '旅團代表，負責旅團相關事務' },
+    ];
+
+    try {
+        for (const role of defaultRoles) {
+            const existingRole = await Role.findOne({ name: role.name });
+            if (!existingRole) {
+                await new Role(role).save();
+                console.log(`Role ${role.name} created successfully`);
+            }
+        }
+    } catch (err) {
+        console.error('Error initializing roles:', err);
+    }
+}
+
+// 在服務器啟動時調用
+initializeRoles();
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT} at ${new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })}`));

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Row, Col, Button, DatePicker, message, Image, Card, Spin, Alert, Tag, Tooltip, Popconfirm, Dropdown, Menu, Select, Table, Radio, Pagination, Input, Space } from 'antd';
-import { SearchOutlined, EditOutlined, PlusOutlined, CheckOutlined, MoreOutlined, InfoCircleOutlined, DeleteOutlined, UserOutlined, AppstoreOutlined, UnorderedListOutlined, DownloadOutlined } from '@ant-design/icons';
+import { PlusOutlined, CheckOutlined, MoreOutlined, SendOutlined, InfoCircleOutlined, UserOutlined, AppstoreOutlined, UnorderedListOutlined, DownloadOutlined } from '@ant-design/icons';
 import axios from 'axios';
 import moment from 'moment';
 import Papa from 'papaparse';
@@ -78,7 +78,7 @@ const KillHistory = () => {
             const res = await axios.get(`${BASE_URL}/api/users/me`, {
                 headers: { 'x-auth-token': token },
             });
-          
+
             setRole(res.data.role);
             setCurrentUser(res.data.character_name);
             setUserId(res.data.id);
@@ -148,11 +148,11 @@ const KillHistory = () => {
 
     const fetchUserApplications = async () => {
         try {
-           
+
             const res = await axios.get(`${BASE_URL}/api/applications/user`, {
                 headers: { 'x-auth-token': token },
             });
-           
+
             const activeApplications = res.data.filter(app => {
                 if (!app) {
                     console.warn('Invalid application entry:', app);
@@ -163,15 +163,15 @@ const KillHistory = () => {
                     return false;
                 }
                 const isActive = app.status === 'pending' || app.status === 'approved';
-               
+
                 return isActive;
             });
-   
+
             if (activeApplications.length === 0) {
                 console.warn('No active applications after filtering. Raw data:', res.data);
             }
             setUserApplications(activeApplications);
-   
+
         } catch (err) {
             console.error('Fetch user applications error:', err.response?.data || err.message);
             message.warning('無法載入申請記錄，申請中標示可能不準確');
@@ -215,7 +215,7 @@ const KillHistory = () => {
             });
 
             const updatedHistory = res.data.data.map(record => {
-               
+
 
                 const applyingItems = record.dropped_items
                     ?.filter(item => {
@@ -230,14 +230,14 @@ const KillHistory = () => {
                             const match = appKillId === record._id.toString() &&
                                 appItemId === itemId.toString() &&
                                 app.status === 'pending';
-                         
+
                             return match;
                         });
                         return hasApplication;
                     })
                     ?.map(item => item.name) || [];
 
-             
+
 
                 return {
                     ...record,
@@ -552,7 +552,7 @@ const KillHistory = () => {
 
         // 檢查用戶是否已申請物品
         const hasApplied = record.applyingItems && record.applyingItems.length > 0;
-        
+
         const moreMenu = (
             <Menu className="kill-history-more-menu">
                 {role !== 'admin' && canAddAttendee && remainingTime !== '補登結束' && (
@@ -743,7 +743,7 @@ const KillHistory = () => {
                             >
                                 <Button
                                     type="link"
-                                    icon={<PlusOutlined />}
+                                    icon={< SendOutlined />}
                                     loading={applying}
                                     disabled={applying}
                                     style={{ padding: '0 8px' }}

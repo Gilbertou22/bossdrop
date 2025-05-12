@@ -1,17 +1,21 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Table, Button, Modal, Form, Input, message, Select, Row, Col, Spin, Alert, Popconfirm, Pagination, Space, Card, Descriptions, Tag, Checkbox } from 'antd';
-import { SearchOutlined, DeleteOutlined, SyncOutlined, EditOutlined, InfoCircleOutlined } from '@ant-design/icons';
+import { Table, Button, Modal, Form, Input, message, Select, Row, Col, Spin, Alert, Popconfirm, Pagination, Space, Card, Descriptions, Tag, Checkbox, Tabs, Typography } from 'antd';
+import { SearchOutlined, StopOutlined, EditOutlined, InfoCircleOutlined, SyncOutlined } from '@ant-design/icons';
 import axios from 'axios';
 import formatNumber from '../utils/formatNumber';
 import moment from 'moment';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { icons } from '../assets/icons';
+import { useNavigate } from 'react-router-dom';
 
 const { Option } = Select;
+const { TabPane } = Tabs;
+const { Title, Text } = Typography;
 
 const BASE_URL = process.env.REACT_APP_API_URL || '';
 
 const ManageUsers = () => {
+    const navigate = useNavigate();
     const [users, setUsers] = useState([]);
     const [filteredUsers, setFilteredUsers] = useState([]);
     const [loading, setLoading] = useState(false);
@@ -30,10 +34,14 @@ const ManageUsers = () => {
     const [growthData, setGrowthData] = useState([]);
     const [guilds, setGuilds] = useState([]);
     const [professions, setProfessions] = useState([]);
+    const [rolesList, setRolesList] = useState([]);
     const [useGuildPassword, setUseGuildPassword] = useState(false);
     const token = localStorage.getItem('token');
     const [online, setOnline] = useState(navigator.onLine);
     const [deferredPrompt, setDeferredPrompt] = useState(null);
+    const [suspiciousLogins, setSuspiciousLogins] = useState([]);
+    const [suspiciousLoading, setSuspiciousLoading] = useState(false);
+    const [userRole, setUserRole] = useState(null);
 
     useEffect(() => {
         window.addEventListener('beforeinstallprompt', (e) => {
@@ -46,9 +54,29 @@ const ManageUsers = () => {
     }, []);
 
     useEffect(() => {
+        if (!token) {
+            message.error('請先登入！');
+            navigate('/login');
+            return;
+        }
+        fetchUserInfo();
         fetchGuilds();
         fetchProfessions();
-    }, []);
+        fetchRoles();
+        fetchSuspiciousLogins();
+    }, [token, navigate]);
+
+    const fetchUserInfo = async () => {
+        try {
+            const res = await axios.get(`${BASE_URL}/api/users/me`, {
+                headers: { 'x-auth-token': token },
+            });
+            setUserRole(res.data.roles);
+        } catch (err) {
+            message.error('無法載入用戶信息，請重新登入');
+            navigate('/login');
+        }
+    };
 
     const fetchGuilds = async () => {
         try {
@@ -71,6 +99,33 @@ const ManageUsers = () => {
         } catch (err) {
             console.error('Fetch professions error:', err);
             message.error('載入職業列表失敗');
+        }
+    };
+
+    const fetchRoles = async () => {
+        try {
+            const res = await axios.get(`${BASE_URL}/api/roles`, {
+                headers: { 'x-auth-token': token },
+            });
+            setRolesList(res.data);
+        } catch (err) {
+            console.error('Fetch roles error:', err);
+            message.error('載入角色列表失敗');
+        }
+    };
+
+    const fetchSuspiciousLogins = async () => {
+        setSuspiciousLoading(true);
+        try {
+            const res = await axios.get(`${BASE_URL}/api/auth/suspicious-logins`, {
+                headers: { 'x-auth-token': token },
+            });
+            setSuspiciousLogins(res.data);
+        } catch (err) {
+            console.error('Fetch suspicious logins error:', err);
+            message.error('載入可疑登入記錄失敗');
+        } finally {
+            setSuspiciousLoading(false);
         }
     };
 
@@ -118,6 +173,7 @@ const ManageUsers = () => {
             });
             if (err.response?.status === 401 || err.response?.status === 403) {
                 message.error(err.response?.data?.msg || '無權限訪問，請檢查 Token 或權限');
+                navigate('/login');
             } else {
                 message.error(`載入盟友列表失敗: ${err.response?.data?.msg || err.message}`);
             }
@@ -126,7 +182,7 @@ const ManageUsers = () => {
         } finally {
             setLoading(false);
         }
-    }, [token, filters, online]);
+    }, [token, filters, online, navigate]);
 
     const fetchStats = useCallback(async () => {
         if (!online) return;
@@ -182,8 +238,8 @@ const ManageUsers = () => {
             diamonds: user?.diamonds || 0,
             status: user?.status || 'pending',
             screenshot: user?.screenshot || '',
-            role: user?.role || 'user',
-            guildId: user?.guildId || null,
+            roles: user?.roles.map(role => role._id) || [],
+            guildId: user?.guildId?._id || null,
             mustChangePassword: user?.mustChangePassword || false,
             profession: user?.profession?._id || null,
             password: '',
@@ -229,7 +285,11 @@ const ManageUsers = () => {
 
             const formData = new FormData();
             Object.keys(filteredValues).forEach(key => {
-                formData.append(key, filteredValues[key] !== undefined && filteredValues[key] !== null ? filteredValues[key] : '');
+                if (key === 'roles') {
+                    formData.append(key, JSON.stringify(filteredValues[key]));
+                } else {
+                    formData.append(key, filteredValues[key] !== undefined && filteredValues[key] !== null ? filteredValues[key] : '');
+                }
             });
 
             const formDataEntries = {};
@@ -260,10 +320,10 @@ const ManageUsers = () => {
         }
     };
 
-    const handleDelete = async (id) => {
+    const handleDisable = async (id) => {
         const user = users.find(u => u._id === id);
-        if (user && (user.role === 'admin' || user.role === 'guild')) {
-            message.error(`無法刪除角色為 ${user.role} 的帳號！`);
+        if (user && (user.roles.some(role => ['admin', 'guild'].includes(role.name)))) {
+            message.error(`無法禁用角色為 admin 或 guild 的帳號！`);
             return;
         }
 
@@ -273,87 +333,52 @@ const ManageUsers = () => {
                 return;
             }
             setLoading(true);
-            const res = await axios.delete(`${BASE_URL}/api/users/${id}`, {
+            const res = await axios.put(`${BASE_URL}/api/users/${id}/disable`, {}, {
                 headers: { 'x-auth-token': token },
             });
-            message.success('盟友刪除成功');
+            message.success('盟友已設為 DISABLED 狀態');
             fetchUsers();
         } catch (err) {
-            console.error('Delete user error:', {
+            console.error('Disable user error:', {
                 status: err.response?.status,
                 data: err.response?.data,
                 message: err.message,
                 code: err.code,
             });
-            message.error('盟友刪除失敗: ' + err.response?.data?.msg || err.message || '網絡錯誤');
+            message.error('設為 DISABLED 失敗: ' + err.response?.data?.msg || err.message || '網絡錯誤');
         } finally {
             setLoading(false);
         }
     };
 
-    const handleBatchDelete = async () => {
+    const handleBatchDisable = async () => {
         if (!token || selectedRowKeys.length === 0) {
-            message.warning('請先登入並選擇至少一個盟友進行刪除');
+            message.warning('請先登入並選擇至少一個盟友進行操作');
             return;
         }
 
         const selectedUsers = users.filter(user => selectedRowKeys.includes(user._id));
-        const protectedUsers = selectedUsers.filter(user => user.role === 'admin' || user.role === 'guild');
+        const protectedUsers = selectedUsers.filter(user => user.roles.some(role => ['admin', 'guild'].includes(role.name)));
         if (protectedUsers.length > 0) {
-            const protectedRoles = protectedUsers.map(user => user.role).join(', ');
-            message.error(`無法刪除角色為 ${protectedRoles} 的帳號！`);
+            const protectedRoles = [...new Set(protectedUsers.map(user => user.roles.map(role => role.name)).flat())].join(', ');
+            message.error(`無法禁用角色為 ${protectedRoles} 的帳號！`);
             return;
         }
 
         setLoading(true);
         try {
-            await axios.delete(`${BASE_URL}/api/users/batch-delete`, {
+            await axios.put(`${BASE_URL}/api/users/batch-disable`, { ids: selectedRowKeys }, {
                 headers: { 'x-auth-token': token },
-                data: { ids: selectedRowKeys },
             });
-            message.success('批量刪除成功');
+            message.success('批量設為 DISABLED 成功');
             fetchUsers();
             setSelectedRowKeys([]);
         } catch (err) {
-            console.error('Batch delete error:', err);
-            message.error(`批量刪除失敗: ${err.response?.data?.msg || err.message}`);
+            console.error('Batch disable error:', err);
+            message.error(`批量設為 DISABLED 失敗: ${err.response?.data?.msg || err.message}`);
         } finally {
             setLoading(false);
         }
-    };
-
-    const handleToggleStatus = async (user) => {
-        try {
-            setLoading(true);
-            const newStatus = user.status === 'active' ? 'pending' : 'active';
-            await axios.put(`${BASE_URL}/api/users/${user._id}`, {
-                ...user,
-                status: newStatus,
-            }, {
-                headers: { 'x-auth-token': token },
-            });
-            message.success(`盟友狀態已切換為 ${newStatus}`);
-            fetchUsers();
-        } catch (err) {
-            console.error('Toggle status error:', err);
-            message.error(`狀態切換失敗: ${err.response?.data?.msg || err.message}`);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const validateConfirmPassword = (_, value) => {
-        const password = form.getFieldValue('password');
-        return new Promise((resolve, reject) => {
-            if (!value || !editingUser) {
-                resolve();
-            } else if (password === value) {
-                resolve();
-            } else {
-                message.error('兩次輸入的密碼不一致！');
-                reject(new Error('兩次輸入的密碼不一致！'));
-            }
-        });
     };
 
     const handleBroadcast = async () => {
@@ -413,15 +438,28 @@ const ManageUsers = () => {
         }
     };
 
+    const validateConfirmPassword = (_, value) => {
+        const password = form.getFieldValue('password');
+        return new Promise((resolve, reject) => {
+            if (!value || !editingUser) {
+                resolve();
+            } else if (password === value) {
+                resolve();
+            } else {
+                reject(new Error('兩次輸入的密碼不一致！'));
+            }
+        });
+    };
+
     const rowSelection = {
         selectedRowKeys,
         onChange: (selectedKeys) => setSelectedRowKeys(selectedKeys),
         getCheckboxProps: (record) => ({
-            disabled: record.role === 'admin' || record.role === 'guild',
+            disabled: record.roles.some(role => ['admin', 'guild'].includes(role.name)),
         }),
     };
 
-    const columns = [
+    const userColumns = [
         { title: '角色名稱', dataIndex: 'character_name', key: 'character_name', width: 150 },
         { title: '戰鬥等級', dataIndex: 'raid_level', key: 'raid_level', width: 120 },
         { title: '鑽石數', dataIndex: 'diamonds', key: 'diamonds', render: (text) => formatNumber(text), width: 120 },
@@ -444,17 +482,19 @@ const ManageUsers = () => {
             dataIndex: 'status',
             key: 'status',
             width: 120,
-            render: (status, record) => (
-                <Button
-                    type="link"
-                    onClick={() => handleToggleStatus(record)}
-                    disabled={loading}
-                >
-                    <Tag color={status === 'active' ? 'green' : 'gold'}>{status}</Tag>
-                </Button>
+            render: (status) => (
+                <Tag color={status === 'active' ? 'green' : status === 'pending' ? 'gold' : 'red'}>
+                    {status === 'active' ? '活躍' : status === 'pending' ? '待審核' : '已禁用'}
+                </Tag>
             ),
         },
-        { title: '角色', dataIndex: 'role', key: 'role', width: 120 },
+        {
+            title: '角色',
+            dataIndex: 'roles',
+            key: 'roles',
+            width: 120,
+            render: (roles) => roles.map(role => role.name).join(', '),
+        },
         {
             title: '操作',
             key: 'action',
@@ -487,27 +527,67 @@ const ManageUsers = () => {
                     >
                         詳情
                     </Button>
-                    <Popconfirm
-                        title="確認刪除此盟友？"
-                        onConfirm={() => handleDelete(record._id)}
-                        okText="是"
-                        cancelText="否"
-                        disabled={loading || record.role === 'admin' || record.role === 'guild'}
-                    >
-                        <Button
-                            type="danger"
-                            shape="round"
-                            size="small"
-                            icon={<DeleteOutlined />}
-                            disabled={loading || record.role === 'admin' || record.role === 'guild'}
-                            style={{ background: '#ff4d4f', color: '#fff', borderColor: '#ff4d4f' }}
-                            onMouseEnter={(e) => (e.target.style.background = '#ff7875')}
-                            onMouseLeave={(e) => (e.target.style.background = '#ff4d4f')}
+                    {record.status !== 'disabled' && (
+                        <Popconfirm
+                            title="確認將此盟友設為 DISABLED 狀態？"
+                            onConfirm={() => handleDisable(record._id)}
+                            okText="是"
+                            cancelText="否"
+                            disabled={loading || record.roles.some(role => ['admin', 'guild'].includes(role.name))}
                         >
-                            刪除
-                        </Button>
-                    </Popconfirm>
+                            <Button
+                                type="danger"
+                                shape="round"
+                                size="small"
+                                icon={<StopOutlined />}
+                                disabled={loading || record.roles.some(role => ['admin', 'guild'].includes(role.name))}
+                                style={{ background: '#ff4d4f', color: '#fff', borderColor: '#ff4d4f' }}
+                                onMouseEnter={(e) => (e.target.style.background = '#ff7875')}
+                                onMouseLeave={(e) => (e.target.style.background = '#ff4d4f')}
+                            >
+                                設為 DISABLED
+                            </Button>
+                        </Popconfirm>
+                    )}
                 </Space>
+            ),
+        },
+    ];
+
+    const suspiciousColumns = [
+        {
+            title: 'IP 地址',
+            dataIndex: 'ipAddress',
+            key: 'ipAddress',
+            width: 150,
+        },
+        {
+            title: '帳號數量',
+            dataIndex: 'userCount',
+            key: 'userCount',
+            width: 100,
+        },
+        {
+            title: '角色名稱',
+            dataIndex: 'characterNames',
+            key: 'characterNames',
+            width: 200,
+            render: (names) => names.join(', '),
+        },
+        {
+            title: '登入記錄',
+            dataIndex: 'loginRecords',
+            key: 'loginRecords',
+            render: (records) => (
+                <ul>
+                    {records.map((record, index) => (
+                        <li key={index}>
+                            {record.characterName} - {moment(record.loginTime).format('YYYY-MM-DD HH:mm:ss')}
+                            <br />
+                            <Text type="secondary">User-Agent: {record.userAgent || '未知'}</Text>
+                        </li>
+                    ))}
+                </ul>
             ),
         },
     ];
@@ -558,98 +638,148 @@ const ManageUsers = () => {
                     </ResponsiveContainer>
                 </Card>
             </Card>
-            <Card
-                title="盟友列表"
-                bordered={false}
-                style={{ boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)', borderRadius: '8px' }}
-            >
-                <div style={{ marginBottom: '16px', display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'center' }}>
-                    <Input.Search
-                        placeholder="搜索角色名稱或世界名稱"
-                        value={filters.search}
-                        onChange={(e) => setFilters(prev => ({ ...prev, search: e.target.value }))}
-                        onSearch={fetchUsers}
-                        style={{ width: 200 }}
-                        enterButton={<SearchOutlined />}
-                    />
-                    <Select
-                        value={filters.status}
-                        onChange={(value) => setFilters(prev => ({ ...prev, status: value }))}
-                        style={{ width: 200 }}
-                        onSelect={fetchUsers}
+
+            <Tabs defaultActiveKey="1">
+                <TabPane tab="盟友列表" key="1">
+                    <Card
+                        bordered={false}
+                        style={{ boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)', borderRadius: '8px' }}
                     >
-                        <Option value="all">全部狀態</Option>
-                        <Option value="pending">待審核</Option>
-                        <Option value="active">活躍</Option>
-                    </Select>
-                    <Button type="primary" onClick={() => showModal()} style={{ marginRight: 16 }} disabled={loading || !token}>
-                        添加盟友
-                    </Button>
-                    <Button type="primary" onClick={() => setIsBroadcastModalVisible(true)} disabled={loading || !token}>
-                        發送廣播通知
-                    </Button>
-                    <Popconfirm
-                        title="確認批量刪除選中盟友？"
-                        onConfirm={handleBatchDelete}
-                        okText="是"
-                        cancelText="否"
-                        disabled={loading || selectedRowKeys.length === 0 || !token}
+                        <div style={{ marginBottom: '16px', display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'center' }}>
+                            <Input.Search
+                                placeholder="搜索角色名稱或世界名稱"
+                                value={filters.search}
+                                onChange={(e) => setFilters(prev => ({ ...prev, search: e.target.value }))}
+                                onSearch={fetchUsers}
+                                style={{ width: 200 }}
+                                enterButton={<SearchOutlined />}
+                            />
+                            <Select
+                                value={filters.status}
+                                onChange={(value) => setFilters(prev => ({ ...prev, status: value }))}
+                                style={{ width: 200 }}
+                                onSelect={fetchUsers}
+                            >
+                                <Option value="all">全部狀態</Option>
+                                <Option value="pending">待審核</Option>
+                                <Option value="active">活躍</Option>
+                                <Option value="disabled">已禁用</Option>
+                            </Select>
+                            {userRole?.includes('admin') && (
+                                <>
+                                    <Button type="primary" onClick={() => showModal()} style={{ marginRight: 16 }} disabled={loading || !token}>
+                                        添加盟友
+                                    </Button>
+                                    <Button type="primary" onClick={() => navigate('/manage-roles')} style={{ marginRight: 16 }}>
+                                        管理角色
+                                    </Button>
+                                    <Button type="primary" onClick={() => setIsBroadcastModalVisible(true)} disabled={loading || !token}>
+                                        發送廣播通知
+                                    </Button>
+                                    <Popconfirm
+                                        title="確認將選中盟友設為 DISABLED 狀態？"
+                                        onConfirm={handleBatchDisable}
+                                        okText="是"
+                                        cancelText="否"
+                                        disabled={loading || selectedRowKeys.length === 0 || !token}
+                                    >
+                                        <Button type="danger" icon={<StopOutlined />} disabled={loading || selectedRowKeys.length === 0 || !token}>
+                                            批量設為 DISABLED
+                                        </Button>
+                                    </Popconfirm>
+                                </>
+                            )}
+                            <Button
+                                type="default"
+                                icon={<SyncOutlined />}
+                                onClick={() => {
+                                    fetchUsers();
+                                    fetchStats();
+                                    fetchGrowthData();
+                                }}
+                                disabled={loading || !online}
+                                style={{ marginLeft: 'auto' }}
+                            >
+                                刷新
+                            </Button>
+                        </div>
+                        <Spin spinning={loading} size="large">
+                            {filteredUsers.length === 0 && !loading ? (
+                                <Alert
+                                    message="無盟友數據"
+                                    description="目前沒有符合條件的盟友記錄。"
+                                    type="info"
+                                    showIcon
+                                    style={{ marginBottom: '16px' }}
+                                />
+                            ) : (
+                                <>
+                                    <Table
+                                        rowSelection={userRole?.includes('admin') ? rowSelection : undefined}
+                                        dataSource={paginatedUsers}
+                                        columns={userColumns}
+                                        rowKey="_id"
+                                        bordered
+                                        pagination={false}
+                                        scroll={{ x: 'max-content' }}
+                                    />
+                                    <Pagination
+                                        current={currentPage}
+                                        pageSize={pageSize}
+                                        total={filteredUsers.length}
+                                        onChange={setCurrentPage}
+                                        onShowSizeChange={(current, size) => {
+                                            setCurrentPage(1);
+                                            setPageSize(size);
+                                        }}
+                                        style={{ marginTop: '16px', textAlign: 'right' }}
+                                        showSizeChanger
+                                        pageSizeOptions={['10', '20', '50']}
+                                    />
+                                </>
+                            )}
+                        </Spin>
+                    </Card>
+                </TabPane>
+                <TabPane tab="可疑登入" key="2">
+                    <Card
+                        bordered={false}
+                        style={{ boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)', borderRadius: '8px' }}
                     >
-                        <Button type="danger" icon={<DeleteOutlined />} disabled={loading || selectedRowKeys.length === 0 || !token}>
-                            批量刪除
-                        </Button>
-                    </Popconfirm>
-                    <Button
-                        type="default"
-                        icon={<SyncOutlined />}
-                        onClick={() => {
-                            fetchUsers();
-                            fetchStats();
-                            fetchGrowthData();
-                        }}
-                        disabled={loading || !online}
-                        style={{ marginLeft: 'auto' }}
-                    >
-                        刷新
-                    </Button>
-                </div>
-                <Spin spinning={loading} size="large">
-                    {filteredUsers.length === 0 && !loading ? (
+                        <Title level={4} style={{ color: '#ff4d4f', marginBottom: '16px' }}>
+                            可疑登入警示
+                        </Title>
                         <Alert
-                            message="無盟友數據"
-                            description="目前沒有符合條件的盟友記錄。"
-                            type="info"
+                            message="注意"
+                            description="以下列表顯示過去 45 天內從同一 IP 登入不同帳號的記錄，這只是一個警示，請勿將被列出的盟友都定義成蹭鑽（雖然他可能偷領一份，而且還吃掉你一個系統名額）。資料僅保留 45 天。"
+                            type="warning"
                             showIcon
                             style={{ marginBottom: '16px' }}
                         />
-                    ) : (
-                        <>
-                            <Table
-                                rowSelection={rowSelection}
-                                dataSource={paginatedUsers}
-                                columns={columns}
-                                rowKey="_id"
-                                bordered
-                                pagination={false}
-                                scroll={{ x: 'max-content' }}
-                            />
-                            <Pagination
-                                current={currentPage}
-                                pageSize={pageSize}
-                                total={filteredUsers.length}
-                                onChange={setCurrentPage}
-                                onShowSizeChange={(current, size) => {
-                                    setCurrentPage(1);
-                                    setPageSize(size);
-                                }}
-                                style={{ marginTop: '16px', textAlign: 'right' }}
-                                showSizeChanger
-                                pageSizeOptions={['10', '20', '50']}
-                            />
-                        </>
-                    )}
-                </Spin>
-            </Card>
+                        <Spin spinning={suspiciousLoading} size="large">
+                            {suspiciousLogins.length === 0 && !suspiciousLoading ? (
+                                <Alert
+                                    message="無可疑登入記錄"
+                                    description="過去 45 天內未發現從同一 IP 登入不同帳號的行為。"
+                                    type="info"
+                                    showIcon
+                                    style={{ marginBottom: '16px' }}
+                                />
+                            ) : (
+                                <Table
+                                    dataSource={suspiciousLogins}
+                                    columns={suspiciousColumns}
+                                    rowKey="ipAddress"
+                                    bordered
+                                    pagination={false}
+                                    scroll={{ x: 'max-content' }}
+                                />
+                            )}
+                        </Spin>
+                    </Card>
+                </TabPane>
+            </Tabs>
+
             <Modal
                 title={editingUser ? '編輯盟友' : '添加盟友'}
                 visible={isModalVisible}
@@ -720,6 +850,7 @@ const ManageUsers = () => {
                                 <Select>
                                     <Option value="pending">待審核</Option>
                                     <Option value="active">活躍</Option>
+                                    <Option value="disabled">已禁用</Option>
                                 </Select>
                             </Form.Item>
                             <Form.Item
@@ -730,14 +861,16 @@ const ManageUsers = () => {
                                 <Input placeholder="輸入截圖 URL" />
                             </Form.Item>
                             <Form.Item
-                                name="role"
+                                name="roles"
                                 label="角色"
-                                rules={[{ required: true, message: '請選擇角色！' }]}
+                                rules={[{ required: true, message: '請選擇至少一個角色！' }]}
                             >
-                                <Select>
-                                    <Option value="user">盟友</Option>
-                                    <Option value="moderator">版主</Option>
-                                    <Option value="admin">管理員</Option>
+                                <Select mode="multiple" placeholder="選擇角色">
+                                    {rolesList.map(role => (
+                                        <Option key={role._id} value={role._id}>
+                                            {role.name}
+                                        </Option>
+                                    ))}
                                 </Select>
                             </Form.Item>
                             <Form.Item
@@ -837,13 +970,17 @@ const ManageUsers = () => {
                                 </Space>
                             ) : '無'}
                         </Descriptions.Item>
-                        <Descriptions.Item label="狀態">{selectedUser.status}</Descriptions.Item>
+                        <Descriptions.Item label="狀態">
+                            {selectedUser.status === 'active' ? '活躍' : selectedUser.status === 'pending' ? '待審核' : '已禁用'}
+                        </Descriptions.Item>
                         <Descriptions.Item label="截圖">
                             {selectedUser.screenshot ? (
                                 <a href={selectedUser.screenshot} target="_blank" rel="noopener noreferrer">查看</a>
                             ) : '無'}
                         </Descriptions.Item>
-                        <Descriptions.Item label="角色">{selectedUser.role}</Descriptions.Item>
+                        <Descriptions.Item label="角色">
+                            {selectedUser.roles.map(role => role.name).join(', ')}
+                        </Descriptions.Item>
                         <Descriptions.Item label="旅團">{selectedUser.guildId?.name || '無'}</Descriptions.Item>
                         <Descriptions.Item label="是否需更改密碼">{selectedUser.mustChangePassword ? '是' : '否'}</Descriptions.Item>
                         <Descriptions.Item label="創建時間">{moment(selectedUser.createdAt).format('YYYY-MM-DD HH:mm:ss')}</Descriptions.Item>

@@ -1,4 +1,3 @@
-// pages/ApproveApplications.js
 import React, { useState, useEffect } from 'react';
 import { Table, Button, message, Popconfirm, Card, Spin, Alert, Tag, Input, Select } from 'antd';
 import { SearchOutlined, CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons';
@@ -21,6 +20,7 @@ const ApproveApplications = () => {
     useEffect(() => {
         if (!token) {
             message.error('請先登入以查看申請列表！');
+            window.location.href = '/login'; // 重定向到登入頁面
             return;
         }
         fetchUserInfo();
@@ -38,11 +38,18 @@ const ApproveApplications = () => {
             const res = await axios.get(`${BASE_URL}/api/users/me`, {
                 headers: { 'x-auth-token': token },
             });
-            setRole(res.data.role);
-           
+            // 修正角色檢查：檢查 roles 字段是否包含 'admin'
+            const userRoles = res.data.roles || [];
+            const isAdmin = userRoles.includes('admin');
+            setRole(isAdmin ? 'admin' : null);
+            if (!isAdmin) {
+                message.error('您無權訪問此頁面，僅限管理員使用');
+                window.location.href = '/'; // 重定向到首頁
+            }
         } catch (err) {
             console.error('Fetch user info error:', err);
             message.error('載入用戶信息失敗: ' + (err.response?.data?.msg || err.message));
+            window.location.href = '/login'; // 重定向到登入頁面
         } finally {
             setLoading(false);
         }
@@ -55,12 +62,12 @@ const ApproveApplications = () => {
                 status: filters.status === 'all' ? undefined : filters.status,
                 search: filters.search || undefined,
             };
-           
+
             const res = await axios.get(`${BASE_URL}/api/applications`, {
                 headers: { 'x-auth-token': token },
                 params,
             });
-           
+
             setApplications(res.data);
         } catch (err) {
             console.error('Fetch applications error:', err.response?.data || err);
@@ -73,7 +80,7 @@ const ApproveApplications = () => {
     const handleApprove = async (id) => {
         try {
             setLoading(true);
-            const res = await axios.put(
+            const res = await axios.post( // 改為 POST 方法
                 `${BASE_URL}/api/applications/${id}/approve`,
                 {},
                 { headers: { 'x-auth-token': token } }
@@ -91,7 +98,7 @@ const ApproveApplications = () => {
     const handleReject = async (id) => {
         try {
             setLoading(true);
-            const res = await axios.put(
+            const res = await axios.put( // 保持 PUT 方法，因為後端定義為 PUT
                 `${BASE_URL}/api/applications/${id}/reject`,
                 {},
                 { headers: { 'x-auth-token': token } }
@@ -205,6 +212,27 @@ const ApproveApplications = () => {
             width: 200,
         },
     ];
+
+    if (!role) {
+        return (
+            <div style={{ textAlign: 'center', padding: '50px' }}>
+                <Spin size="large" tip="正在載入權限信息..." />
+            </div>
+        );
+    }
+
+    if (role !== 'admin') {
+        return (
+            <div style={{ textAlign: 'center', padding: '50px' }}>
+                <Alert
+                    message="權限不足"
+                    description="只有管理員可以訪問此頁面。"
+                    type="error"
+                    showIcon
+                />
+            </div>
+        );
+    }
 
     return (
         <div style={{ padding: '20px', backgroundColor: '#f0f2f5', minHeight: '100vh' }}>

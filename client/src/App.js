@@ -34,7 +34,8 @@ import ManageMenu from './pages/ManageMenu';
 import Forbidden from './pages/Forbidden';
 import MenuLogs from './pages/MenuLogs';
 import ProfessionManage from './pages/ProfessionManage';
-
+import RoleManage from './pages/RoleManage';
+import UserRecords from './pages/UserRecords';
 
 const { Content, Footer } = Layout;
 const { Text } = Typography;
@@ -93,10 +94,26 @@ function App() {
                                             }
                                         />
                                         <Route
+                                            path="/user-records"
+                                            element={
+                                                <RoleRoute allowedRoles={['user', 'moderator', 'admin']}>
+                                                    <UserRecords />
+                                                </RoleRoute>
+                                            }
+                                        />
+                                        <Route
                                             path="/manage-professions"
                                             element={
                                                 <RoleRoute allowedRoles={['admin']}>
                                                     <ProfessionManage />
+                                                </RoleRoute>
+                                            }
+                                        />
+                                        <Route
+                                            path="/manage-roles"
+                                            element={
+                                                <RoleRoute allowedRoles={['admin']}>
+                                                    <RoleManage />
                                                 </RoleRoute>
                                             }
                                         />

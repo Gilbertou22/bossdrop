@@ -319,6 +319,7 @@ const ManageBosses = () => {
                             <Input.Search
                                 placeholder="搜索首領名稱或描述"
                                 value={filters.search}
+                                allowClear
                                 onChange={(e) => setFilters(prev => ({ ...prev, search: e.target.value }))}
                                 style={{ width: '100%' }}
                                 enterButton={<SearchOutlined />}

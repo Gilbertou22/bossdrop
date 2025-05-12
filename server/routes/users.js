@@ -2,9 +2,10 @@ const express = require('express');
 const router = express.Router();
 const User = require('../models/User');
 const Guild = require('../models/Guild');
+const Role = require('../models/Role');
 const BossKill = require('../models/BossKill');
 const Auction = require('../models/Auction');
-const Profession = require('../models/Profession'); // 新增 Profession 模型
+const Profession = require('../models/Profession');
 const multer = require('multer');
 const bcrypt = require('bcryptjs');
 const path = require('path');
@@ -46,11 +47,11 @@ router.get('/stats', auth, async (req, res) => {
         if (!req.user) {
             return res.status(401).json({ code: 401, msg: '未授權，缺少用戶信息' });
         }
-        if (req.user.role !== 'admin') {
+        if (!req.user.roles.includes('admin')) {
             return res.status(403).json({ code: 403, msg: '無權限訪問' });
         }
         const totalUsers = await User.countDocuments();
-        const activeUsers = await User.countDocuments({ status: 'active' });
+        const activeUsers = await User.countDocuments({ status: { $in: ['active', 'pending'] } }); // 排除 disabled 狀態
         res.json({ totalUsers, activeUsers });
     } catch (err) {
         logger.error('Error fetching user stats:', err.message);
@@ -70,12 +71,10 @@ router.get('/personal-stats', auth, async (req, res) => {
             });
         }
 
-        // 計算參與擊殺次數（不區分大小寫比較）
         const participationCount = await BossKill.countDocuments({
             attendees: { $regex: `^${user.character_name}$`, $options: 'i' },
         });
 
-        // 計算拍賣成功次數
         const auctionSuccessCount = await Auction.countDocuments({
             highestBidder: user.id,
             status: 'closed',
@@ -102,11 +101,25 @@ router.get('/personal-stats', auth, async (req, res) => {
 
 // 註冊新用戶
 router.post('/register', upload.single('screenshot'), async (req, res) => {
-    const { world_name, character_name, discord_id, raid_level, password, guildId, profession } = req.body;
+    let { world_name, character_name, discord_id, raid_level, password, guildId, profession, roles } = req.body;
+
     try {
+        // 驗證必填字段
+        if (!world_name || !character_name || !password || !profession) {
+            return res.status(400).json({
+                code: 400,
+                msg: '缺少必填字段',
+                detail: `請提供所有必填字段：world_name=${world_name}, character_name=${character_name}, password=${password}, profession=${profession}`,
+            });
+        }
+
         let user = await User.findOne({ character_name });
         if (user) {
-            return res.status(400).json({ msg: '用戶名已存在' });
+            return res.status(400).json({
+                code: 400,
+                msg: '用戶名已存在',
+                detail: '請選擇其他用戶名',
+            });
         }
 
         // 驗證 profession 是否存在
@@ -116,6 +129,47 @@ router.post('/register', upload.single('screenshot'), async (req, res) => {
                 msg: '無效的職業',
                 detail: `無法找到 ID 為 ${profession} 的職業`,
             });
+        }
+
+        // 處理 roles 字段
+        if (roles) {
+            try {
+                roles = JSON.parse(roles);
+                if (!Array.isArray(roles)) {
+                    return res.status(400).json({
+                        code: 400,
+                        msg: '角色格式錯誤',
+                        detail: 'roles 必須是一個陣列',
+                    });
+                }
+
+                for (const roleId of roles) {
+                    const roleExists = await Role.findById(roleId);
+                    if (!roleExists) {
+                        return res.status(400).json({
+                            code: 400,
+                            msg: '無效的角色',
+                            detail: `無法找到 ID 為 ${roleId} 的角色`,
+                        });
+                    }
+                }
+            } catch (err) {
+                return res.status(400).json({
+                    code: 400,
+                    msg: '角色格式錯誤',
+                    detail: '無法解析 roles 字段',
+                });
+            }
+        } else {
+            const userRole = await Role.findOne({ name: 'user' });
+            if (!userRole) {
+                return res.status(500).json({
+                    code: 500,
+                    msg: '伺服器錯誤',
+                    detail: '無法找到 user 角色',
+                });
+            }
+            roles = [userRole._id];
         }
 
         const screenshot = req.file ? req.file.path : null;
@@ -130,12 +184,32 @@ router.post('/register', upload.single('screenshot'), async (req, res) => {
             status: 'pending',
             guildId: guildId || null,
             mustChangePassword: false,
-            profession: profession || null, // 新增 profession 字段
+            roles,
+            profession: profession || null,
         });
 
         await user.save();
 
-        res.json({ user_id: user._id, msg: '註冊成功，等待審核！' });
+        const payload = {
+            user: {
+                id: user._id,
+                roles: user.roles,
+            },
+        };
+
+        jsonwebtoken.sign(payload, process.env.JWT_SECRET, { expiresIn: 3600 }, (err, token) => {
+            if (err) throw err;
+            res.json({
+                token,
+                user: {
+                    id: user._id,
+                    character_name: user.character_name,
+                    roles: user.roles,
+                    mustChangePassword: user.mustChangePassword,
+                },
+                msg: '註冊成功！',
+            });
+        });
     } catch (err) {
         logger.error('Register error:', err.message);
         res.status(500).json({ msg: '伺服器錯誤: ' + err.message });
@@ -146,9 +220,10 @@ router.post('/register', upload.single('screenshot'), async (req, res) => {
 router.get('/', auth, adminOnly, async (req, res) => {
     try {
         const users = await User.find()
-            .populate('guildId', 'name') // 填充 guildId 字段
-            .populate('profession', 'name icon') // 填充 profession 字段
-            .select('world_name character_name discord_id raid_level diamonds status screenshot role guildId mustChangePassword profession createdAt updatedAt');
+            .populate('guildId', 'name')
+            .populate('profession', 'name icon')
+            .populate('roles', 'name')
+            .select('world_name character_name discord_id raid_level diamonds status screenshot roles guildId mustChangePassword profession createdAt updatedAt');
         res.json(users);
     } catch (err) {
         logger.error('Error fetching users:', err.message);
@@ -163,8 +238,9 @@ router.get('/profile', auth, async (req, res) => {
             return res.status(401).json({ msg: '無效的用戶身份' });
         }
         const user = await User.findById(req.user.id)
-            .populate('profession', 'name icon') // 填充 profession 字段
-            .select('character_name world_name discord_id raid_level diamonds status screenshot role guildId mustChangePassword profession');
+            .populate('profession', 'name icon')
+            .populate('roles', 'name')
+            .select('character_name world_name discord_id raid_level diamonds status screenshot roles guildId mustChangePassword profession');
         if (!user) {
             return res.status(404).json({ msg: '用戶不存在' });
         }
@@ -189,7 +265,7 @@ router.put('/profile', auth, async (req, res) => {
         user.discord_id = discord_id || user.discord_id;
         user.raid_level = raid_level !== undefined ? parseInt(raid_level) : user.raid_level;
         user.guildId = guildId || user.guildId;
-        user.profession = profession !== undefined ? profession : user.profession; // 新增 profession 字段
+        user.profession = profession !== undefined ? profession : user.profession;
 
         await user.save();
         res.json({ msg: '用戶資料更新成功' });
@@ -199,63 +275,98 @@ router.put('/profile', auth, async (req, res) => {
     }
 });
 
-// 刪除單個用戶（管理員專用）
-router.delete('/:id', auth, adminOnly, async (req, res) => {
-    logger.info(`DELETE /api/users/:id called with id: ${req.params.id}, user: ${req.user?.id}`);
+// 將用戶設為 DISABLED 狀態（管理員專用）
+router.put('/:id/disable', auth, adminOnly, async (req, res) => {
+    logger.info(`PUT /api/users/:id/disable called with id: ${req.params.id}, user: ${req.user?.id}`);
     try {
         const user = await User.findById(req.params.id);
         if (!user) {
             logger.warn(`User not found for ID: ${req.params.id}`);
             return res.status(404).json({ msg: '用戶不存在', detail: `ID ${req.params.id} 未找到` });
         }
-        if (user.role === 'admin' || user.role === 'guild') {
-            return res.status(403).json({ msg: `無法刪除角色為 ${user.role} 的帳號` });
+        if (user.roles.includes('admin') || user.roles.includes('guild')) {
+            return res.status(403).json({ msg: `無法禁用角色為 admin 或 guild 的帳號` });
         }
-        await user.deleteOne();
-        logger.info(`User deleted successfully: ${req.params.id}`);
-        res.json({ msg: '用戶刪除成功' });
+        user.status = 'disabled';
+        await user.save();
+        logger.info(`User disabled successfully: ${req.params.id}`);
+        res.json({ msg: '用戶已設為 DISABLED 狀態' });
     } catch (err) {
-        logger.error('Delete user error:', err.message);
-        res.status(500).json({ msg: '刪除用戶失敗', error: err.message });
+        logger.error('Disable user error:', err.message);
+        res.status(500).json({ msg: '設為 DISABLED 失敗', error: err.message });
     }
 });
 
-// 批量刪除用戶（管理員專用）
-router.delete('/batch-delete', auth, adminOnly, async (req, res) => {
+// 批量將用戶設為 DISABLED 狀態（管理員專用）
+router.put('/batch-disable', auth, adminOnly, async (req, res) => {
     const { ids } = req.body;
-    logger.info(`DELETE /api/users/batch-delete called with ids: ${ids}, user: ${req.user?.id}`);
+    logger.info(`PUT /api/users/batch-disable called with ids: ${ids}, user: ${req.user?.id}`);
     try {
         if (!Array.isArray(ids) || ids.length === 0) {
             return res.status(400).json({ msg: '請提供有效的用戶 ID 列表' });
         }
         const users = await User.find({ _id: { $in: ids } });
-        const protectedUsers = users.filter(user => user.role === 'admin' || user.role === 'guild');
+        const protectedUsers = users.filter(user => user.roles.includes('admin') || user.roles.includes('guild'));
         if (protectedUsers.length > 0) {
-            const protectedRoles = [...new Set(protectedUsers.map(user => user.role))].join(', ');
-            return res.status(403).json({ msg: `無法刪除角色為 ${protectedRoles} 的帳號` });
+            const protectedRoles = [...new Set(protectedUsers.map(user => user.roles).flat())].join(', ');
+            return res.status(403).json({ msg: `無法禁用角色為 ${protectedRoles} 的帳號` });
         }
-        await User.deleteMany({ _id: { $in: ids } });
-        logger.info(`Users batch deleted successfully: ${ids}`);
-        res.json({ msg: '批量刪除成功' });
+        await User.updateMany({ _id: { $in: ids } }, { $set: { status: 'disabled' } });
+        logger.info(`Users batch disabled successfully: ${ids}`);
+        res.json({ msg: '批量設為 DISABLED 成功' });
     } catch (err) {
-        logger.error('Batch delete error:', err.message);
-        res.status(500).json({ msg: '批量刪除失敗', error: err.message });
+        logger.error('Batch disable error:', err.message);
+        res.status(500).json({ msg: '批量設為 DISABLED 失敗', error: err.message });
     }
 });
 
 // 更新用戶（管理員專用）
 router.put('/:id', auth, adminOnly, upload.single('screenshot'), async (req, res) => {
-    const { world_name, character_name, discord_id, raid_level, diamonds, status, role, password, guildId, mustChangePassword, profession } = req.body;
+    let { world_name, character_name, discord_id, raid_level, diamonds, status, roles, password, guildId, mustChangePassword, profession } = req.body;
+
     try {
         const user = await User.findById(req.params.id);
         if (!user) {
             logger.warn(`User not found for ID: ${req.params.id}`);
             return res.status(404).json({ msg: '用戶不存在', detail: `ID ${req.params.id} 未找到` });
         }
+
         if (character_name && character_name !== user.character_name) {
             const existingUser = await User.findOne({ character_name });
             if (existingUser) return res.status(400).json({ msg: '角色名稱已存在' });
         }
+
+        // 處理 roles 字段
+        if (roles) {
+            try {
+                roles = JSON.parse(roles);
+                if (!Array.isArray(roles)) {
+                    return res.status(400).json({
+                        code: 400,
+                        msg: '角色格式錯誤',
+                        detail: 'roles 必須是一個陣列',
+                    });
+                }
+
+                for (const roleId of roles) {
+                    const roleExists = await Role.findById(roleId);
+                    if (!roleExists) {
+                        return res.status(400).json({
+                            code: 400,
+                            msg: '無效的角色',
+                            detail: `無法找到 ID 為 ${roleId} 的角色`,
+                        });
+                    }
+                }
+            } catch (err) {
+                return res.status(400).json({
+                    code: 400,
+                    msg: '角色格式錯誤',
+                    detail: '無法解析 roles 字段',
+                });
+            }
+        }
+
         user.world_name = world_name || user.world_name;
         user.character_name = character_name || user.character_name;
         user.discord_id = discord_id || user.discord_id;
@@ -263,9 +374,9 @@ router.put('/:id', auth, adminOnly, upload.single('screenshot'), async (req, res
         user.diamonds = diamonds !== undefined ? parseInt(diamonds) : user.diamonds;
         user.status = status || user.status;
         user.screenshot = req.file ? req.file.path : user.screenshot;
-        user.role = role || user.role;
+        user.roles = roles || user.roles;
         user.guildId = guildId || user.guildId;
-        user.profession = profession !== undefined ? profession : user.profession; // 新增 profession 字段
+        user.profession = profession !== undefined ? profession : user.profession;
         if (password) {
             const salt = await bcrypt.genSalt(10);
             user.password = await bcrypt.hash(password, salt);
@@ -287,15 +398,19 @@ router.get('/me', auth, async (req, res) => {
             return res.status(401).json({ msg: '無效的用戶身份' });
         }
         const user = await User.findById(req.user.id)
-            .populate('profession', 'name icon') // 填充 profession 字段
-            .select('character_name world_name discord_id raid_level diamonds status screenshot role _id guildId mustChangePassword profession');
+            .populate('profession', 'name icon')
+            .populate('roles', 'name')
+            .select('character_name world_name discord_id raid_level diamonds status screenshot roles _id guildId mustChangePassword profession');
         if (!user) {
             return res.status(404).json({ msg: '用戶不存在' });
+        }
+        if (user.status === 'disabled') {
+            return res.status(403).json({ msg: '帳號已被禁用，請聯繫管理員' });
         }
         res.json({
             id: user._id.toString(),
             character_name: user.character_name,
-            role: user.role,
+            roles: user.roles.map(role => role.name),
             world_name: user.world_name,
             discord_id: user.discord_id,
             raid_level: user.raid_level,
@@ -304,7 +419,7 @@ router.get('/me', auth, async (req, res) => {
             screenshot: user.screenshot ? `${req.protocol}://${req.get('host')}/${user.screenshot.replace('./', '')}` : null,
             guildId: user.guildId,
             mustChangePassword: user.mustChangePassword,
-            profession: user.profession, // 包含填充後的 profession 數據
+            profession: user.profession,
         });
     } catch (err) {
         logger.error('Error fetching user:', err.message);
@@ -315,7 +430,7 @@ router.get('/me', auth, async (req, res) => {
 // 獲取用戶增長趨勢（管理員專用）
 router.get('/growth', auth, async (req, res) => {
     try {
-        if (req.user.role !== 'admin') {
+        if (!req.user.roles.includes('admin')) {
             return res.status(403).json({ code: 403, msg: '無權限訪問' });
         }
         const { range = 30 } = req.query;
@@ -325,6 +440,7 @@ router.get('/growth', auth, async (req, res) => {
             {
                 $match: {
                     createdAt: { $gte: startDate, $lte: now },
+                    status: { $in: ['active', 'pending'] }, // 排除 disabled 狀態
                 },
             },
             {
@@ -346,7 +462,7 @@ router.get('/growth', auth, async (req, res) => {
 
 // 創建新成員（管理員專用）
 router.post('/create-member', auth, adminOnly, upload.none(), async (req, res) => {
-    const { character_name, password, guildId, useGuildPassword, world_name, profession } = req.body;
+    let { character_name, password, guildId, useGuildPassword, world_name, profession, roles } = req.body;
 
     try {
         if (!character_name || !guildId) {
@@ -402,17 +518,57 @@ router.post('/create-member', auth, adminOnly, upload.none(), async (req, res) =
             });
         }
 
+        if (roles) {
+            try {
+                roles = JSON.parse(roles);
+                if (!Array.isArray(roles)) {
+                    return res.status(400).json({
+                        code: 400,
+                        msg: '角色格式錯誤',
+                        detail: 'roles 必須是一個陣列',
+                    });
+                }
+
+                for (const roleId of roles) {
+                    const roleExists = await Role.findById(roleId);
+                    if (!roleExists) {
+                        return res.status(400).json({
+                            code: 400,
+                            msg: '無效的角色',
+                            detail: `無法找到 ID 為 ${roleId} 的角色`,
+                        });
+                    }
+                }
+            } catch (err) {
+                return res.status(400).json({
+                    code: 400,
+                    msg: '角色格式錯誤',
+                    detail: '無法解析 roles 字段',
+                });
+            }
+        } else {
+            const userRole = await Role.findOne({ name: 'user' });
+            if (!userRole) {
+                return res.status(500).json({
+                    code: 500,
+                    msg: '伺服器錯誤',
+                    detail: '無法找到 user 角色',
+                });
+            }
+            roles = [userRole._id];
+        }
+
         logger.info('Final password:', finalPassword);
 
         const user = new User({
             world_name,
             character_name,
             password: finalPassword,
-            role: 'user',
+            roles,
             guildId,
             mustChangePassword: true,
             status: 'pending',
-            profession: profession || null, // 新增 profession 字段
+            profession: profession || null,
         });
 
         await user.save();
@@ -425,6 +581,7 @@ router.post('/create-member', auth, adminOnly, upload.none(), async (req, res) =
                 guildId: user.guildId,
                 mustChangePassword: user.mustChangePassword,
                 profession: user.profession,
+                roles: user.roles,
             },
         });
     } catch (err) {
@@ -460,7 +617,6 @@ router.post('/change-password', auth, async (req, res) => {
             });
         }
 
-        // 根據 mustChangePassword 決定是否需要 currentPassword
         if (!user.mustChangePassword) {
             if (!currentPassword) {
                 return res.status(400).json({
@@ -497,5 +653,339 @@ router.post('/change-password', auth, async (req, res) => {
         });
     }
 });
+
+router.get('/:character_name/records', auth, async (req, res) => {
+    try {
+        // 解碼 URL 參數中的 character_name
+        const character_name = decodeURIComponent(req.params.character_name);
+        logger.info(`Fetching records for user: ${character_name}`);
+
+        const user = await User.findOne({ character_name });
+        if (!user) {
+            logger.warn(`User not found: ${character_name}`);
+            return res.status(404).json({ msg: '用戶不存在' });
+        }
+
+        // 權限檢查：管理員或用戶本人可以查詢
+        const currentUserRoles = req.user.roles || [];
+        if (!currentUserRoles.includes('admin') && req.user.character_name !== character_name) {
+            logger.warn(`Unauthorized access attempt by user ${req.user.character_name} to records of ${character_name}`);
+            return res.status(403).json({ msg: '無權查詢其他用戶的記錄' });
+        }
+
+        // 獲取分頁參數和物品過濾參數
+        const { tab = '1', page = 1, pageSize = 10, itemName } = req.query;
+        const skip = (parseInt(page) - 1) * parseInt(pageSize);
+        const limit = parseInt(pageSize);
+
+        let killRecords = [];
+        let acquiredItems = [];
+        let biddingHistory = [];
+        const pagination = {
+            killRecords: { current: parseInt(page), pageSize: limit, total: 0 },
+            acquiredItems: { current: parseInt(page), pageSize: limit, total: 0 },
+            biddingHistory: { current: parseInt(page), pageSize: limit, total: 0 },
+        };
+
+        // 構建查詢條件
+        const query = { attendees: character_name };
+        if (itemName) {
+            query['dropped_items.name'] = itemName; // 過濾特定物品
+        }
+
+        if (tab === '1' || tab === 'all') {
+            // 查詢擊殺記錄
+            const totalKillRecords = await BossKill.countDocuments(query);
+            killRecords = await BossKill.find(query)
+                .populate('bossId', 'name')
+                .populate('dropped_items.level')
+                .skip(skip)
+                .limit(limit)
+                .lean();
+
+            pagination.killRecords.total = totalKillRecords;
+        }
+
+        if (tab === '2' || tab === 'all') {
+            // 查詢獲得的物品（從擊殺記錄中提取）
+            let allKillRecords = await BossKill.find(query)
+                .populate('bossId', 'name')
+                .populate('dropped_items.level')
+                .lean();
+
+            acquiredItems = [];
+            allKillRecords.forEach(record => {
+                record.dropped_items.forEach(item => {
+                    if (item.final_recipient) {
+                        acquiredItems.push({
+                            itemName: item.name,
+                            acquiredAt: record.kill_time,
+                            bossName: record.bossId?.name || '未知首領',
+                            recipient: item.final_recipient, // 添加獲得者信息
+                        });
+                    }
+                });
+            });
+
+            // 分頁處理
+            pagination.acquiredItems.total = acquiredItems.length;
+            acquiredItems = acquiredItems.slice(skip, skip + limit);
+        }
+
+        if (tab === '3' || tab === 'all') {
+            // 查詢競標記錄
+            const totalAuctions = await Auction.countDocuments({
+                $or: [
+                    { highestBidder: user._id },
+                    { highestBidder: { $exists: false } },
+                ],
+                ...(itemName ? { itemName } : {}), // 過濾特定物品
+            });
+
+            const auctionRecords = await Auction.find({
+                $or: [
+                    { highestBidder: user._id },
+                    { highestBidder: { $exists: false } },
+                ],
+                ...(itemName ? { itemName } : {}),
+            })
+                .skip(skip)
+                .limit(limit)
+                .populate('itemId', 'name')
+                .lean();
+
+            // 從 Bid 集合中查詢用戶的出價記錄
+            biddingHistory = await Promise.all(auctionRecords.map(async auction => {
+                const bids = await Bid.find({ auctionId: auction._id, userId: user._id }).lean();
+                return {
+                    itemName: auction.itemId?.name || '未知物品',
+                    highestBid: auction.currentPrice || 0,
+                    userBids: bids.map(bid => ({
+                        amount: bid.amount,
+                        time: bid.timestamp,
+                    })),
+                    status: auction.status || 'unknown',
+                    won: auction.highestBidder?.toString() === user._id.toString(),
+                    endTime: auction.endTime,
+                };
+            }));
+
+            pagination.biddingHistory.total = totalAuctions;
+        }
+
+        res.json({
+            killRecords,
+            acquiredItems,
+            biddingHistory,
+            pagination,
+        });
+    } catch (err) {
+        logger.error('Error fetching user records:', err.message);
+        res.status(500).json({ msg: '伺服器錯誤', error: err.message });
+    }
+});
+
+// 新路由：查詢某個物品的獲得者記錄
+router.get('/:character_name/item-recipients', auth, async (req, res) => {
+    try {
+        const character_name = decodeURIComponent(req.params.character_name);
+        const { itemName, page = 1, pageSize = 10 } = req.query;
+
+        if (!itemName) {
+            return res.status(400).json({ msg: '請提供物品名稱' });
+        }
+
+        logger.info(`Fetching item recipients for item: ${itemName}`);
+
+        const user = await User.findOne({ character_name });
+        if (!user) {
+            logger.warn(`User not found: ${character_name}`);
+            return res.status(404).json({ msg: '用戶不存在' });
+        }
+
+        // 權限檢查：管理員或用戶本人可以查詢
+        const currentUserRoles = req.user.roles || [];
+        if (!currentUserRoles.includes('admin') && req.user.character_name !== character_name) {
+            logger.warn(`Unauthorized access attempt by user ${req.user.character_name} to records of ${character_name}`);
+            return res.status(403).json({ msg: '無權查詢其他用戶的記錄' });
+        }
+
+        const skip = (parseInt(page) - 1) * parseInt(pageSize);
+        const limit = parseInt(pageSize);
+
+        // 查詢包含該物品的擊殺記錄，並確保 final_recipient 不為 null
+        const query = {
+            'dropped_items.name': itemName,
+            'dropped_items.final_recipient': { $ne: null },
+        };
+
+        const totalRecipients = await BossKill.countDocuments(query);
+        const killRecords = await BossKill.find(query)
+            .populate('bossId', 'name')
+            .populate('dropped_items.level')
+            .skip(skip)
+            .limit(limit)
+            .lean();
+
+        const itemRecipients = [];
+        killRecords.forEach(record => {
+            record.dropped_items.forEach(item => {
+                if (item.name === itemName && item.final_recipient) {
+                    itemRecipients.push({
+                        itemName: item.name,
+                        acquiredAt: record.kill_time,
+                        bossName: record.bossId?.name || '未知首領',
+                        recipient: item.final_recipient,
+                    });
+                }
+            });
+        });
+
+        res.json({
+            itemRecipients,
+            pagination: {
+                current: parseInt(page),
+                pageSize: limit,
+                total: totalRecipients,
+            },
+        });
+    } catch (err) {
+        logger.error('Error fetching item recipients:', err.message);
+        res.status(500).json({ msg: '伺服器錯誤', error: err.message });
+    }
+});
+
+router.get('/:character_name/records', auth, async (req, res) => {
+    try {
+        // 解碼 URL 參數中的 character_name
+        const character_name = decodeURIComponent(req.params.character_name);
+        logger.info(`Fetching records for user: ${character_name}`);
+
+        const user = await User.findOne({ character_name });
+        if (!user) {
+            logger.warn(`User not found: ${character_name}`);
+            return res.status(404).json({ msg: '用戶不存在' });
+        }
+
+        // 權限檢查：管理員或用戶本人可以查詢
+        const currentUserRoles = req.user.roles || [];
+        if (!currentUserRoles.includes('admin') && req.user.character_name !== character_name) {
+            logger.warn(`Unauthorized access attempt by user ${req.user.character_name} to records of ${character_name}`);
+            return res.status(403).json({ msg: '無權查詢其他用戶的記錄' });
+        }
+
+        // 獲取分頁參數和物品過濾參數
+        const { tab = '1', page = 1, pageSize = 10, itemName } = req.query;
+        const skip = (parseInt(page) - 1) * parseInt(pageSize);
+        const limit = parseInt(pageSize);
+
+        let killRecords = [];
+        let acquiredItems = [];
+        let biddingHistory = [];
+        const pagination = {
+            killRecords: { current: parseInt(page), pageSize: limit, total: 0 },
+            acquiredItems: { current: parseInt(page), pageSize: limit, total: 0 },
+            biddingHistory: { current: parseInt(page), pageSize: limit, total: 0 },
+        };
+
+        // 構建查詢條件
+        const query = { attendees: character_name };
+        if (itemName) {
+            query['dropped_items.name'] = itemName; // 過濾特定物品
+        }
+
+        if (tab === '1' || tab === 'all') {
+            // 查詢擊殺記錄
+            const totalKillRecords = await BossKill.countDocuments(query);
+            killRecords = await BossKill.find(query)
+                .populate('bossId', 'name')
+                .populate('dropped_items.level')
+                .skip(skip)
+                .limit(limit)
+                .lean();
+
+            pagination.killRecords.total = totalKillRecords;
+        }
+
+        if (tab === '2' || tab === 'all') {
+            // 查詢獲得的物品（從擊殺記錄中提取）
+            let allKillRecords = await BossKill.find(query)
+                .populate('bossId', 'name')
+                .populate('dropped_items.level')
+                .lean();
+
+            acquiredItems = [];
+            allKillRecords.forEach(record => {
+                record.dropped_items.forEach(item => {
+                    if (item.final_recipient) {
+                        acquiredItems.push({
+                            itemName: item.name,
+                            acquiredAt: record.kill_time,
+                            bossName: record.bossId?.name || '未知首領',
+                            recipient: item.final_recipient, // 添加獲得者信息
+                        });
+                    }
+                });
+            });
+
+            // 分頁處理
+            pagination.acquiredItems.total = acquiredItems.length;
+            acquiredItems = acquiredItems.slice(skip, skip + limit);
+        }
+
+        if (tab === '3' || tab === 'all') {
+            // 查詢競標記錄
+            const totalAuctions = await Auction.countDocuments({
+                $or: [
+                    { highestBidder: user._id },
+                    { highestBidder: { $exists: false } },
+                ],
+                ...(itemName ? { itemName } : {}), // 過濾特定物品
+            });
+
+            const auctionRecords = await Auction.find({
+                $or: [
+                    { highestBidder: user._id },
+                    { highestBidder: { $exists: false } },
+                ],
+                ...(itemName ? { itemName } : {}),
+            })
+                .skip(skip)
+                .limit(limit)
+                .populate('itemId', 'name')
+                .lean();
+
+            // 從 Bid 集合中查詢用戶的出價記錄
+            biddingHistory = await Promise.all(auctionRecords.map(async auction => {
+                const bids = await Bid.find({ auctionId: auction._id, userId: user._id }).lean();
+                return {
+                    itemName: auction.itemId?.name || '未知物品',
+                    highestBid: auction.currentPrice || 0,
+                    userBids: bids.map(bid => ({
+                        amount: bid.amount,
+                        time: bid.timestamp,
+                    })),
+                    status: auction.status || 'unknown',
+                    won: auction.highestBidder?.toString() === user._id.toString(),
+                    endTime: auction.endTime,
+                };
+            }));
+
+            pagination.biddingHistory.total = totalAuctions;
+        }
+
+        res.json({
+            killRecords,
+            acquiredItems,
+            biddingHistory,
+            pagination,
+        });
+    } catch (err) {
+        logger.error('Error fetching user records:', err.message);
+        res.status(500).json({ msg: '伺服器錯誤', error: err.message });
+    }
+});
+
+
 
 module.exports = router;

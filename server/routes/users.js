@@ -5,6 +5,7 @@ const Guild = require('../models/Guild');
 const Role = require('../models/Role');
 const BossKill = require('../models/BossKill');
 const Auction = require('../models/Auction');
+const Bid = require('../models/Bid');
 const Profession = require('../models/Profession');
 const multer = require('multer');
 const bcrypt = require('bcryptjs');
@@ -51,7 +52,7 @@ router.get('/stats', auth, async (req, res) => {
             return res.status(403).json({ code: 403, msg: '無權限訪問' });
         }
         const totalUsers = await User.countDocuments();
-        const activeUsers = await User.countDocuments({ status: { $in: ['active', 'pending'] } }); // 排除 disabled 狀態
+        const activeUsers = await User.countDocuments({ status: { $in: ['active', 'pending'] } });
         res.json({ totalUsers, activeUsers });
     } catch (err) {
         logger.error('Error fetching user stats:', err.message);
@@ -104,7 +105,6 @@ router.post('/register', upload.single('screenshot'), async (req, res) => {
     let { world_name, character_name, discord_id, raid_level, password, guildId, profession, roles } = req.body;
 
     try {
-        // 驗證必填字段
         if (!world_name || !character_name || !password || !profession) {
             return res.status(400).json({
                 code: 400,
@@ -122,7 +122,6 @@ router.post('/register', upload.single('screenshot'), async (req, res) => {
             });
         }
 
-        // 驗證 profession 是否存在
         const professionExists = await Profession.findById(profession);
         if (!professionExists) {
             return res.status(400).json({
@@ -131,7 +130,6 @@ router.post('/register', upload.single('screenshot'), async (req, res) => {
             });
         }
 
-        // 處理 roles 字段
         if (roles) {
             try {
                 roles = JSON.parse(roles);
@@ -216,10 +214,14 @@ router.post('/register', upload.single('screenshot'), async (req, res) => {
     }
 });
 
-// 獲取所有用戶列表（管理員專用）
-router.get('/', auth, adminOnly, async (req, res) => {
+// 獲取所有用戶列表（允許同旅團成員訪問）
+router.get('/', auth, async (req, res) => {
     try {
-        const users = await User.find()
+        const currentUser = req.user;
+        const currentUserData = await User.findById(currentUser.id).populate('guildId');
+        const query = currentUser.roles.includes('admin') ? {} : { guildId: currentUserData.guildId };
+
+        const users = await User.find(query)
             .populate('guildId', 'name')
             .populate('profession', 'name icon')
             .populate('roles', 'name')
@@ -336,7 +338,6 @@ router.put('/:id', auth, adminOnly, upload.single('screenshot'), async (req, res
             if (existingUser) return res.status(400).json({ msg: '角色名稱已存在' });
         }
 
-        // 處理 roles 字段
         if (roles) {
             try {
                 roles = JSON.parse(roles);
@@ -440,7 +441,7 @@ router.get('/growth', auth, async (req, res) => {
             {
                 $match: {
                     createdAt: { $gte: startDate, $lte: now },
-                    status: { $in: ['active', 'pending'] }, // 排除 disabled 狀態
+                    status: { $in: ['active', 'pending'] },
                 },
             },
             {
@@ -656,7 +657,6 @@ router.post('/change-password', auth, async (req, res) => {
 
 router.get('/:character_name/records', auth, async (req, res) => {
     try {
-        // 解碼 URL 參數中的 character_name
         const character_name = decodeURIComponent(req.params.character_name);
         logger.info(`Fetching records for user: ${character_name}`);
 
@@ -666,35 +666,47 @@ router.get('/:character_name/records', auth, async (req, res) => {
             return res.status(404).json({ msg: '用戶不存在' });
         }
 
-        // 權限檢查：管理員或用戶本人可以查詢
         const currentUserRoles = req.user.roles || [];
         if (!currentUserRoles.includes('admin') && req.user.character_name !== character_name) {
             logger.warn(`Unauthorized access attempt by user ${req.user.character_name} to records of ${character_name}`);
             return res.status(403).json({ msg: '無權查詢其他用戶的記錄' });
         }
 
-        // 獲取分頁參數和物品過濾參數
-        const { tab = '1', page = 1, pageSize = 10, itemName } = req.query;
+        const { tab = '1', page = 1, pageSize = 10, itemName, guildMember, startTime, endTime } = req.query;
         const skip = (parseInt(page) - 1) * parseInt(pageSize);
         const limit = parseInt(pageSize);
 
         let killRecords = [];
         let acquiredItems = [];
         let biddingHistory = [];
+        let wonAuctions = [];
         const pagination = {
             killRecords: { current: parseInt(page), pageSize: limit, total: 0 },
             acquiredItems: { current: parseInt(page), pageSize: limit, total: 0 },
             biddingHistory: { current: parseInt(page), pageSize: limit, total: 0 },
+            wonAuctions: { current: parseInt(page), pageSize: limit, total: 0 },
         };
 
-        // 構建查詢條件
-        const query = { attendees: character_name };
+        const targetCharacter = guildMember || character_name;
+
+        const targetUser = await User.findOne({ character_name: targetCharacter });
+        if (!targetUser) {
+            logger.warn(`Target user not found: ${targetCharacter}`);
+            return res.status(404).json({ msg: `目標用戶 ${targetCharacter} 不存在` });
+        }
+
+        const query = { attendees: targetCharacter };
         if (itemName) {
-            query['dropped_items.name'] = itemName; // 過濾特定物品
+            query['dropped_items.name'] = itemName;
+        }
+        if (startTime) {
+            query.kill_time = { $gte: new Date(startTime) };
+        }
+        if (endTime) {
+            query.kill_time = { ...query.kill_time, $lte: new Date(endTime) };
         }
 
         if (tab === '1' || tab === 'all') {
-            // 查詢擊殺記錄
             const totalKillRecords = await BossKill.countDocuments(query);
             killRecords = await BossKill.find(query)
                 .populate('bossId', 'name')
@@ -707,7 +719,6 @@ router.get('/:character_name/records', auth, async (req, res) => {
         }
 
         if (tab === '2' || tab === 'all') {
-            // 查詢獲得的物品（從擊殺記錄中提取）
             let allKillRecords = await BossKill.find(query)
                 .populate('bossId', 'name')
                 .populate('dropped_items.level')
@@ -716,47 +727,46 @@ router.get('/:character_name/records', auth, async (req, res) => {
             acquiredItems = [];
             allKillRecords.forEach(record => {
                 record.dropped_items.forEach(item => {
-                    if (item.final_recipient) {
+                    if (item.final_recipient === targetCharacter) {
                         acquiredItems.push({
                             itemName: item.name,
                             acquiredAt: record.kill_time,
                             bossName: record.bossId?.name || '未知首領',
-                            recipient: item.final_recipient, // 添加獲得者信息
+                            recipient: item.final_recipient,
                         });
                     }
                 });
             });
 
-            // 分頁處理
             pagination.acquiredItems.total = acquiredItems.length;
             acquiredItems = acquiredItems.slice(skip, skip + limit);
         }
 
         if (tab === '3' || tab === 'all') {
-            // 查詢競標記錄
-            const totalAuctions = await Auction.countDocuments({
+            const auctionQuery = {
                 $or: [
-                    { highestBidder: user._id },
-                    { highestBidder: { $exists: false } },
-                ],
-                ...(itemName ? { itemName } : {}), // 過濾特定物品
-            });
-
-            const auctionRecords = await Auction.find({
-                $or: [
-                    { highestBidder: user._id },
+                    { highestBidder: targetUser._id },
                     { highestBidder: { $exists: false } },
                 ],
                 ...(itemName ? { itemName } : {}),
-            })
+            };
+            if (startTime) {
+                auctionQuery.updatedAt = { $gte: new Date(startTime) };
+            }
+            if (endTime) {
+                auctionQuery.updatedAt = { ...auctionQuery.updatedAt, $lte: new Date(endTime) };
+            }
+
+            const totalAuctions = await Auction.countDocuments(auctionQuery);
+
+            const auctionRecords = await Auction.find(auctionQuery)
                 .skip(skip)
                 .limit(limit)
                 .populate('itemId', 'name')
                 .lean();
 
-            // 從 Bid 集合中查詢用戶的出價記錄
             biddingHistory = await Promise.all(auctionRecords.map(async auction => {
-                const bids = await Bid.find({ auctionId: auction._id, userId: user._id }).lean();
+                const bids = await Bid.find({ auctionId: auction._id, userId: targetUser._id }).lean();
                 return {
                     itemName: auction.itemId?.name || '未知物品',
                     highestBid: auction.currentPrice || 0,
@@ -765,7 +775,7 @@ router.get('/:character_name/records', auth, async (req, res) => {
                         time: bid.timestamp,
                     })),
                     status: auction.status || 'unknown',
-                    won: auction.highestBidder?.toString() === user._id.toString(),
+                    won: auction.highestBidder?.toString() === targetUser._id.toString(),
                     endTime: auction.endTime,
                 };
             }));
@@ -773,10 +783,41 @@ router.get('/:character_name/records', auth, async (req, res) => {
             pagination.biddingHistory.total = totalAuctions;
         }
 
+        if (tab === '4' || tab === 'all') {
+            const auctionQuery = {
+                highestBidder: targetUser._id,
+                status: 'settled',
+            };
+            if (itemName) {
+                auctionQuery.itemName = itemName;
+            }
+            if (startTime) {
+                auctionQuery.updatedAt = { $gte: new Date(startTime) };
+            }
+            if (endTime) {
+                auctionQuery.updatedAt = { ...auctionQuery.updatedAt, $lte: new Date(endTime) };
+            }
+
+            const totalWonAuctions = await Auction.countDocuments(auctionQuery);
+            wonAuctions = await Auction.find(auctionQuery)
+                .populate('itemId', 'name')
+                .skip(skip)
+                .limit(limit)
+                .lean()
+                .then(auctions => auctions.map(auction => ({
+                    itemName: auction.itemId?.name || '未知物品',
+                    wonAt: auction.updatedAt,
+                    finalPrice: auction.currentPrice,
+                })));
+
+            pagination.wonAuctions.total = totalWonAuctions;
+        }
+
         res.json({
             killRecords,
             acquiredItems,
             biddingHistory,
+            wonAuctions,
             pagination,
         });
     } catch (err) {
@@ -789,7 +830,7 @@ router.get('/:character_name/records', auth, async (req, res) => {
 router.get('/:character_name/item-recipients', auth, async (req, res) => {
     try {
         const character_name = decodeURIComponent(req.params.character_name);
-        const { itemName, page = 1, pageSize = 10 } = req.query;
+        const { itemName, page = 1, pageSize = 10, startTime, endTime } = req.query;
 
         if (!itemName) {
             return res.status(400).json({ msg: '請提供物品名稱' });
@@ -803,7 +844,6 @@ router.get('/:character_name/item-recipients', auth, async (req, res) => {
             return res.status(404).json({ msg: '用戶不存在' });
         }
 
-        // 權限檢查：管理員或用戶本人可以查詢
         const currentUserRoles = req.user.roles || [];
         if (!currentUserRoles.includes('admin') && req.user.character_name !== character_name) {
             logger.warn(`Unauthorized access attempt by user ${req.user.character_name} to records of ${character_name}`);
@@ -813,11 +853,16 @@ router.get('/:character_name/item-recipients', auth, async (req, res) => {
         const skip = (parseInt(page) - 1) * parseInt(pageSize);
         const limit = parseInt(pageSize);
 
-        // 查詢包含該物品的擊殺記錄，並確保 final_recipient 不為 null
         const query = {
             'dropped_items.name': itemName,
             'dropped_items.final_recipient': { $ne: null },
         };
+        if (startTime) {
+            query.kill_time = { $gte: new Date(startTime) };
+        }
+        if (endTime) {
+            query.kill_time = { ...query.kill_time, $lte: new Date(endTime) };
+        }
 
         const totalRecipients = await BossKill.countDocuments(query);
         const killRecords = await BossKill.find(query)
@@ -854,138 +899,5 @@ router.get('/:character_name/item-recipients', auth, async (req, res) => {
         res.status(500).json({ msg: '伺服器錯誤', error: err.message });
     }
 });
-
-router.get('/:character_name/records', auth, async (req, res) => {
-    try {
-        // 解碼 URL 參數中的 character_name
-        const character_name = decodeURIComponent(req.params.character_name);
-        logger.info(`Fetching records for user: ${character_name}`);
-
-        const user = await User.findOne({ character_name });
-        if (!user) {
-            logger.warn(`User not found: ${character_name}`);
-            return res.status(404).json({ msg: '用戶不存在' });
-        }
-
-        // 權限檢查：管理員或用戶本人可以查詢
-        const currentUserRoles = req.user.roles || [];
-        if (!currentUserRoles.includes('admin') && req.user.character_name !== character_name) {
-            logger.warn(`Unauthorized access attempt by user ${req.user.character_name} to records of ${character_name}`);
-            return res.status(403).json({ msg: '無權查詢其他用戶的記錄' });
-        }
-
-        // 獲取分頁參數和物品過濾參數
-        const { tab = '1', page = 1, pageSize = 10, itemName } = req.query;
-        const skip = (parseInt(page) - 1) * parseInt(pageSize);
-        const limit = parseInt(pageSize);
-
-        let killRecords = [];
-        let acquiredItems = [];
-        let biddingHistory = [];
-        const pagination = {
-            killRecords: { current: parseInt(page), pageSize: limit, total: 0 },
-            acquiredItems: { current: parseInt(page), pageSize: limit, total: 0 },
-            biddingHistory: { current: parseInt(page), pageSize: limit, total: 0 },
-        };
-
-        // 構建查詢條件
-        const query = { attendees: character_name };
-        if (itemName) {
-            query['dropped_items.name'] = itemName; // 過濾特定物品
-        }
-
-        if (tab === '1' || tab === 'all') {
-            // 查詢擊殺記錄
-            const totalKillRecords = await BossKill.countDocuments(query);
-            killRecords = await BossKill.find(query)
-                .populate('bossId', 'name')
-                .populate('dropped_items.level')
-                .skip(skip)
-                .limit(limit)
-                .lean();
-
-            pagination.killRecords.total = totalKillRecords;
-        }
-
-        if (tab === '2' || tab === 'all') {
-            // 查詢獲得的物品（從擊殺記錄中提取）
-            let allKillRecords = await BossKill.find(query)
-                .populate('bossId', 'name')
-                .populate('dropped_items.level')
-                .lean();
-
-            acquiredItems = [];
-            allKillRecords.forEach(record => {
-                record.dropped_items.forEach(item => {
-                    if (item.final_recipient) {
-                        acquiredItems.push({
-                            itemName: item.name,
-                            acquiredAt: record.kill_time,
-                            bossName: record.bossId?.name || '未知首領',
-                            recipient: item.final_recipient, // 添加獲得者信息
-                        });
-                    }
-                });
-            });
-
-            // 分頁處理
-            pagination.acquiredItems.total = acquiredItems.length;
-            acquiredItems = acquiredItems.slice(skip, skip + limit);
-        }
-
-        if (tab === '3' || tab === 'all') {
-            // 查詢競標記錄
-            const totalAuctions = await Auction.countDocuments({
-                $or: [
-                    { highestBidder: user._id },
-                    { highestBidder: { $exists: false } },
-                ],
-                ...(itemName ? { itemName } : {}), // 過濾特定物品
-            });
-
-            const auctionRecords = await Auction.find({
-                $or: [
-                    { highestBidder: user._id },
-                    { highestBidder: { $exists: false } },
-                ],
-                ...(itemName ? { itemName } : {}),
-            })
-                .skip(skip)
-                .limit(limit)
-                .populate('itemId', 'name')
-                .lean();
-
-            // 從 Bid 集合中查詢用戶的出價記錄
-            biddingHistory = await Promise.all(auctionRecords.map(async auction => {
-                const bids = await Bid.find({ auctionId: auction._id, userId: user._id }).lean();
-                return {
-                    itemName: auction.itemId?.name || '未知物品',
-                    highestBid: auction.currentPrice || 0,
-                    userBids: bids.map(bid => ({
-                        amount: bid.amount,
-                        time: bid.timestamp,
-                    })),
-                    status: auction.status || 'unknown',
-                    won: auction.highestBidder?.toString() === user._id.toString(),
-                    endTime: auction.endTime,
-                };
-            }));
-
-            pagination.biddingHistory.total = totalAuctions;
-        }
-
-        res.json({
-            killRecords,
-            acquiredItems,
-            biddingHistory,
-            pagination,
-        });
-    } catch (err) {
-        logger.error('Error fetching user records:', err.message);
-        res.status(500).json({ msg: '伺服器錯誤', error: err.message });
-    }
-});
-
-
 
 module.exports = router;

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Table, Card, Input, Spin, message, Tabs, Typography, Tag, Space, Button, Pagination, Modal, Descriptions, Image, Select, Alert } from 'antd';
+import { Table, Card, Spin, message, Tabs, Typography, Tag, Space, Button, Pagination, Modal, Descriptions, Image, Select, Alert, DatePicker } from 'antd';
 import { EyeOutlined, SearchOutlined } from '@ant-design/icons';
 import axios from 'axios';
 import moment from 'moment';
@@ -8,26 +8,31 @@ import { useNavigate } from 'react-router-dom';
 const { TabPane } = Tabs;
 const { Title, Text } = Typography;
 const { Option } = Select;
-const { Search } = Input;
+const { RangePicker } = DatePicker;
 const BASE_URL = process.env.REACT_APP_API_URL || '';
 
 const UserRecords = () => {
     const navigate = useNavigate();
-    const [characterName, setCharacterName] = useState('');
+    const [selectedGuildMember, setSelectedGuildMember] = useState(null);
     const [selectedItem, setSelectedItem] = useState(null);
+    const [activeTab, setActiveTab] = useState('1');
+    const [timeRange, setTimeRange] = useState([]);
     const [items, setItems] = useState([]);
-    const [searchRecipient, setSearchRecipient] = useState(''); // 用於搜索獲得者記錄
+    const [guildMembers, setGuildMembers] = useState([]);
+    const [searchRecipient, setSearchRecipient] = useState('');
     const [records, setRecords] = useState({
         killRecords: [],
         acquiredItems: [],
         biddingHistory: [],
         itemRecipients: [],
+        wonAuctions: [],
     });
     const [pagination, setPagination] = useState({
         killRecords: { current: 1, pageSize: 10, total: 0 },
         acquiredItems: { current: 1, pageSize: 10, total: 0 },
         biddingHistory: { current: 1, pageSize: 10, total: 0 },
         itemRecipients: { current: 1, pageSize: 10, total: 0 },
+        wonAuctions: { current: 1, pageSize: 10, total: 0 },
     });
     const [loading, setLoading] = useState(false);
     const [currentUser, setCurrentUser] = useState(null);
@@ -63,7 +68,8 @@ const UserRecords = () => {
             return;
         }
         fetchCurrentUser();
-        fetchItems(); // 獲取所有物品
+        fetchItems();
+        fetchGuildMembers();
     }, [token, navigate]);
 
     const fetchCurrentUser = async () => {
@@ -72,9 +78,28 @@ const UserRecords = () => {
                 headers: { 'x-auth-token': token },
             });
             setCurrentUser(res.data);
+            setSelectedGuildMember(res.data.character_name); // 自動選擇當前用戶
         } catch (err) {
+            console.error('Error fetching current user:', err.response?.data || err.message);
             message.error('無法載入用戶信息，請重新登入');
             navigate('/login');
+        }
+    };
+
+    const fetchGuildMembers = async () => {
+        try {
+            const res = await axios.get(`${BASE_URL}/api/users`, {
+                headers: { 'x-auth-token': token },
+            });
+            const members = res.data.map(user => user.character_name);
+            console.log('Fetched guild members:', members);
+            setGuildMembers(members);
+            if (members.length === 0) {
+                message.warning('未找到旅團成員，可能權限不足或無數據');
+            }
+        } catch (err) {
+            console.error('Error fetching guild members:', err.response?.data || err.message);
+            message.error(`載入旅團成員失敗：${err.response?.data?.msg || err.message}`);
         }
     };
 
@@ -83,29 +108,35 @@ const UserRecords = () => {
             const res = await axios.get(`${BASE_URL}/api/items`, {
                 headers: { 'x-auth-token': token },
             });
+            console.log('Fetched items:', res.data);
             setItems(res.data);
+            if (res.data.length === 0) {
+                message.warning('未找到物品數據，可能無數據或權限不足');
+            }
         } catch (err) {
-            message.error('載入物品失敗');
+            console.error('Error fetching items:', err.response?.data || err.message);
+            message.error(`載入物品失敗：${err.response?.data?.msg || err.message}`);
         }
     };
 
-    const fetchRecords = async (name, tabKey = '1', page = 1, pageSize = 10, itemName = null) => {
-        if (!name) {
-            message.warning('請輸入角色名稱');
+    const fetchRecords = async (name, tabKey = '1', page = 1, pageSize = 10, itemName = null, guildMember = null, startTime = null, endTime = null) => {
+        const queryName = name || selectedGuildMember || currentUser?.character_name;
+        if (!queryName) {
+            message.warning('請選擇旅團成員或等待用戶信息加載');
             return;
         }
         if (!currentUser) {
             message.error('請先載入用戶信息');
             return;
         }
-        if (!currentUser.roles.includes('admin') && currentUser.character_name !== name) {
+        if (!currentUser.roles.includes('admin') && currentUser.character_name !== queryName) {
             message.error('無權查詢其他用戶的記錄');
             return;
         }
 
         setLoading(true);
         try {
-            const encodedName = encodeURIComponent(name);
+            const encodedName = encodeURIComponent(queryName);
             const params = {
                 tab: tabKey,
                 page,
@@ -114,17 +145,29 @@ const UserRecords = () => {
             if (itemName) {
                 params.itemName = itemName;
             }
+            if (guildMember) {
+                params.guildMember = guildMember;
+            }
+            if (startTime) {
+                params.startTime = startTime;
+            }
+            if (endTime) {
+                params.endTime = endTime;
+            }
+            console.log('Fetching records with params:', params);
             const res = await axios.get(`${BASE_URL}/api/users/${encodedName}/records`, {
                 headers: { 'x-auth-token': token },
                 params,
             });
-            const { killRecords, acquiredItems, biddingHistory, pagination: serverPagination } = res.data;
+            console.log('Records response:', res.data);
+            const { killRecords, acquiredItems, biddingHistory, wonAuctions, pagination: serverPagination } = res.data;
 
             setRecords(prevRecords => ({
                 ...prevRecords,
                 killRecords: killRecords || [],
                 acquiredItems: acquiredItems || [],
                 biddingHistory: biddingHistory || [],
+                wonAuctions: wonAuctions || [],
             }));
 
             setPagination({
@@ -143,47 +186,63 @@ const UserRecords = () => {
                     pageSize: serverPagination?.biddingHistory?.pageSize || 10,
                     total: serverPagination?.biddingHistory?.total || 0,
                 },
-                itemRecipients: pagination.itemRecipients, // 保持原有分頁
+                wonAuctions: {
+                    current: serverPagination?.wonAuctions?.current || 1,
+                    pageSize: serverPagination?.wonAuctions?.pageSize || 10,
+                    total: serverPagination?.wonAuctions?.total || 0,
+                },
+                itemRecipients: pagination.itemRecipients,
             });
         } catch (err) {
+            console.error('Error fetching records:', err.response?.data || err.message);
             message.error(`查詢失敗: ${err.response?.data?.msg || err.message}`);
             setRecords(prevRecords => ({
                 ...prevRecords,
                 killRecords: [],
                 acquiredItems: [],
                 biddingHistory: [],
+                wonAuctions: [],
             }));
         } finally {
             setLoading(false);
         }
     };
 
-    const fetchItemRecipients = async (name, itemName, page = 1, pageSize = 10, search = '') => {
-        if (!name || !itemName) {
-            message.warning('請輸入角色名稱和選擇物品');
+    const fetchItemRecipients = async (name, itemName, page = 1, pageSize = 10, startTime = null, endTime = null) => {
+        const queryName = name || selectedGuildMember || currentUser?.character_name;
+        if (!queryName || !itemName) {
+            message.warning('請選擇旅團成員和物品');
             return;
         }
         if (!currentUser) {
             message.error('請先載入用戶信息');
             return;
         }
-        if (!currentUser.roles.includes('admin') && currentUser.character_name !== name) {
+        if (!currentUser.roles.includes('admin') && currentUser.character_name !== queryName) {
             message.error('無權查詢其他用戶的記錄');
             return;
         }
 
         setLoading(true);
         try {
-            const encodedName = encodeURIComponent(name);
+            const encodedName = encodeURIComponent(queryName);
+            const params = {
+                itemName,
+                page,
+                pageSize,
+            };
+            if (startTime) {
+                params.startTime = startTime;
+            }
+            if (endTime) {
+                params.endTime = endTime;
+            }
+            console.log('Fetching item recipients with params:', params);
             const res = await axios.get(`${BASE_URL}/api/users/${encodedName}/item-recipients`, {
                 headers: { 'x-auth-token': token },
-                params: {
-                    itemName,
-                    page,
-                    pageSize,
-                    search: search || undefined, // 添加搜索參數
-                },
+                params,
             });
+            console.log('Item recipients response:', res.data);
             const { itemRecipients, pagination: serverPagination } = res.data;
 
             setRecords(prevRecords => ({
@@ -200,6 +259,7 @@ const UserRecords = () => {
                 },
             }));
         } catch (err) {
+            console.error('Error fetching item recipients:', err.response?.data || err.message);
             message.error(`查詢獲得者記錄失敗: ${err.response?.data?.msg || err.message}`);
             setRecords(prevRecords => ({
                 ...prevRecords,
@@ -219,6 +279,7 @@ const UserRecords = () => {
             setSelectedKillRecord(res.data);
             setDetailModalVisible(true);
         } catch (err) {
+            console.error('Error fetching kill record details:', err.response?.data || err.message);
             message.error(`無法載入擊殺記錄詳情: ${err.response?.data?.msg || err.message}`);
         } finally {
             setLoading(false);
@@ -226,44 +287,84 @@ const UserRecords = () => {
     };
 
     const handleTabChange = (key) => {
+        setActiveTab(key);
+        const start = timeRange[0] ? timeRange[0].toISOString() : null;
+        const end = timeRange[1] ? timeRange[1].toISOString() : null;
         if (key === '4') {
-            // 獲得者記錄標籤
             if (selectedItem) {
-                fetchItemRecipients(characterName, selectedItem, pagination.itemRecipients.current, pagination.itemRecipients.pageSize, searchRecipient);
+                fetchItemRecipients(null, selectedItem, pagination.itemRecipients.current, pagination.itemRecipients.pageSize, start, end);
             }
         } else {
-            fetchRecords(characterName, key, pagination[key === '1' ? 'killRecords' : key === '2' ? 'acquiredItems' : 'biddingHistory'].current, undefined, selectedItem);
+            fetchRecords(null, key, pagination[key === '1' ? 'killRecords' : key === '2' ? 'acquiredItems' : key === '3' ? 'biddingHistory' : 'wonAuctions'].current, undefined, selectedItem, selectedGuildMember, start, end);
         }
     };
 
     const handlePaginationChange = (tabKey, page, pageSize) => {
         const newPagination = { ...pagination, [tabKey]: { current: page, pageSize, total: pagination[tabKey].total } };
         setPagination(newPagination);
+        const start = timeRange[0] ? timeRange[0].toISOString() : null;
+        const end = timeRange[1] ? timeRange[1].toISOString() : null;
         if (tabKey === 'itemRecipients') {
-            fetchItemRecipients(characterName, selectedItem, page, pageSize, searchRecipient);
+            fetchItemRecipients(null, selectedItem, page, pageSize, start, end);
         } else {
-            fetchRecords(characterName, tabKey === 'killRecords' ? '1' : tabKey === 'acquiredItems' ? '2' : '3', page, pageSize, selectedItem);
+            fetchRecords(
+                null,
+                tabKey === 'killRecords' ? '1' : tabKey === 'acquiredItems' ? '2' : tabKey === 'biddingHistory' ? '3' : '4',
+                page,
+                pageSize,
+                selectedItem,
+                selectedGuildMember,
+                start,
+                end
+            );
         }
     };
 
     const handleItemChange = (value) => {
+        console.log('Item selected:', value);
         setSelectedItem(value || null);
-        setSearchRecipient(''); // 重置搜索條件
+        setSearchRecipient('');
+        const start = timeRange[0] ? timeRange[0].toISOString() : null;
+        const end = timeRange[1] ? timeRange[1].toISOString() : null;
         if (value) {
-            fetchItemRecipients(characterName, value, 1, pagination.itemRecipients.pageSize, '');
+            fetchItemRecipients(null, value, 1, pagination.itemRecipients.pageSize, start, end);
+            setActiveTab('4'); // 切換到「獲得者記錄」標籤
         } else {
             setRecords(prevRecords => ({
                 ...prevRecords,
                 itemRecipients: [],
             }));
         }
-        fetchRecords(characterName, '1', 1, pagination.killRecords.pageSize, value || null);
+        fetchRecords(null, activeTab, 1, pagination.killRecords.pageSize, value || null, selectedGuildMember, start, end);
+    };
+
+    const handleGuildMemberChange = (value) => {
+        console.log('Guild member selected:', value);
+        setSelectedGuildMember(value || null);
+        const start = timeRange[0] ? timeRange[0].toISOString() : null;
+        const end = timeRange[1] ? timeRange[1].toISOString() : null;
+        if (value) {
+            fetchRecords(null, '3', 1, pagination.biddingHistory.pageSize, selectedItem, value, start, end);
+            setActiveTab('3'); // 切換到「競標歷史」標籤
+        }
+    };
+
+    const handleTimeRangeChange = (dates) => {
+        setTimeRange(dates || []);
+        const start = dates && dates[0] ? dates[0].toISOString() : null;
+        const end = dates && dates[1] ? dates[1].toISOString() : null;
+        fetchRecords(null, activeTab, 1, pagination.killRecords.pageSize, selectedItem, selectedGuildMember, start, end);
+        if (selectedItem) {
+            fetchItemRecipients(null, selectedItem, 1, pagination.itemRecipients.pageSize, start, end);
+        }
     };
 
     const handleSearchRecipient = (value) => {
         setSearchRecipient(value);
+        const start = timeRange[0] ? timeRange[0].toISOString() : null;
+        const end = timeRange[1] ? timeRange[1].toISOString() : null;
         if (selectedItem) {
-            fetchItemRecipients(characterName, selectedItem, 1, pagination.itemRecipients.pageSize, value);
+            fetchItemRecipients(null, selectedItem, 1, pagination.itemRecipients.pageSize, start, end);
         }
     };
 
@@ -416,6 +517,30 @@ const UserRecords = () => {
         },
     ];
 
+    const wonAuctionColumns = [
+        {
+            title: '物品名稱',
+            dataIndex: 'itemName',
+            key: 'itemName',
+            width: 150,
+        },
+        {
+            title: '得標時間',
+            dataIndex: 'wonAt',
+            key: 'wonAt',
+            render: (time) => moment(time).format('YYYY-MM-DD HH:mm:ss'),
+            sorter: (a, b) => new Date(a.wonAt) - new Date(b.wonAt),
+            width: 150,
+        },
+        {
+            title: '最終價格',
+            dataIndex: 'finalPrice',
+            key: 'finalPrice',
+            render: (price) => `${price} 鑽石`,
+            width: 120,
+        },
+    ];
+
     const recipientColumns = [
         {
             title: '物品名稱',
@@ -455,14 +580,23 @@ const UserRecords = () => {
             >
                 <Space direction="vertical" style={{ width: '100%' }}>
                     <Space wrap>
-                        <Input.Search
-                            placeholder="輸入角色名稱"
-                            value={characterName}
-                            onChange={(e) => setCharacterName(e.target.value)}
-                            onSearch={(value) => fetchRecords(value, '1', 1, pagination.killRecords.pageSize, selectedItem)}
-                            style={{ width: 300 }}
-                            enterButton
-                        />
+                        <Select
+                            placeholder="選擇或輸入旅團成員"
+                            value={selectedGuildMember}
+                            onChange={handleGuildMemberChange}
+                            style={{ width: 200 }}
+                            showSearch
+                            allowClear
+                            filterOption={(input, option) =>
+                                option.children.toLowerCase().indexOf(input.toLowerCase()) >= 0
+                            }
+                        >
+                            {guildMembers.map(member => (
+                                <Option key={member} value={member}>
+                                    {member}
+                                </Option>
+                            ))}
+                        </Select>
                         <Select
                             placeholder="選擇物品（可選）"
                             value={selectedItem}
@@ -480,6 +614,12 @@ const UserRecords = () => {
                                 </Option>
                             ))}
                         </Select>
+                        <RangePicker
+                            value={timeRange}
+                            onChange={handleTimeRangeChange}
+                            format="YYYY-MM-DD"
+                            style={{ width: 300 }}
+                        />
                     </Space>
                     {currentUser && !currentUser.roles.includes('admin') && (
                         <Text type="secondary">
@@ -488,7 +628,7 @@ const UserRecords = () => {
                     )}
                 </Space>
                 <Spin spinning={loading}>
-                    <Tabs defaultActiveKey="1" onChange={handleTabChange}>
+                    <Tabs activeKey={activeTab} onChange={handleTabChange}>
                         <TabPane tab="擊殺記錄" key="1">
                             {records.killRecords.length === 0 && !loading ? (
                                 <Text type="secondary">暫無擊殺記錄</Text>
@@ -564,18 +704,63 @@ const UserRecords = () => {
                                 </>
                             )}
                         </TabPane>
+                        <TabPane tab="競標贏得記錄" key="5">
+                            {records.wonAuctions.length === 0 && !loading ? (
+                                <Alert
+                                    message="無競標贏得記錄"
+                                    description="目前沒有符合條件的競標贏得記錄。"
+                                    type="info"
+                                    showIcon
+                                    style={{ marginBottom: '16px' }}
+                                />
+                            ) : (
+                                <>
+                                    <Table
+                                        columns={wonAuctionColumns}
+                                        dataSource={records.wonAuctions}
+                                        rowKey={(record, index) => index}
+                                        pagination={false}
+                                        bordered
+                                        scroll={{ x: 'max-content' }}
+                                    />
+                                    <Pagination
+                                        current={pagination.wonAuctions.current}
+                                        pageSize={pagination.wonAuctions.pageSize}
+                                        total={pagination.wonAuctions.total}
+                                        onChange={(page, pageSize) => handlePaginationChange('wonAuctions', page, pageSize)}
+                                        showSizeChanger
+                                        style={{ marginTop: 16, textAlign: 'right' }}
+                                        pageSizeOptions={['10', '20', '50']}
+                                    />
+                                </>
+                            )}
+                        </TabPane>
                         <TabPane tab="獲得者記錄" key="4">
                             {selectedItem ? (
                                 <>
                                     <div style={{ marginBottom: '16px', display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
-                                        <Search
+                                        <Select
                                             placeholder="搜索獲得者或首領名稱"
                                             value={searchRecipient}
-                                            onChange={(e) => setSearchRecipient(e.target.value)}
-                                            onSearch={handleSearchRecipient}
+                                            onChange={handleSearchRecipient}
                                             style={{ width: 200 }}
-                                            enterButton={<SearchOutlined />}
-                                        />
+                                            allowClear
+                                            showSearch
+                                            filterOption={(input, option) =>
+                                                option.children.toLowerCase().indexOf(input.toLowerCase()) >= 0
+                                            }
+                                        >
+                                            {[...new Set(records.itemRecipients.map(record => record.recipient))].map(recipient => (
+                                                <Option key={recipient} value={recipient}>
+                                                    {recipient}
+                                                </Option>
+                                            ))}
+                                            {[...new Set(records.itemRecipients.map(record => record.bossName))].map(bossName => (
+                                                <Option key={bossName} value={bossName}>
+                                                    {bossName}
+                                                </Option>
+                                            ))}
+                                        </Select>
                                     </div>
                                     {records.itemRecipients.length === 0 && !loading ? (
                                         <Alert

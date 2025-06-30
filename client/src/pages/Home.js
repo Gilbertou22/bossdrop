@@ -41,14 +41,12 @@ const Home = () => {
     const fetchData = async () => {
         setLoading(true);
         try {
-            // 獲取用戶信息
             const userRes = await axios.get(`${BASE_URL}/api/users/profile`, {
                 headers: { 'x-auth-token': token },
             });
             const fetchedUser = userRes.data;
             setUser(fetchedUser);
 
-            // 獲取熱門拍賣
             const auctionsRes = await axios.get(`${BASE_URL}/api/auctions?status=active`, {
                 headers: { 'x-auth-token': token },
             });
@@ -74,7 +72,6 @@ const Home = () => {
             }));
             setAuctions(enrichedAuctions);
 
-            // 獲取最近擊殺記錄
             const bossKillsRes = await axios.get(`${BASE_URL}/api/boss-kills`, {
                 headers: { 'x-auth-token': token },
             });
@@ -88,13 +85,11 @@ const Home = () => {
             }));
             setBossKills(enrichedBossKills);
 
-            // 獲取用戶統計數據（普通用戶）
             const userStatsRes = await axios.get(`${BASE_URL}/api/users/personal-stats`, {
                 headers: { 'x-auth-token': token },
             });
             setUserStats(userStatsRes.data);
 
-            // 管理員數據
             if (token && fetchedUser && fetchedUser.roles && fetchedUser.roles.includes('admin')) {
                 const requests = [
                     axios.get(`${BASE_URL}/api/users/stats`, { headers: { 'x-auth-token': token } }).catch(err => ({ error: err })),
@@ -177,6 +172,16 @@ const Home = () => {
         tooltip: { trigger: 'axis' },
         toolbox: { feature: { saveAsImage: {} } },
         dataZoom: [{ type: 'inside' }, { type: 'slider' }],
+    };
+
+    const handleNotificationClick = (notification) => {
+        if (notification.voteId) {
+            navigate(`/vote?voteId=${notification.voteId}`);
+        } else if (notification.auctionId) {
+            navigate(`/auction/${notification.auctionId}`);
+        } else {
+            navigate(`/notification/${notification._id}`);
+        }
     };
 
     return (
@@ -277,7 +282,7 @@ const Home = () => {
                                 dataSource={notifications.slice(0, 3)}
                                 renderItem={(notification) => (
                                     <List.Item
-                                        onClick={() => navigate(`/notification/${notification._id}`)}
+                                        onClick={() => handleNotificationClick(notification)}
                                         style={{ cursor: 'pointer', padding: '12px 0', transition: 'background-color 0.3s' }}
                                         className="notification-item"
                                     >

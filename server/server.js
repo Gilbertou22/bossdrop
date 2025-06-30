@@ -8,10 +8,13 @@ const path = require('path');
 const startAuctionCron = require('./utils/auctionCron');
 const startItemExpirationCron = require('./utils/itemExpirationCron'); // 新增
 const startDisabledUserCron = require('./utils/disabledUserCron'); // 新增
+const checkVoteStatus = require('./utils/voteCron');
 const cors = require('cors');
 const csurf = require('csurf');
 const multer = require('multer');
 const app = express();
+
+process.env.TZ = 'Asia/Taipei';
 
 connectDB();
 
@@ -168,6 +171,8 @@ app.use('/api/professions', require('./routes/professions'));
 console.log('Professions route loaded');
 app.use('/api/roles', require('./routes/roles'));
 console.log('Roles route loaded');
+app.use('/api/votes', require('./routes/votes'));
+console.log('Votes route loaded');
 
 try {
     startAuctionCron();
@@ -176,6 +181,8 @@ try {
     console.log('Item expiration cron started');
     startDisabledUserCron();
     console.log('Disabled user cron started');
+    checkVoteStatus();
+    console.log('Vote status check cron started');
 } catch (err) {
     console.error('Error starting cron jobs:', err);
 }

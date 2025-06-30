@@ -36,6 +36,8 @@ import MenuLogs from './pages/MenuLogs';
 import ProfessionManage from './pages/ProfessionManage';
 import RoleManage from './pages/RoleManage';
 import UserRecords from './pages/UserRecords';
+import VoteResults from './components/VoteResults';
+import VotePage from './components/VotePage';
 
 const { Content, Footer } = Layout;
 const { Text } = Typography;
@@ -146,6 +148,22 @@ function App() {
                                             element={
                                                 <RoleRoute allowedRoles={['user', 'moderator', 'admin']}>
                                                     <DKPHistory />
+                                                </RoleRoute>
+                                            }
+                                        />
+                                        <Route
+                                            path="/vote-results"
+                                            element={
+                                                <RoleRoute allowedRoles={['user', 'moderator', 'admin']}>
+                                                    <VoteResults />
+                                                </RoleRoute>
+                                            }
+                                        />
+                                        <Route
+                                            path="/vote"
+                                            element={
+                                                <RoleRoute allowedRoles={['user', 'moderator', 'admin']}>
+                                                    <VotePage />
                                                 </RoleRoute>
                                             }
                                         />

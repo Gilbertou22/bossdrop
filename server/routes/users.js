@@ -105,6 +105,7 @@ router.post('/register', upload.single('screenshot'), async (req, res) => {
     let { world_name, character_name, discord_id, raid_level, password, guildId, profession, roles } = req.body;
 
     try {
+        // 驗證必填字段
         if (!world_name || !character_name || !password || !profession) {
             return res.status(400).json({
                 code: 400,
@@ -122,6 +123,7 @@ router.post('/register', upload.single('screenshot'), async (req, res) => {
             });
         }
 
+        // 驗證 profession 是否存在
         const professionExists = await Profession.findById(profession);
         if (!professionExists) {
             return res.status(400).json({
@@ -130,6 +132,7 @@ router.post('/register', upload.single('screenshot'), async (req, res) => {
             });
         }
 
+        // 處理 roles 字段
         if (roles) {
             try {
                 roles = JSON.parse(roles);

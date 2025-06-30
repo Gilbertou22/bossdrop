@@ -215,6 +215,10 @@ const ProfessionManage = () => {
                                 <img src={icons.classSolarsentinel} alt="太陽監視者" style={{ width: 24, height: 24, marginRight: 8 }} />
                                 太陽監視者
                             </Option>
+                            <Option value="classAbyssrevenant">
+                                <img src={icons.classAbyssrevenant} alt="深淵放逐者" style={{ width: 24, height: 24, marginRight: 8 }} />
+                                深淵放逐者
+                            </Option>
                         </Select>
                     </Form.Item>
                     <Form.Item

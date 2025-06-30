@@ -80,7 +80,7 @@ const UserRecords = () => {
             setCurrentUser(res.data);
             setSelectedGuildMember(res.data.character_name); // 自動選擇當前用戶
         } catch (err) {
-            console.error('Error fetching current user:', err.response?.data || err.message);
+
             message.error('無法載入用戶信息，請重新登入');
             navigate('/login');
         }
@@ -92,13 +92,13 @@ const UserRecords = () => {
                 headers: { 'x-auth-token': token },
             });
             const members = res.data.map(user => user.character_name);
-            console.log('Fetched guild members:', members);
+
             setGuildMembers(members);
             if (members.length === 0) {
                 message.warning('未找到旅團成員，可能權限不足或無數據');
             }
         } catch (err) {
-            console.error('Error fetching guild members:', err.response?.data || err.message);
+
             message.error(`載入旅團成員失敗：${err.response?.data?.msg || err.message}`);
         }
     };
@@ -108,13 +108,13 @@ const UserRecords = () => {
             const res = await axios.get(`${BASE_URL}/api/items`, {
                 headers: { 'x-auth-token': token },
             });
-            console.log('Fetched items:', res.data);
+
             setItems(res.data);
             if (res.data.length === 0) {
                 message.warning('未找到物品數據，可能無數據或權限不足');
             }
         } catch (err) {
-            console.error('Error fetching items:', err.response?.data || err.message);
+
             message.error(`載入物品失敗：${err.response?.data?.msg || err.message}`);
         }
     };
@@ -154,12 +154,12 @@ const UserRecords = () => {
             if (endTime) {
                 params.endTime = endTime;
             }
-            console.log('Fetching records with params:', params);
+
             const res = await axios.get(`${BASE_URL}/api/users/${encodedName}/records`, {
                 headers: { 'x-auth-token': token },
                 params,
             });
-            console.log('Records response:', res.data);
+
             const { killRecords, acquiredItems, biddingHistory, wonAuctions, pagination: serverPagination } = res.data;
 
             setRecords(prevRecords => ({
@@ -194,7 +194,7 @@ const UserRecords = () => {
                 itemRecipients: pagination.itemRecipients,
             });
         } catch (err) {
-            console.error('Error fetching records:', err.response?.data || err.message);
+
             message.error(`查詢失敗: ${err.response?.data?.msg || err.message}`);
             setRecords(prevRecords => ({
                 ...prevRecords,
@@ -237,12 +237,12 @@ const UserRecords = () => {
             if (endTime) {
                 params.endTime = endTime;
             }
-            console.log('Fetching item recipients with params:', params);
+
             const res = await axios.get(`${BASE_URL}/api/users/${encodedName}/item-recipients`, {
                 headers: { 'x-auth-token': token },
                 params,
             });
-            console.log('Item recipients response:', res.data);
+
             const { itemRecipients, pagination: serverPagination } = res.data;
 
             setRecords(prevRecords => ({
@@ -259,7 +259,7 @@ const UserRecords = () => {
                 },
             }));
         } catch (err) {
-            console.error('Error fetching item recipients:', err.response?.data || err.message);
+
             message.error(`查詢獲得者記錄失敗: ${err.response?.data?.msg || err.message}`);
             setRecords(prevRecords => ({
                 ...prevRecords,
@@ -279,7 +279,7 @@ const UserRecords = () => {
             setSelectedKillRecord(res.data);
             setDetailModalVisible(true);
         } catch (err) {
-            console.error('Error fetching kill record details:', err.response?.data || err.message);
+
             message.error(`無法載入擊殺記錄詳情: ${err.response?.data?.msg || err.message}`);
         } finally {
             setLoading(false);
@@ -321,7 +321,7 @@ const UserRecords = () => {
     };
 
     const handleItemChange = (value) => {
-        console.log('Item selected:', value);
+
         setSelectedItem(value || null);
         setSearchRecipient('');
         const start = timeRange[0] ? timeRange[0].toISOString() : null;
@@ -339,7 +339,7 @@ const UserRecords = () => {
     };
 
     const handleGuildMemberChange = (value) => {
-        console.log('Guild member selected:', value);
+
         setSelectedGuildMember(value || null);
         const start = timeRange[0] ? timeRange[0].toISOString() : null;
         const end = timeRange[1] ? timeRange[1].toISOString() : null;

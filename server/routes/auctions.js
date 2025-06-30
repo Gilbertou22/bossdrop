@@ -14,11 +14,12 @@ const { auth, adminOnly } = require('../middleware/auth');
 const logger = require('../logger');
 const moment = require('moment');
 const schedule = require('node-schedule');
+const crypto = require('crypto');
 
 // 定義旅團帳戶名稱
 const GUILD_ACCOUNT_NAME = '旅團帳戶';
 
-// 定時任務：檢查過期拍賣並更新狀態為 pending
+// 定時任務：檢查過期拍賣並執行抽籤
 const scheduleAuctionStatusUpdate = () => {
     schedule.scheduleJob('*/1 * * * *', async () => {
         try {
@@ -27,22 +28,115 @@ const scheduleAuctionStatusUpdate = () => {
             const expiredAuctions = await Auction.find({
                 status: 'active',
                 endTime: { $lt: now.toDate() },
-            });
+            }).populate('itemId');
 
             logger.info('Found expired auctions', { count: expiredAuctions.length });
-            for (const auction of expiredAuctions) {
-                auction.status = 'pending';
-                await auction.save();
-                logger.info('Auction status updated to pending', { auctionId: auction._id, endTime: auction.endTime });
+            for (const auction of expiredAuctions) {                
+                if (auction.auctionType === 'lottery') {
+                    // 抽籤拍賣：執行抽籤邏輯
+                    logger.info('Processing lottery auction', { auctionType: auction.auctionType, endTime: auction.endTime });
+                    const bids = await Bid.find({ auctionId: auction._id })
+                        .populate('userId', 'character_name dkpPoints');
+                    if (bids.length === 0) {
+                        auction.status = 'cancelled';
+                        auction.highestBidder = null;
+                        await auction.save();
+                        logger.info('Lottery auction settled with no participants', { auctionId: auction._id, endTime: auction.endTime });
+                        continue;
+                    }
+
+                    // 使用 crypto 模塊生成更安全的隨機數
+                    const randomIndex = crypto.randomInt(0, bids.length);
+                    const winnerBid = bids[randomIndex];
+                    const winner = winnerBid.userId;
+                    const finalPrice = auction.startingPrice;
+
+                    auction.highestBidder = winner._id;
+                    auction.currentPrice = finalPrice;
+                    auction.status = 'pending';
+                    await auction.save();
+
+                    // 記錄抽籤過程
+                    const drawLog = {
+                        auctionId: auction._id,
+                        participants: bids.map(bid => bid.userId.character_name),
+                        winner: winner.character_name,
+                        timestamp: new Date(),
+                    };
+                    logger.info('Lottery draw completed', drawLog);
+
+                    // 通知所有參與者
+                    const itemName = auction.itemName || '未知物品';
+                    const notifications = bids.map(bid => {
+                        const isWinner = bid.userId._id.toString() === winner._id.toString();
+                        return new Notification({
+                            userId: bid.userId._id,
+                            message: isWinner
+                                ? `您已中標抽籤拍賣 ${itemName} (ID: ${auction._id})，得標金額為 ${finalPrice} 鑽石。請等待管理員核實。`
+                                : `抽籤拍賣 ${itemName} (ID: ${auction._id}) 已結束，得標者為 ${winner.character_name}。`,
+                            auctionId: auction._id,
+                        });
+                    });
+                    await Notification.insertMany(notifications);
+                    logger.info('Notifications sent for lottery auction', { auctionId: auction._id, winner: winner.character_name });
+                } else {
+                    // 其他類型的拍賣：僅更新狀態為 pending
+                    auction.status = 'pending';
+                    await auction.save();
+                    logger.info('Auction status updated to pending', { auctionId: auction._id, endTime: auction.endTime });
+                }
             }
         } catch (err) {
             logger.error('Error updating auction statuses', { error: err.message, stack: err.stack });
         }
     });
 };
-
-// 啟動定時任務
 scheduleAuctionStatusUpdate();
+
+// 新增路由：查看抽籤記錄（可選）
+router.get('/:id/draw-log', auth, async (req, res) => {
+    const { id } = req.params;
+    try {
+        if (!mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({
+                code: 400,
+                msg: '無效的拍賣 ID',
+                detail: `提供的 auctionId (${id}) 不是有效的 MongoDB ObjectId。`,
+            });
+        }
+        const auction = await Auction.findById(id).populate('highestBidder', 'character_name');
+        if (!auction) {
+            return res.status(404).json({
+                code: 404,
+                msg: '拍賣不存在',
+                detail: `無法找到 ID 為 ${id} 的拍賣。`,
+            });
+        }
+        if (auction.auctionType !== 'lottery') {
+            return res.status(400).json({
+                code: 400,
+                msg: '拍賣類型無效',
+                detail: `拍賣 ${id} 不是抽籤類型。`,
+            });
+        }
+        const bids = await Bid.find({ auctionId: id }).populate('userId', 'character_name');
+        const drawLog = {
+            auctionId: id,
+            participants: bids.map(bid => bid.userId.character_name),
+            winner: auction.highestBidder ? auction.highestBidder.character_name : '尚未抽籤',
+            timestamp: auction.updatedAt,
+        };
+        logger.info('Fetched lottery draw log', { auctionId: id, userId: req.user.id });
+        res.json(drawLog);
+    } catch (err) {
+        logger.error('Error fetching lottery draw log', { auctionId: id, userId: req.user.id, error: err.message, stack: err.stack });
+        res.status(500).json({
+            code: 500,
+            msg: '獲取抽籤記錄失敗',
+            detail: err.message || '伺服器處理錯誤',
+        });
+    }
+});
 
 // 監控拍賣（管理員專用）
 router.get('/monitor', auth, async (req, res) => {

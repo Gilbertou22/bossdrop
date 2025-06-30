@@ -55,22 +55,20 @@ const KillHistory = () => {
         fetchBosses();
     }, [token]);
 
-    // 負責觸發 fetchUserApplications
     useEffect(() => {
         const loadApplications = async () => {
             if (currentUser !== null) {
-                await fetchUserApplications(); // 先獲取申請數據
+                await fetchUserApplications();
             }
         };
         loadApplications();
     }, [currentUser]);
 
-    // 負責觸發 fetchHistory，依賴 userApplications
     useEffect(() => {
         if (currentUser !== null) {
             fetchHistory(pagination.current, pagination.pageSize);
         }
-    }, [currentUser, filters, pagination.current, pagination.pageSize, sort, userApplications]); // 依賴 userApplications
+    }, [currentUser, filters, pagination.current, pagination.pageSize, sort, userApplications]);
 
     const fetchUserInfo = async () => {
         try {
@@ -79,9 +77,10 @@ const KillHistory = () => {
                 headers: { 'x-auth-token': token },
             });
 
-            setRole(res.data.role);
+            setRole(res.data.roles && res.data.roles.length > 0 ? res.data.roles[0] : null);
             setCurrentUser(res.data.character_name);
             setUserId(res.data.id);
+            console.log('Fetched user info:', { role: res.data.roles, character_name: res.data.character_name, id: res.data.id });
         } catch (err) {
             console.error('Fetch user info error:', err);
             message.error('載入用戶信息失敗: ' + (err.response?.data?.msg || err.message));
@@ -112,8 +111,6 @@ const KillHistory = () => {
             message.error('載入首領列表失敗');
         }
     };
-
-
 
     const fetchItemApplications = async (kill_id, item_id) => {
         try {
@@ -148,7 +145,6 @@ const KillHistory = () => {
 
     const fetchUserApplications = async () => {
         try {
-
             const res = await axios.get(`${BASE_URL}/api/applications/user`, {
                 headers: { 'x-auth-token': token },
             });
@@ -163,7 +159,6 @@ const KillHistory = () => {
                     return false;
                 }
                 const isActive = app.status === 'pending' || app.status === 'approved';
-
                 return isActive;
             });
 
@@ -171,7 +166,6 @@ const KillHistory = () => {
                 console.warn('No active applications after filtering. Raw data:', res.data);
             }
             setUserApplications(activeApplications);
-
         } catch (err) {
             console.error('Fetch user applications error:', err.response?.data || err.message);
             message.warning('無法載入申請記錄，申請中標示可能不準確');
@@ -215,8 +209,6 @@ const KillHistory = () => {
             });
 
             const updatedHistory = res.data.data.map(record => {
-
-
                 const applyingItems = record.dropped_items
                     ?.filter(item => {
                         const itemId = item._id || item.id;
@@ -230,14 +222,11 @@ const KillHistory = () => {
                             const match = appKillId === record._id.toString() &&
                                 appItemId === itemId.toString() &&
                                 app.status === 'pending';
-
                             return match;
                         });
                         return hasApplication;
                     })
                     ?.map(item => item.name) || [];
-
-
 
                 return {
                     ...record,
@@ -533,7 +522,7 @@ const KillHistory = () => {
     const renderGridItem = (record) => {
         const firstScreenshot = record.screenshots && record.screenshots.length > 0 && record.screenshots[0]
             ? record.screenshots[0]
-            : '/wp.jpg'; // 使用預設圖片
+            : '/wp.jpg';
         const killTime = moment(record.kill_time).format('MM-DD HH:mm');
         const relativeTime = moment(record.kill_time).fromNow();
         const item = record.dropped_items && record.dropped_items.length > 0 ? record.dropped_items[0] : null;
@@ -550,7 +539,6 @@ const KillHistory = () => {
             return effectiveStatus === 'pending';
         });
 
-        // 檢查用戶是否已申請物品
         const hasApplied = record.applyingItems && record.applyingItems.length > 0;
 
         const moreMenu = (
@@ -646,7 +634,7 @@ const KillHistory = () => {
                             left: '3px',
                             width: '30px',
                             height: '30px',
-                            background: hasApplied ? '#00cc00' : 'red', // 根據是否申請動態設置顏色
+                            background: hasApplied ? '#00cc00' : 'red',
                             clipPath: 'polygon(0 0, 100% 0, 0 100%)',
                             display: 'flex',
                             justifyContent: 'center',
@@ -675,7 +663,7 @@ const KillHistory = () => {
                                 onError={(e) => {
                                     console.error(`Image load error for ${firstScreenshot}:`, e);
                                     message.warning('截圖加載失敗，使用占位圖');
-                                    e.target.src = 'wp1.jpg'; // 占位圖
+                                    e.target.src = 'wp1.jpg';
                                 }}
                                 loading="lazy"
                             />
@@ -743,7 +731,7 @@ const KillHistory = () => {
                             >
                                 <Button
                                     type="link"
-                                    icon={< SendOutlined />}
+                                    icon={<SendOutlined />}
                                     loading={applying}
                                     disabled={applying}
                                     style={{ padding: '0 8px' }}
@@ -1150,36 +1138,34 @@ const KillHistory = () => {
                     .ant-btn-link {
                         padding: 0 6px !important;
                     }
-                    /* 調整 Card 的 title 和 extra 佈局 */
                     .ant-card-head {
                         display: flex;
-                        flex-direction: column; /* 垂直排列 */
-                        align-items: flex-start; /* 左對齊 */
-                        padding: 16px; /* 增加內邊距 */
+                        flex-direction: column;
+                        align-items: flex-start;
+                        padding: 16px;
                     }
                     .ant-card-head-title {
-                        flex: none; /* 防止標題被壓縮 */
-                        padding: 0 0 8px 0; /* 底部間距 */
-                        width: 100%; /* 確保標題佔滿寬度 */
-                        white-space: normal; /* 允許標題換行 */
-                        overflow: visible; /* 防止標題被截斷 */
+                        flex: none;
+                        padding: 0 0 8px 0;
+                        width: 100%;
+                        white-space: normal;
+                        overflow: visible;
                     }
                     .ant-card-extra {
-                        flex: none; /* 防止 extra 區域被壓縮 */
-                        width: 100%; /* 確保 extra 區域佔滿寬度 */
+                        flex: none;
+                        width: 100%;
                         display: flex;
-                        justify-content: flex-end; /* 按鈕右對齊 */
-                        margin-top: 8px; /* 與標題間距 */
+                        justify-content: flex-end;
+                        margin-top: 8px;
                     }
                     .ant-space {
-                        flex-wrap: wrap; /* 允許按鈕換行 */
-                        gap: 8px; /* 按鈕間距 */
+                        flex-wrap: wrap;
+                        gap: 8px;
                     }
                 }
-                /* 為 KillHistory 頁面的 moreMenu 設置不透明背景 */
                 .kill-history-more-menu {
-                    background-color: #fff !important; /* 不透明背景 */
-                    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15) !important; /* 添加陰影以提升可視性 */
+                    background-color: #fff !important;
+                    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15) !important;
                 }
                 .kill-history-more-menu .ant-dropdown-menu-item {
                     padding: 8px 16px !important;

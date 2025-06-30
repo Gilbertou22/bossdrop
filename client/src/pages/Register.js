@@ -40,7 +40,6 @@ const Register = () => {
     const [deferredPrompt, setDeferredPrompt] = useState(null);
     const [passwordStrength, setPasswordStrength] = useState(0);
     const [professions, setProfessions] = useState([]);
-    const [rolesList, setRolesList] = useState([]);
 
     useEffect(() => {
         const handleOnline = () => {
@@ -64,7 +63,6 @@ const Register = () => {
         });
 
         fetchProfessions();
-        fetchRoles();
 
         return () => {
             window.removeEventListener('online', handleOnline);
@@ -82,23 +80,8 @@ const Register = () => {
         }
     };
 
-    const fetchRoles = async () => {
-        try {
-            const res = await axios.get(`${BASE_URL}/api/roles`);
-            setRolesList(res.data);
-            // 設置默認角色為 user
-            const userRole = res.data.find(role => role.name === 'user')?._id;
-            if (userRole) {
-                form.setFieldsValue({ roles: userRole });
-            }
-        } catch (err) {
-            logger.error('Fetch roles error:', err);
-            message.error('無法載入角色列表，請稍後重試');
-        }
-    };
-
     useEffect(() => {
-        form.setFieldsValue({ world_name: '修連03' });
+        form.setFieldsValue({ world_name: '修連05' });
     }, [form]);
 
     const handlePasswordChange = (e) => {
@@ -123,7 +106,7 @@ const Register = () => {
         formData.append('raid_level', values.raid_level || 0);
         formData.append('password', values.password);
         formData.append('profession', values.profession);
-        formData.append('roles', JSON.stringify([values.roles])); // 傳遞角色 _id 陣列
+        // 移除 roles 字段，後端會自動設置為 user
         if (fileList.length > 0) {
             formData.append('screenshot', fileList[0].originFileObj);
         }
@@ -220,7 +203,7 @@ const Register = () => {
                             label="世界名稱"
                             rules={[{ required: true, message: '請輸入世界名稱！' }]}
                         >
-                            <Input placeholder="世界名稱" autoComplete="off" readOnly value="修連03" />
+                            <Input placeholder="世界名稱" autoComplete="off" readOnly value="修連05" />
                         </Form.Item>
                         <Form.Item
                             name="character_name"
@@ -252,19 +235,6 @@ const Register = () => {
                                             <img src={icons[prof.icon]} alt={prof.name} style={{ width: 24, height: 24 }} />
                                             <span>{prof.name}</span>
                                         </Space>
-                                    </Option>
-                                ))}
-                            </Select>
-                        </Form.Item>
-                        <Form.Item
-                            name="roles"
-                            label="角色"
-                            rules={[{ required: true, message: '請選擇角色！' }]}
-                        >
-                            <Select placeholder="選擇角色">
-                                {rolesList.map(role => (
-                                    <Option key={role._id} value={role._id}>
-                                        {role.name}
                                     </Option>
                                 ))}
                             </Select>

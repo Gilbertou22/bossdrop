@@ -21,7 +21,7 @@ const GUILD_ACCOUNT_NAME = '旅團帳戶';
 
 // 定時任務：檢查過期拍賣並執行抽籤
 const scheduleAuctionStatusUpdate = () => {
-    schedule.scheduleJob('*/1 * * * *', async () => {
+    schedule.scheduleJob('*/5 * * * *', async () => {
         try {
             const now = moment();
             logger.info('Running auction status update task', { currentTime: now.toISOString() });
@@ -752,7 +752,8 @@ router.put('/:id/settle', auth, async (req, res) => {
                 suggestion: '請刷新頁面並重試，或聯繫管理員。',
             });
         }
-        if (req.user.role !== 'admin') {
+        // 檢查 roles 陣列中是否包含 'admin'
+        if (!req.user.roles || !req.user.roles.includes('admin')) {
             return res.status(403).json({
                 code: 403,
                 msg: '無權操作',

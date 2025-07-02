@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Form, Input, Button, message, Card, Spin, Typography } from 'antd';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
+import { loadCaptchaEnginge, LoadCanvasTemplate, validateCaptcha } from 'react-simple-captcha';
 import { useAuth } from '../AuthProvider';
 import logger from '../utils/logger';
 
@@ -34,28 +35,43 @@ const Login = () => {
         };
 
         fetchClientIp();
+        loadCaptchaEnginge(4, 'white', 'black', 'lower'); // Initialize CAPTCHA with 6 characters
     }, []);
 
     useEffect(() => {
         if (user) {
-        
             navigate('/', { replace: true });
         }
     }, [user, navigate]);
 
     const handleSubmit = async () => {
         if (isLoggedIn) {
-        
             return;
         }
 
         try {
             const values = await form.validateFields();
+            const captchaInput = values.captcha_input?.trim();
+
+            if (!captchaInput) {
+                message.error('請輸入驗證碼！');
+                return;
+            }
+
+            // Client-side CAPTCHA validation
+            if (!validateCaptcha(captchaInput)) {
+                message.error('驗證碼錯誤，請重試！');
+                loadCaptchaEnginge(4, 'white', 'black', 'lower');
+                form.setFieldsValue({ captcha_input: '' });
+                return;
+            }
+
             setLoading(true);
 
             const trimmedValues = {
                 character_name: values.character_name.trim(),
                 password: values.password.trim(),
+                captcha_input: captchaInput,
             };
 
             if (!trimmedValues.character_name || !trimmedValues.password) {
@@ -64,30 +80,26 @@ const Login = () => {
                 return;
             }
 
-        
             const res = await axios.post(`${BASE_URL}/api/auth/login`, trimmedValues, {
                 withCredentials: true,
             });
 
-
             if (res.data.mustChangePassword) {
                 message.warning('請更改您的密碼！');
                 localStorage.setItem('tempToken', res.data.tempToken);
-              
                 window.location.href = '/change-password';
                 sessionStorage.setItem('changePasswordState', JSON.stringify({ character_name: trimmedValues.character_name }));
                 return;
             }
 
             const { token, user } = res.data;
-       
             setIsLoggedIn(true);
-            await login(user, token); // 傳遞 token 給 login 方法
+            await login(user, token);
             form.resetFields();
+            loadCaptchaEnginge(4, 'white', 'black', 'lower');
             message.success('登入成功');
         } catch (err) {
             if (err.errorFields) {
-        
                 message.error('請檢查表單欄位！');
             } else {
                 const errorMsg = err.response?.data?.msg || '登入失敗，請稍後再試';
@@ -96,12 +108,12 @@ const Login = () => {
                     response: err.response?.data,
                     status: err.response?.status,
                 });
-              
                 message.error(errorMsg);
+                loadCaptchaEnginge(4, 'white', 'black', 'lower');
+                form.setFieldsValue({ captcha_input: '' });
             }
         } finally {
             setLoading(false);
-        
         }
     };
 
@@ -116,6 +128,7 @@ const Login = () => {
                         initialValues={{
                             character_name: '',
                             password: '',
+                            captcha_input: '',
                         }}
                     >
                         <Form.Item
@@ -136,10 +149,24 @@ const Login = () => {
                             label="密碼"
                             rules={[
                                 { required: true, message: '請輸入密碼！' },
-                                { min: 3, message: '密碼長度至少為 3 個字符！' },
+                               
                             ]}
                         >
                             <Input.Password placeholder="請輸入密碼" disabled={loading || isLoggedIn} />
+                        </Form.Item>
+                        <Form.Item
+                            name="captcha_input"
+                            label="驗證碼"
+                            rules={[{ required: true, message: '請輸入驗證碼！' }]}
+                        >
+                            <div>
+                                <LoadCanvasTemplate reloadText="看不清" />
+                                <Input
+                                    placeholder="請輸入驗證碼"
+                                    style={{ marginTop: 8 }}
+                                    disabled={loading || isLoggedIn}
+                                />
+                            </div>
                         </Form.Item>
                         <Form.Item>
                             <Button

@@ -17,7 +17,7 @@ export const AuthProvider = ({ children }) => {
             const res = await axios.get(`${BASE_URL}/api/users/me`, {
                 headers: { 'x-auth-token': token },
             });
-            console.log('Fetched user data in AuthProvider:', res.data); // 添加日誌
+            //console.log('Fetched user data in AuthProvider:', res.data); // 添加日誌
             setUser(res.data);
             setIsAuthenticated(true);
         } catch (err) {

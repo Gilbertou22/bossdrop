@@ -80,9 +80,9 @@ const KillHistory = () => {
             setRole(res.data.roles && res.data.roles.length > 0 ? res.data.roles[0] : null);
             setCurrentUser(res.data.character_name);
             setUserId(res.data.id);
-            console.log('Fetched user info:', { role: res.data.roles, character_name: res.data.character_name, id: res.data.id });
+          
         } catch (err) {
-            console.error('Fetch user info error:', err);
+            //console.error('Fetch user info error:', err);
             message.error('載入用戶信息失敗: ' + (err.response?.data?.msg || err.message));
         } finally {
             setLoading(false);
@@ -107,7 +107,7 @@ const KillHistory = () => {
             });
             setBosses(res.data);
         } catch (err) {
-            console.error('Fetch bosses error:', err);
+            //console.error('Fetch bosses error:', err);
             message.error('載入首領列表失敗');
         }
     };
@@ -136,7 +136,7 @@ const KillHistory = () => {
                 : [];
             setSelectedKill(detail);
         } catch (err) {
-            console.error('Fetch kill detail error:', err);
+            //console.error('Fetch kill detail error:', err);
             message.error(`載入詳情失敗: ${err.response?.data?.msg || err.message}`);
         } finally {
             setModalLoading(false);
@@ -151,11 +151,11 @@ const KillHistory = () => {
 
             const activeApplications = res.data.filter(app => {
                 if (!app) {
-                    console.warn('Invalid application entry:', app);
+                    //console.warn('Invalid application entry:', app);
                     return false;
                 }
                 if (!app.item_id) {
-                    console.warn('Missing item_id in application:', app);
+                    //console.warn('Missing item_id in application:', app);
                     return false;
                 }
                 const isActive = app.status === 'pending' || app.status === 'approved';
@@ -163,11 +163,11 @@ const KillHistory = () => {
             });
 
             if (activeApplications.length === 0) {
-                console.warn('No active applications after filtering. Raw data:', res.data);
+                //console.warn('No active applications after filtering. Raw data:', res.data);
             }
             setUserApplications(activeApplications);
         } catch (err) {
-            console.error('Fetch user applications error:', err.response?.data || err.message);
+            //console.error('Fetch user applications error:', err.response?.data || err.message);
             message.warning('無法載入申請記錄，申請中標示可能不準確');
             setUserApplications([]);
         }
@@ -193,7 +193,7 @@ const KillHistory = () => {
             });
 
             if (!res.data.data || res.data.data.length === 0) {
-                console.warn('No boss kills data returned from API.');
+                
                 setHistory([]);
                 setPagination({ current: page, pageSize, total: 0 });
                 setLoading(false);
@@ -202,9 +202,9 @@ const KillHistory = () => {
 
             res.data.data.forEach(record => {
                 if (!record.bossId) {
-                    console.warn(`Missing bossId in record ${record._id}`);
+                    //console.warn(`Missing bossId in record ${record._id}`);
                 } else if (!record.bossId.name) {
-                    console.warn(`Missing bossId.name in record ${record._id}`);
+                    //console.warn(`Missing bossId.name in record ${record._id}`);
                 }
             });
 
@@ -319,7 +319,7 @@ const KillHistory = () => {
             setSelectedRowKeys([]);
             fetchHistory(pagination.current, pagination.pageSize);
         } catch (err) {
-            console.error('Batch delete error:', err);
+            //console.error('Batch delete error:', err);
             message.error(`批量刪除失敗: ${err.response?.data?.msg || err.message}`);
         } finally {
             setLoading(false);
@@ -342,7 +342,7 @@ const KillHistory = () => {
             setSelectedRowKeys([]);
             fetchHistory(pagination.current, pagination.pageSize);
         } catch (err) {
-            console.error('Batch expire error:', err);
+            //console.error('Batch expire error:', err);
             message.error(`批量設為已過期失敗: ${err.response?.data?.msg || err.message}`);
         } finally {
             setLoading(false);
@@ -389,7 +389,7 @@ const KillHistory = () => {
 
             message.success('擊殺記錄已導出為 CSV');
         } catch (err) {
-            console.error('Export kill history error:', err);
+            //console.error('Export kill history error:', err);
             message.error('導出擊殺記錄失敗');
         }
     };
@@ -443,7 +443,7 @@ const KillHistory = () => {
             await fetchUserApplications();
             fetchHistory(pagination.current, pagination.pageSize);
         } catch (err) {
-            console.error('Quick apply error:', err.response?.data || err);
+            //console.error('Quick apply error:', err.response?.data || err);
             message.error(`申請失敗: ${err.response?.data?.msg || err.message}`);
         } finally {
             setApplying(false);
@@ -490,7 +490,7 @@ const KillHistory = () => {
             message.success('擊殺記錄刪除成功');
             fetchHistory(pagination.current, pagination.pageSize);
         } catch (err) {
-            console.error('Delete boss kill error:', err);
+            //console.error('Delete boss kill error:', err);
             message.error(`刪除擊殺記錄失敗: ${err.response?.data?.msg || err.message}`);
         }
     };
@@ -512,7 +512,7 @@ const KillHistory = () => {
             message.success(res.data.msg || '物品狀態已設為已過期，可發起競標！');
             fetchHistory(pagination.current, pagination.pageSize);
         } catch (err) {
-            console.error('Set item expired error:', err);
+            //console.error('Set item expired error:', err);
             message.error(`設置物品狀態失敗: ${err.response?.data?.msg || err.message}`);
         } finally {
             setLoading(false);
@@ -661,7 +661,7 @@ const KillHistory = () => {
                                     objectFit: 'cover',
                                 }}
                                 onError={(e) => {
-                                    console.error(`Image load error for ${firstScreenshot}:`, e);
+                                    //console.error(`Image load error for ${firstScreenshot}:`, e);
                                     message.warning('截圖加載失敗，使用占位圖');
                                     e.target.src = 'wp1.jpg';
                                 }}

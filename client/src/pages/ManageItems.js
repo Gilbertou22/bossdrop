@@ -62,7 +62,7 @@ const ManageItems = () => {
     }, [filters, sort]);
 
     useEffect(() => {
-        console.log('Current pageSize:', pageSize);
+        //console.log('Current pageSize:', pageSize);
     }, [pageSize]);
 
     const fetchItemLevels = async () => {
@@ -118,7 +118,7 @@ const ManageItems = () => {
                 }
             }
 
-            console.log('After fetchItems:', { filteredItems: newItems, currentPage, pageSize: validPageSize });
+            //console.log('After fetchItems:', { filteredItems: newItems, currentPage, pageSize: validPageSize });
         } catch (err) {
             console.error('Fetch items error:', err);
             message.error(err.response?.data?.msg || '載入物品失敗');
@@ -493,7 +493,7 @@ const ManageItems = () => {
                                         const newPageSize = Number(size) || 10;
                                         setCurrentPage(1);
                                         setPageSize(newPageSize);
-                                        console.log('Updated pageSize in onShowSizeChange:', newPageSize);
+                                        //console.log('Updated pageSize in onShowSizeChange:', newPageSize);
                                     }}
                                     style={{ marginTop: '16px', textAlign: 'right' }}
                                     showSizeChanger

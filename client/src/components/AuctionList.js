@@ -73,8 +73,8 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
       });
       setUserDiamonds(res.data.diamonds || 0);
       setCharacterName(res.data.character_name);
-      setLocalUserRole(res.data.role || 'user');
-      logger.info('Fetched user info in AuctionList', { userId: res.data.id, character_name: res.data.character_name, role: res.data.role });
+      setLocalUserRole(res.data.roles && res.data.roles.includes('admin') ? 'admin' : 'user');
+      logger.info('Fetched user info in AuctionList', { userId: res.data.id, character_name: res.data.character_name, roles: res.data.roles });
     } catch (err) {
       logger.error('Fetch user info error in AuctionList', { error: err.message, stack: err.stack });
       setErrorMessage('無法獲取用戶信息，請重新登錄');
@@ -486,7 +486,7 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
                 ? '已結束'
                 : `${Math.floor(moment.duration(moment(auction.endTime).diff(moment())).asHours())}小時${moment.duration(moment(auction.endTime).diff(moment())).minutes()}分`
               : '無截止時間';
-            const isItemHolder = auction.itemHolder === characterName;
+            const isItemHolderOrWinner = auction.itemHolder === characterName || (auction.highestBidder && auction.highestBidder._id === userId);
             const auctionType = auction.auctionType || 'open';
             const restrictionTags = getRestrictionTags(auction.restrictions || {});
 
@@ -504,7 +504,7 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
                 cover={
                   <div style={{ position: 'relative', width: '100%', paddingTop: '66.67%' }}>
                     <Image
-                      src={auction.imageUrl || '/wp.jpg'} // 如果 imageUrl 不存在，使用預設圖片
+                      src={auction.imageUrl || '/wp.jpg'}
                       alt={auction.itemName}
                       style={{
                         position: 'absolute',
@@ -516,7 +516,7 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
                       }}
                       onError={(e) => {
                         logger.error('Image load error, using default image', { imageUrl: auction.imageUrl, error: e.message });
-                        e.target.src = '/wp.jpg'; // 加載失敗時使用預設圖片
+                        e.target.src = '/wp.jpg';
                       }}
                     />
                     {auction.status === 'active' && (
@@ -562,14 +562,11 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
                 }
                 actions={
                   isWonTab ? [
-                    localUserRole === 'admin' && auction.status === 'pending' && (
+                    shouldShowSettleButton && (
                       <Popconfirm
                         key="settle"
                         title="確認核實此拍賣？"
-                        onConfirm={() => {
-                          logger.info('Settle button clicked', { auctionId: auction._id, userId });
-                          handleSettleAuction(auction._id);
-                        }}
+                        onConfirm={() => handleSettleAuction(auction._id)}
                         okText="是"
                         cancelText="否"
                       >
@@ -583,7 +580,7 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
                         </Tooltip>
                       </Popconfirm>
                     ),
-                    isItemHolder && auction.status === 'completed' && (
+                    isItemHolderOrWinner && auction.status === 'completed' && (
                       <Popconfirm
                         key="complete"
                         title="確認交易已完成？"
@@ -600,6 +597,17 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
                           />
                         </Tooltip>
                       </Popconfirm>
+                    ),
+                    auction.highestBidder && auction.highestBidder._id === userId && auction.status === 'pending' && (
+                      <Tooltip key="waiting" title="等待管理員核實">
+                        <Button
+                          type="default"
+                          shape="circle"
+                          icon={<InfoCircleOutlined />}
+                          size="small"
+                          disabled
+                        />
+                      </Tooltip>
                     ),
                   ].filter(Boolean) : [
                     auctionType !== 'lottery' ? (
@@ -732,8 +740,8 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
                             <InfoCircleOutlined style={{ color: '#000', fontSize: '16px' }} />
                             {getStatusTag(auction.status)}
                           </div>
-                          {/* 移除 Ant Design 的 Alert 提示 */}
-                          {isItemHolder && auction.status === 'pending' && localUserRole !== 'admin' && (
+                          {/* 提示信息 */}
+                          {isItemHolderOrWinner && auction.status === 'pending' && localUserRole !== 'admin' && (
                             <div style={{ marginTop: '8px', color: '#1890ff' }}>
                               <p>等待管理員核實</p>
                               <p>此拍賣正在等待管理員核實交易，核實完成後您可以回報交易完成。</p>
@@ -754,7 +762,7 @@ const AuctionList = ({ auctions, fetchAuctions, userRole, userId, handleSettleAu
                           </div>
                           {/* 物品持有人 */}
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                              <UserOutlined style={{ color: '#000', fontSize: '16px' }} />
+                            <UserOutlined style={{ color: '#000', fontSize: '16px' }} />
                             <span style={{ fontSize: '16px' }}>{auction.itemHolder || auction.createdBy.character_name}</span>
                           </div>
                           {/* 分隔線 */}

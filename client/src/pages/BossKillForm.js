@@ -75,7 +75,7 @@ const BossKillForm = () => {
                 headers: { 'x-auth-token': token },
             });
             setUserRoles(res.data.roles || []);
-            console.log('Fetched user roles:', res.data.roles);
+            //console.log('Fetched user roles:', res.data.roles);
         } catch (err) {
             message.error('無法載入用戶信息，請重新登入');
             window.location.href = '/login';

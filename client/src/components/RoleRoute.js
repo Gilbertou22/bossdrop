@@ -30,7 +30,7 @@ const RoleRoute = ({ children, allowedRoles, mustChangePasswordRedirect }) => {
 
     // 使用 user.roles 檢查權限
     const hasPermission = user.roles && allowedRoles.some(role => user.roles.includes(role));
-    console.log('RoleRoute check:', { userRoles: user.roles, allowedRoles, hasPermission });
+   
 
     if (!hasPermission) {
         return <Navigate to="/403" replace />;

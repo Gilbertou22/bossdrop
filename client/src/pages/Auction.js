@@ -1,4 +1,3 @@
-// pages/Auction.js
 import React, { useState, useEffect, useCallback } from 'react';
 import { Tabs, Spin, message, Alert, Select, Button, Card } from 'antd';
 import AuctionList from '../components/AuctionList';
@@ -49,9 +48,9 @@ const Auction = () => {
                 headers: { 'x-auth-token': token },
             });
             setUserDiamonds(res.data.diamonds || 0);
-            setUserRole(res.data.role || 'user');
+            setUserRole(res.data.roles && res.data.roles.includes('admin') ? 'admin' : 'user'); // 使用 roles 陣列
             setUserId(res.data.id);
-            logger.info('Fetched user info in Auction', { userId: res.data.id, role: res.data.role });
+            logger.info('Fetched user info in Auction', { userId: res.data.id, roles: res.data.roles });
         } catch (err) {
             logger.error('Fetch user info error in Auction', { error: err.message, stack: err.stack });
             message.error('無法獲取用戶信息，請重新登錄');
@@ -167,6 +166,7 @@ const Auction = () => {
 
     const handleSettleAuction = async (auctionId) => {
         try {
+            logger.info('Sending settle request', { auctionId, userId, token });
             const res = await axios.put(`${BASE_URL}/api/auctions/${auctionId}/settle`, {}, {
                 headers: { 'x-auth-token': token },
             });
@@ -174,7 +174,14 @@ const Auction = () => {
             fetchAuctions();
             fetchWonAuctions();
         } catch (err) {
-            logger.error('Settle auction error', { auctionId, userId, error: err.response?.data || err.message, stack: err.stack });
+            logger.error('Settle auction error', {
+                auctionId,
+                userId,
+                token: token ? 'present' : 'missing',
+                error: err.response?.data || err.message,
+                status: err.response?.status,
+                stack: err.stack,
+            });
             message.error(`核實失敗: ${err.response?.data?.msg || err.message}`);
         }
     };

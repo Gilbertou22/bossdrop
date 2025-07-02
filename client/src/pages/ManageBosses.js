@@ -59,7 +59,7 @@ const ManageBosses = () => {
     }, [filters, sort]);
 
     useEffect(() => {
-        console.log('Current pageSize:', pageSize);
+        //console.log('Current pageSize:', pageSize);
     }, [pageSize]);
 
     const fetchBosses = async () => {
@@ -106,7 +106,7 @@ const ManageBosses = () => {
                 }
             }
 
-            console.log('After fetchBosses:', { filteredBosses: newBosses, currentPage, pageSize: validPageSize });
+            //console.log('After fetchBosses:', { filteredBosses: newBosses, currentPage, pageSize: validPageSize });
         } catch (err) {
             message.error(err.response?.data?.msg || '載入首領失敗');
             setBosses([]);
@@ -420,7 +420,7 @@ const ManageBosses = () => {
                                         const newPageSize = Number(size) || 10;
                                         setCurrentPage(1);
                                         setPageSize(newPageSize);
-                                        console.log('Updated pageSize in onShowSizeChange:', newPageSize);
+                                        //console.log('Updated pageSize in onShowSizeChange:', newPageSize);
                                     }}
                                     style={{ marginTop: '16px', textAlign: 'right' }}
                                     showSizeChanger

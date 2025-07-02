@@ -121,14 +121,24 @@ router.get('/user', auth, async (req, res) => {
 });
 
 router.post('/login', async (req, res) => {
-    const { character_name, password } = req.body;
+    const { character_name, password, captcha_input } = req.body;
 
     try {
+        // 驗證必填字段
         if (!character_name || !password) {
             return res.status(400).json({
                 code: 400,
                 msg: '缺少必填字段',
                 detail: '請提供 character_name 和 password',
+            });
+        }
+
+        // CAPTCHA 已在前端驗證，這裡僅記錄
+        if (!captcha_input) {
+            return res.status(400).json({
+                code: 400,
+                msg: '驗證碼缺失',
+                detail: '請輸入驗證碼',
             });
         }
 
